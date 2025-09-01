@@ -1,31 +1,19 @@
+/* src/App.css - Futuristic Theme */
 .App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+  background: transparent;
+  min-height: 100vh;
+  color: var(--text-primary);
 }
 
 .App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  background: var(--surface-dark);
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
 }
 
-.App-link {
-  color: #61dafb;
+.App-logo {
+  filter: brightness(0) invert(1);
+  animation: App-logo-spin infinite 20s linear;
 }
 
 @keyframes App-logo-spin {

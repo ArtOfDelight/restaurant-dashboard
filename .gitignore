@@ -21,3 +21,24 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# Dependencies
+node_modules/
+
+# Production build
+build/
+dist/
+
+# Environment variables
+.env.local
+.env.production.local
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
