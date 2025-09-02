@@ -53,8 +53,123 @@ try {
   );
 }
 
+// Try to import HighRatedDashboard, fall back to placeholder if not found
+let HighRatedDashboard;
+try {
+  HighRatedDashboard = require('./HighRatedDashboard').default;
+} catch (error) {
+  HighRatedDashboard = () => (
+    <div style={{
+      background: 'var(--surface-dark)',
+      border: '1px solid var(--border-light)',
+      padding: '50px',
+      borderRadius: '20px',
+      textAlign: 'center',
+      margin: '20px',
+      backdropFilter: 'blur(15px)',
+      boxShadow: 'var(--shadow-dark)'
+    }}>
+      <h1 style={{
+        color: 'var(--text-primary)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        textTransform: 'uppercase',
+        letterSpacing: '2px',
+        marginBottom: '20px'
+      }}>
+        📊 OUTLET DASHBOARD
+      </h1>
+      <p style={{
+        color: 'var(--text-secondary)',
+        fontSize: '1.1rem',
+        marginBottom: '15px',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+      }}>
+        ⚠️ HIGHRATEDDASHBOARD COMPONENT NOT FOUND
+      </p>
+      <p style={{
+        color: 'var(--text-muted)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        fontSize: '0.9rem'
+      }}>
+        PLEASE CREATE: <code style={{
+          background: 'var(--surface-light)',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          color: 'var(--text-primary)',
+          border: '1px solid var(--border-light)'
+        }}>frontend/src/components/HighRatedDashboard.js</code>
+      </p>
+    </div>
+  );
+}
+
+// Try to import EmployeeDashboard, fall back to placeholder if not found
+let EmployeeDashboard;
+try {
+  EmployeeDashboard = require('./EmployeeDashboard').default;
+} catch (error) {
+  EmployeeDashboard = () => (
+    <div style={{
+      background: 'var(--surface-dark)',
+      border: '1px solid var(--border-light)',
+      padding: '50px',
+      borderRadius: '20px',
+      textAlign: 'center',
+      margin: '20px',
+      backdropFilter: 'blur(15px)',
+      boxShadow: 'var(--shadow-dark)'
+    }}>
+      <h1 style={{
+        color: 'var(--text-primary)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        textTransform: 'uppercase',
+        letterSpacing: '2px',
+        marginBottom: '20px'
+      }}>
+        👥 EMPLOYEE DASHBOARD
+      </h1>
+      <p style={{
+        color: 'var(--text-secondary)',
+        fontSize: '1.1rem',
+        marginBottom: '15px',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+      }}>
+        ⚠️ EMPLOYEEDASHBOARD COMPONENT NOT FOUND
+      </p>
+      <p style={{
+        color: 'var(--text-muted)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        fontSize: '0.9rem'
+      }}>
+        PLEASE CREATE: <code style={{
+          background: 'var(--surface-light)',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          color: 'var(--text-primary)',
+          border: '1px solid var(--border-light)'
+        }}>frontend/src/components/EmployeeDashboard.js</code>
+      </p>
+    </div>
+  );
+}
+
 function App() {
   const [currentView, setCurrentView] = useState('dashboard');
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'outlet':
+        return <HighRatedDashboard />;
+      case 'employee':
+        return <EmployeeDashboard />;
+      case 'checklist':
+        return <ChecklistDashboard />;
+      default:
+        return <Dashboard />;
+    }
+  };
 
   return (
     <div style={{
@@ -179,6 +294,48 @@ function App() {
              OUTLET DASHBOARD
           </button>
           <button
+            onClick={() => setCurrentView('employee')}
+            style={{
+              background: currentView === 'employee' 
+                ? 'var(--border-light)' 
+                : 'var(--surface-light)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-light)',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.85rem',
+              transition: 'var(--transition)',
+              transform: currentView === 'employee' ? 'translateY(-3px)' : 'translateY(0)',
+              boxShadow: currentView === 'employee' 
+                ? 'var(--shadow-glow)' 
+                : 'none',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              backdropFilter: 'blur(10px)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseEnter={(e) => {
+              if (currentView !== 'employee') {
+                e.target.style.background = 'var(--border-light)';
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = 'var(--shadow-glow)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentView !== 'employee') {
+                e.target.style.background = 'var(--surface-light)';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = 'none';
+              }
+            }}
+          >
+             EMPLOYEE DASHBOARD
+          </button>
+          <button
             onClick={() => setCurrentView('checklist')}
             style={{
               background: currentView === 'checklist' 
@@ -228,58 +385,8 @@ function App() {
         padding: '0 20px',
         paddingBottom: '40px'
       }}>
-        {currentView === 'dashboard' ? <Dashboard /> : currentView === 'outlet' ? <HighRatedDashboard /> : <ChecklistDashboard />}
+        {renderCurrentView()}
       </div>
-    </div>
-  );
-}
-
-// Assuming HighRatedDashboard is imported or defined elsewhere
-let HighRatedDashboard;
-try {
-  HighRatedDashboard = require('./HighRatedDashboard').default;
-} catch (error) {
-  HighRatedDashboard = () => (
-    <div style={{
-      background: 'var(--surface-dark)',
-      border: '1px solid var(--border-light)',
-      padding: '50px',
-      borderRadius: '20px',
-      textAlign: 'center',
-      margin: '20px',
-      backdropFilter: 'blur(15px)',
-      boxShadow: 'var(--shadow-dark)'
-    }}>
-      <h1 style={{
-        color: 'var(--text-primary)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        textTransform: 'uppercase',
-        letterSpacing: '2px',
-        marginBottom: '20px'
-      }}>
-        📊 OUTLET DASHBOARD
-      </h1>
-      <p style={{
-        color: 'var(--text-secondary)',
-        fontSize: '1.1rem',
-        marginBottom: '15px',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-      }}>
-        ⚠️ HIGHRATEDDASHBOARD COMPONENT NOT FOUND
-      </p>
-      <p style={{
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        fontSize: '0.9rem'
-      }}>
-        PLEASE CREATE: <code style={{
-          background: 'var(--surface-light)',
-          padding: '4px 8px',
-          borderRadius: '6px',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-light)'
-        }}>frontend/src/components/HighRatedDashboard.js</code>
-      </p>
     </div>
   );
 }
