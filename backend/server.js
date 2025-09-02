@@ -1628,6 +1628,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
 // Add this to your existing backend code (server.js)
 
 // Employee Dashboard data endpoint
+// Employee Dashboard data endpoint with intelligent mapping
 app.get('/api/employee-data', async (req, res) => {
   try {
     const period = req.query.period || '7 Days';
@@ -1664,12 +1665,13 @@ app.get('/api/employee-data', async (req, res) => {
 
     console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
 
-    // Process employee data
-    const processedData = processEmployeeSheetData(sheetResponse.data.values, period);
+    // Process employee data with intelligent mapping
+    const processedData = await processEmployeeSheetData(sheetResponse.data.values, period);
 
     console.log(`✅ Successfully processed Employee data for ${period}:`, {
       employees: processedData.length,
       sample: processedData[0] || {},
+      usingAI: !!GEMINI_API_KEY
     });
 
     res.set('Content-Type', 'application/json');
@@ -1681,6 +1683,7 @@ app.get('/api/employee-data', async (req, res) => {
         sheetName: EMPLOYEE_SHEET_NAME,
         period: period,
         rowCount: sheetResponse.data.values ? sheetResponse.data.values.length : 0,
+        intelligentMapping: !!GEMINI_API_KEY
       },
       timestamp: new Date().toISOString(),
     });
@@ -1695,8 +1698,106 @@ app.get('/api/employee-data', async (req, res) => {
   }
 });
 
+
+// === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
+async function mapEmployeeDataWithGemini(headers, sampleRows) {
+  if (!GEMINI_API_KEY) {
+    console.warn('Gemini API key not configured for employee mapping');
+    return null;
+  }
+
+  try {
+    const prompt = `You are analyzing an employee performance dashboard spreadsheet. Identify the correct column mapping.
+
+Expected columns in the data:
+- Employee Name (text)
+- High Rated orders for 7 days (number)
+- High Rated orders for 28 days (number)
+- Low Rated orders for 7 days (number)
+- Low Rated orders for 28 days (number)
+- Total Orders for 7 days (number)
+- Total Orders for 28 days (number)
+- High Rated % for 7 days (percentage)
+- High Rated % for 28 days (percentage)
+- Low Rated % for 7 days (percentage)
+- Low Rated % for 28 days (percentage)
+- IGCC for 7 days (number)
+- IGCC for 28 days (number)
+
+Headers found in spreadsheet:
+${JSON.stringify(headers)}
+
+Sample data rows:
+${JSON.stringify(sampleRows)}
+
+Analyze the headers and sample data to determine the correct column index for each field.
+Consider data types, patterns, and logical relationships between columns.
+
+Return ONLY a JSON object mapping field names to column indices, like:
+{
+  "employee_name": 0,
+  "high_rated_7_days": 1,
+  "high_rated_28_days": 2,
+  "low_rated_7_days": 3,
+  "low_rated_28_days": 4,
+  "total_orders_7_days": 5,
+  "total_orders_28_days": 6,
+  "high_rated_percent_7_days": 7,
+  "high_rated_percent_28_days": 8,
+  "low_rated_percent_7_days": 9,
+  "low_rated_percent_28_days": 10,
+  "igcc_7_days": 11,
+  "igcc_28_days": 12
+}`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 500,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      console.log('Gemini column mapping response received');
+      
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const mapping = JSON.parse(jsonMatch[0]);
+          console.log('✅ Employee column mapping generated:', mapping);
+          return mapping;
+        }
+      } catch (parseError) {
+        console.error('Failed to parse Gemini mapping response:', parseError);
+      }
+    }
+
+  } catch (error) {
+    console.error('Gemini employee mapping error:', error.message);
+  }
+
+  return null;
+}
 // Employee data processing function
-function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
+// Employee data processing function with intelligent mapping
+async function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
   console.log(`Processing Employee data for period: ${requestedPeriod}`);
   
   if (!rawData || rawData.length === 0) {
@@ -1723,17 +1824,48 @@ function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
   const headers = rawData[headerRowIndex];
   console.log('Employee headers:', headers);
 
+  // Get sample data rows for intelligent mapping
+  const sampleRows = [];
+  for (let i = headerRowIndex + 1; i < Math.min(headerRowIndex + 4, rawData.length); i++) {
+    if (rawData[i] && rawData[i][0]) {
+      sampleRows.push(rawData[i]);
+    }
+  }
+
+  // Try to get intelligent mapping from Gemini
+  let columnMapping = await mapEmployeeDataWithGemini(headers, sampleRows);
+  
+  // Fallback to default mapping if Gemini fails
+  if (!columnMapping) {
+    console.log('Using default column mapping');
+    columnMapping = {
+      employee_name: 0,
+      high_rated_7_days: 1,
+      high_rated_28_days: 2,
+      low_rated_7_days: 3,
+      low_rated_28_days: 4,
+      total_orders_7_days: 5,
+      total_orders_28_days: 6,
+      high_rated_percent_7_days: 7,
+      high_rated_percent_28_days: 8,
+      low_rated_percent_7_days: 9,
+      low_rated_percent_28_days: 10,
+      igcc_7_days: 11,
+      igcc_28_days: 12
+    };
+  }
+
   const processedData = [];
   
   // Process each data row after headers
   for (let i = headerRowIndex + 1; i < rawData.length; i++) {
     const row = rawData[i];
     
-    if (!row || !row[0] || row[0].toString().trim() === '') {
+    if (!row || !row[columnMapping.employee_name] || row[columnMapping.employee_name].toString().trim() === '') {
       continue; // Skip empty rows
     }
     
-    const employeeName = getCellValue(row, 0, '').trim();
+    const employeeName = getCellValue(row, columnMapping.employee_name, '').trim();
     
     if (!employeeName) {
       continue;
@@ -1741,21 +1873,21 @@ function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
     
     console.log(`Processing employee: ${employeeName} at row ${i + 1}`);
     
-    // Map data according to the column structure from the PDF
+    // Map data using the intelligent column mapping
     const employeeData = {
       employee_name: employeeName,
-      high_rated_7_days: parseEmployeeValue(row[1]),
-      high_rated_28_days: parseEmployeeValue(row[2]),
-      low_rated_7_days: parseEmployeeValue(row[3]),
-      low_rated_28_days: parseEmployeeValue(row[4]),
-      total_orders_7_days: parseEmployeeValue(row[5]),
-      total_orders_28_days: parseEmployeeValue(row[6]),
-      high_rated_percent_7_days: parseEmployeeValue(row[7]),
-      high_rated_percent_28_days: parseEmployeeValue(row[8]),
-      low_rated_percent_7_days: parseEmployeeValue(row[9]),
-      low_rated_percent_28_days: parseEmployeeValue(row[10]),
-      igcc_7_days: parseEmployeeValue(row[11]),
-      igcc_28_days: parseEmployeeValue(row[12])
+      high_rated_7_days: parseEmployeeValue(row[columnMapping.high_rated_7_days]),
+      high_rated_28_days: parseEmployeeValue(row[columnMapping.high_rated_28_days]),
+      low_rated_7_days: parseEmployeeValue(row[columnMapping.low_rated_7_days]),
+      low_rated_28_days: parseEmployeeValue(row[columnMapping.low_rated_28_days]),
+      total_orders_7_days: parseEmployeeValue(row[columnMapping.total_orders_7_days]),
+      total_orders_28_days: parseEmployeeValue(row[columnMapping.total_orders_28_days]),
+      high_rated_percent_7_days: parseEmployeeValue(row[columnMapping.high_rated_percent_7_days]),
+      high_rated_percent_28_days: parseEmployeeValue(row[columnMapping.high_rated_percent_28_days]),
+      low_rated_percent_7_days: parseEmployeeValue(row[columnMapping.low_rated_percent_7_days]),
+      low_rated_percent_28_days: parseEmployeeValue(row[columnMapping.low_rated_percent_28_days]),
+      igcc_7_days: parseEmployeeValue(row[columnMapping.igcc_7_days]),
+      igcc_28_days: parseEmployeeValue(row[columnMapping.igcc_28_days])
     };
     
     // Calculate additional metrics
@@ -1780,7 +1912,7 @@ function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
     processedData.push(employeeData);
   }
   
-  console.log(`✅ Processed ${processedData.length} employees for ${requestedPeriod}`);
+  console.log(`✅ Processed ${processedData.length} employees for ${requestedPeriod} using ${columnMapping ? 'AI-mapped' : 'default'} columns`);
   
   return processedData;
 }
