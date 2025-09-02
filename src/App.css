@@ -1,0 +1,26 @@
+/* src/App.css - Futuristic Theme */
+.App {
+  background: transparent;
+  min-height: 100vh;
+  color: var(--text-primary);
+}
+
+.App-header {
+  background: var(--surface-dark);
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+}
+
+.App-logo {
+  filter: brightness(0) invert(1);
+  animation: App-logo-spin infinite 20s linear;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

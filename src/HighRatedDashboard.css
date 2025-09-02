@@ -1,0 +1,304 @@
+/* HighRatedDashboard.css - Futuristic Theme */
+
+/* Custom Properties for High Rated Dashboard */
+:root {
+  --highrated-primary: #ffffff;
+  --highrated-secondary: #cccccc;
+  --highrated-muted: #888888;
+  --highrated-accent: #666666;
+}
+
+.highrated-dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+/* Header */
+.highrated-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  background: var(--surface-dark);
+  padding: 30px 35px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  position: relative;
+  overflow: hidden;
+}
+
+.highrated-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-gradient);
+  opacity: 0.8;
+}
+
+.highrated-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.period-switch {
+  display: flex;
+  gap: 10px;
+}
+
+.period-switch button {
+  background: var(--surface-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 12px 24px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.period-switch button.active {
+  background: var(--border-light);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Stats */
+.highrated-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 25px;
+  margin-bottom: 35px;
+}
+
+.stat-card {
+  background: var(--surface-dark);
+  border: 1px solid var(--border-light);
+  padding: 30px;
+  border-radius: 20px;
+  text-align: center;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-dark);
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--primary-gradient);
+  opacity: 0.5;
+}
+
+.stat-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-glow);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.stat-number {
+  font-size: 2.8rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Filters */
+.highrated-filters {
+  background: var(--surface-dark);
+  padding: 30px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  margin-bottom: 35px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 25px;
+  position: relative;
+  overflow: hidden;
+}
+
+.highrated-filters::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-gradient);
+  opacity: 0.6;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-group label {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.filter-group select {
+  padding: 14px 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  font-size: 15px;
+  transition: var(--transition);
+  background: var(--surface-light);
+  color: var(--text-primary);
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.filter-group select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Graphs Section */
+.graphs-section {
+  background: var(--surface-dark);
+  padding: 30px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  margin-bottom: 35px;
+  position: relative;
+  overflow: hidden;
+}
+
+.graphs-section h4 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 25px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Bottom Outlets */
+.bottom-outlets {
+  background: var(--surface-dark);
+  padding: 30px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  margin-bottom: 35px;
+  position: relative;
+  overflow: hidden;
+}
+
+.bottom-outlets h4 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 25px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.outlet-card {
+  background: rgba(60, 60, 60, 0.3);
+  border-radius: 15px;
+  padding: 22px;
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--text-primary);
+  transition: var(--transition);
+  backdrop-filter: blur(10px);
+  margin-bottom: 20px;
+}
+
+.outlet-card h5 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 15px;
+  color: var(--text-primary);
+}
+
+.outlet-card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.outlet-card li {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Outlets List */
+.outlets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+/* Submission Card (adapted for outlets) */
+.submission-card {
+  background: var(--surface-dark);
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  position: relative;
+}
+
+/* Reuse other styles from the provided CSS, adapting as needed */
