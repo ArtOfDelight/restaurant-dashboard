@@ -1625,6 +1625,224 @@ app.get('/api/debug-high-rated', async (req, res) => {
   }
 });
 
+// Add this to your existing backend code (server.js)
+
+// Employee Dashboard data endpoint
+app.get('/api/employee-data', async (req, res) => {
+  try {
+    const period = req.query.period || '7 Days';
+    console.log(`👥 Employee data requested for period: ${period}`);
+
+    if (!['7 Days', '28 Days'].includes(period)) {
+      res.set('Content-Type', 'application/json');
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid period. Must be one of: 7 Days, 28 Days',
+      });
+    }
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        res.set('Content-Type', 'application/json');
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to initialize Google Sheets',
+        });
+      }
+    }
+
+    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
+
+    console.log(`Fetching Employee data for ${period} from: ${EMPLOYEE_SPREADSHEET_ID}`);
+
+    const sheetResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      range: `${EMPLOYEE_SHEET_NAME}!A:Z`,
+    });
+
+    console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
+
+    // Process employee data
+    const processedData = processEmployeeSheetData(sheetResponse.data.values, period);
+
+    console.log(`✅ Successfully processed Employee data for ${period}:`, {
+      employees: processedData.length,
+      sample: processedData[0] || {},
+    });
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: processedData,
+      metadata: {
+        spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+        sheetName: EMPLOYEE_SHEET_NAME,
+        period: period,
+        rowCount: sheetResponse.data.values ? sheetResponse.data.values.length : 0,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching Employee data:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details',
+    });
+  }
+});
+
+// Employee data processing function
+function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
+  console.log(`Processing Employee data for period: ${requestedPeriod}`);
+  
+  if (!rawData || rawData.length === 0) {
+    console.log('No data found in Employee sheet');
+    return [];
+  }
+
+  // Find the header row
+  let headerRowIndex = -1;
+  for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+    const row = rawData[i];
+    if (row && row[0] && row[0].toString().toLowerCase().includes('employee')) {
+      headerRowIndex = i;
+      console.log(`Found header row at index ${i}`);
+      break;
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    console.log('Could not find header row in Employee sheet');
+    return [];
+  }
+
+  const headers = rawData[headerRowIndex];
+  console.log('Employee headers:', headers);
+
+  const processedData = [];
+  
+  // Process each data row after headers
+  for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    
+    if (!row || !row[0] || row[0].toString().trim() === '') {
+      continue; // Skip empty rows
+    }
+    
+    const employeeName = getCellValue(row, 0, '').trim();
+    
+    if (!employeeName) {
+      continue;
+    }
+    
+    console.log(`Processing employee: ${employeeName} at row ${i + 1}`);
+    
+    // Map data according to the column structure from the PDF
+    const employeeData = {
+      employee_name: employeeName,
+      high_rated_7_days: parseEmployeeValue(row[1]),
+      high_rated_28_days: parseEmployeeValue(row[2]),
+      low_rated_7_days: parseEmployeeValue(row[3]),
+      low_rated_28_days: parseEmployeeValue(row[4]),
+      total_orders_7_days: parseEmployeeValue(row[5]),
+      total_orders_28_days: parseEmployeeValue(row[6]),
+      high_rated_percent_7_days: parseEmployeeValue(row[7]),
+      high_rated_percent_28_days: parseEmployeeValue(row[8]),
+      low_rated_percent_7_days: parseEmployeeValue(row[9]),
+      low_rated_percent_28_days: parseEmployeeValue(row[10]),
+      igcc_7_days: parseEmployeeValue(row[11]),
+      igcc_28_days: parseEmployeeValue(row[12])
+    };
+    
+    // Calculate additional metrics
+    const totalOrders = requestedPeriod === '7 Days' ? employeeData.total_orders_7_days : employeeData.total_orders_28_days;
+    const highRated = requestedPeriod === '7 Days' ? employeeData.high_rated_7_days : employeeData.high_rated_28_days;
+    const lowRated = requestedPeriod === '7 Days' ? employeeData.low_rated_7_days : employeeData.low_rated_28_days;
+    const highRatedPercent = requestedPeriod === '7 Days' ? employeeData.high_rated_percent_7_days : employeeData.high_rated_percent_28_days;
+    const lowRatedPercent = requestedPeriod === '7 Days' ? employeeData.low_rated_percent_7_days : employeeData.low_rated_percent_28_days;
+    const igcc = requestedPeriod === '7 Days' ? employeeData.igcc_7_days : employeeData.igcc_28_days;
+
+    // Add current period data for easier access
+    employeeData.current_period = {
+      total_orders: totalOrders,
+      high_rated: highRated,
+      low_rated: lowRated,
+      high_rated_percent: highRatedPercent,
+      low_rated_percent: lowRatedPercent,
+      igcc: igcc,
+      performance_score: totalOrders > 0 ? (highRatedPercent - lowRatedPercent) : 0
+    };
+    
+    processedData.push(employeeData);
+  }
+  
+  console.log(`✅ Processed ${processedData.length} employees for ${requestedPeriod}`);
+  
+  return processedData;
+}
+
+// Helper function to parse employee values
+function parseEmployeeValue(val) {
+  if (!val && val !== 0) return 0;
+  const str = val.toString().trim();
+  
+  // Handle error values
+  if (str === '#DIV/0!' || str === '#N/A' || str === '#VALUE!' || str === '') return 0;
+  
+  // Remove percentage signs and clean the string
+  const cleanStr = str.replace(/%/g, '').replace(/,/g, '').trim();
+  
+  const num = parseFloat(cleanStr);
+  return isNaN(num) ? 0 : num;
+}
+
+// Debug Employee endpoint
+app.get('/api/debug-employee', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
+
+    console.log(`🔍 Debug: Fetching raw Employee data from ${EMPLOYEE_SPREADSHEET_ID}`);
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      range: `${EMPLOYEE_SHEET_NAME}!A1:Z50`,
+    });
+
+    const rawData = response.data.values || [];
+    console.log(`Debug: Retrieved ${rawData.length} rows`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      sheetName: EMPLOYEE_SHEET_NAME,
+      rawData: rawData.slice(0, 20),
+      totalRows: rawData.length,
+      firstRow: rawData[0] || null,
+      headers: rawData.find(row => row && row[0] && row[0].toString().toLowerCase().includes('employee')) || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching debug Employee data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
+      sheetName: 'EmployeeDashboard',
+    });
+  }
+});
+
+
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
