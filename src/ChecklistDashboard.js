@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './ChecklistDashboard.css';
-
+const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
@@ -156,7 +156,7 @@ const ChecklistDashboard = () => {
     };
 
     try {
-      const baseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const baseUrl = API_URL;
       const mainEndpoint = `${baseUrl}/api/checklist-data`;
       const debugEndpoint = `${baseUrl}/api/debug-checklist`;
 
@@ -313,7 +313,7 @@ const ChecklistDashboard = () => {
   const getImageUrl = (imageLink) => {
     if (!imageLink || !imageLink.trim()) return null;
     
-    const baseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+    const baseUrl = API_URL;
     
     if (imageLink.startsWith('/api/image-proxy/')) {
       return `${baseUrl}${imageLink}`;
