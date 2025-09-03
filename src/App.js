@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import Dashboard from './Dashboard';
-import logo from './ggg.png'; // Import the .jpg file - replace 'logo.jpg' with your actual file name
+import logo from './ggg.png';
 
 // Try to import ChecklistDashboard, fall back to placeholder if not found
 let ChecklistDashboard;
 try {
   ChecklistDashboard = require('./ChecklistDashboard').default;
 } catch (error) {
-  // Fallback component if ChecklistDashboard doesn't exist yet
   ChecklistDashboard = () => (
     <div style={{
       background: 'var(--surface-dark)',
@@ -26,7 +25,7 @@ try {
         letterSpacing: '2px',
         marginBottom: '20px'
       }}>
-        📋 CHECKLIST DASHBOARD
+        CHECKLIST DASHBOARD
       </h1>
       <p style={{
         color: 'var(--text-secondary)',
@@ -34,7 +33,7 @@ try {
         marginBottom: '15px',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
-        ⚠️ CHECKLISTDASHBOARD COMPONENT NOT FOUND
+        CHECKLISTDASHBOARD COMPONENT NOT FOUND
       </p>
       <p style={{
         color: 'var(--text-muted)',
@@ -47,7 +46,7 @@ try {
           borderRadius: '6px',
           color: 'var(--text-primary)',
           border: '1px solid var(--border-light)'
-        }}>frontend/src/components/ChecklistDashboard.js</code>
+        }}>ChecklistDashboard.js</code>
       </p>
     </div>
   );
@@ -76,7 +75,7 @@ try {
         letterSpacing: '2px',
         marginBottom: '20px'
       }}>
-        📊 OUTLET DASHBOARD
+        OUTLET DASHBOARD
       </h1>
       <p style={{
         color: 'var(--text-secondary)',
@@ -84,7 +83,7 @@ try {
         marginBottom: '15px',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
-        ⚠️ HIGHRATEDDASHBOARD COMPONENT NOT FOUND
+        HIGHRATEDDASHBOARD COMPONENT NOT FOUND
       </p>
       <p style={{
         color: 'var(--text-muted)',
@@ -97,7 +96,7 @@ try {
           borderRadius: '6px',
           color: 'var(--text-primary)',
           border: '1px solid var(--border-light)'
-        }}>frontend/src/components/HighRatedDashboard.js</code>
+        }}>HighRatedDashboard.js</code>
       </p>
     </div>
   );
@@ -126,7 +125,7 @@ try {
         letterSpacing: '2px',
         marginBottom: '20px'
       }}>
-        👥 EMPLOYEE DASHBOARD
+        EMPLOYEE DASHBOARD
       </h1>
       <p style={{
         color: 'var(--text-secondary)',
@@ -134,7 +133,7 @@ try {
         marginBottom: '15px',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
-        ⚠️ EMPLOYEEDASHBOARD COMPONENT NOT FOUND
+        EMPLOYEEDASHBOARD COMPONENT NOT FOUND
       </p>
       <p style={{
         color: 'var(--text-muted)',
@@ -147,7 +146,57 @@ try {
           borderRadius: '6px',
           color: 'var(--text-primary)',
           border: '1px solid var(--border-light)'
-        }}>frontend/src/components/EmployeeDashboard.js</code>
+        }}>EmployeeDashboard.js</code>
+      </p>
+    </div>
+  );
+}
+
+// Try to import SwiggyDashboard, fall back to placeholder if not found
+let SwiggyDashboard;
+try {
+  SwiggyDashboard = require('./SwiggyDashboard').default;
+} catch (error) {
+  SwiggyDashboard = () => (
+    <div style={{
+      background: 'var(--surface-dark)',
+      border: '1px solid var(--border-light)',
+      padding: '50px',
+      borderRadius: '20px',
+      textAlign: 'center',
+      margin: '20px',
+      backdropFilter: 'blur(15px)',
+      boxShadow: 'var(--shadow-dark)'
+    }}>
+      <h1 style={{
+        color: 'var(--text-primary)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        textTransform: 'uppercase',
+        letterSpacing: '2px',
+        marginBottom: '20px'
+      }}>
+        SWIGGY DASHBOARD
+      </h1>
+      <p style={{
+        color: 'var(--text-secondary)',
+        fontSize: '1.1rem',
+        marginBottom: '15px',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+      }}>
+        SWIGGYDASHBOARD COMPONENT NOT FOUND
+      </p>
+      <p style={{
+        color: 'var(--text-muted)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        fontSize: '0.9rem'
+      }}>
+        PLEASE CREATE: <code style={{
+          background: 'var(--surface-light)',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          color: 'var(--text-primary)',
+          border: '1px solid var(--border-light)'
+        }}>SwiggyDashboard.js</code>
       </p>
     </div>
   );
@@ -160,6 +209,8 @@ function App() {
     switch (currentView) {
       case 'dashboard':
         return <Dashboard />;
+      case 'swiggy':
+        return <SwiggyDashboard />;
       case 'outlet':
         return <HighRatedDashboard />;
       case 'employee':
@@ -169,6 +220,56 @@ function App() {
       default:
         return <Dashboard />;
     }
+  };
+
+  const createNavButton = (viewName, label, isActive) => {
+    const buttonStyle = {
+      background: isActive ? 'var(--border-light)' : 'var(--surface-light)',
+      color: 'var(--text-primary)',
+      border: '1px solid var(--border-light)',
+      padding: '8px 16px',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontWeight: '600',
+      fontSize: '0.85rem',
+      transition: 'var(--transition)',
+      transform: isActive ? 'translateY(-3px)' : 'translateY(0)',
+      boxShadow: isActive ? 'var(--shadow-glow)' : 'none',
+      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+      textTransform: 'uppercase',
+      letterSpacing: '1px',
+      backdropFilter: 'blur(10px)',
+      position: 'relative',
+      overflow: 'hidden'
+    };
+
+    const handleMouseEnter = (e) => {
+      if (!isActive) {
+        e.target.style.background = 'var(--border-light)';
+        e.target.style.transform = 'translateY(-2px)';
+        e.target.style.boxShadow = 'var(--shadow-glow)';
+      }
+    };
+
+    const handleMouseLeave = (e) => {
+      if (!isActive) {
+        e.target.style.background = 'var(--surface-light)';
+        e.target.style.transform = 'translateY(0)';
+        e.target.style.boxShadow = 'none';
+      }
+    };
+
+    return (
+      <button
+        key={viewName}
+        onClick={() => setCurrentView(viewName)}
+        style={buttonStyle}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {label}
+      </button>
+    );
   };
 
   return (
@@ -200,7 +301,7 @@ function App() {
       }}>
         {/* Logo */}
         <img
-          src={logo} // Use the imported image
+          src={logo}
           alt="Logo"
           style={{
             height: '40px',
@@ -208,175 +309,19 @@ function App() {
             backdropFilter: 'blur(10px)'
           }}
         />
-        <div style={{ display: 'flex', gap: '15px' }}>
-          <button
-            onClick={() => setCurrentView('dashboard')}
-            style={{
-              background: currentView === 'dashboard' 
-                ? 'var(--border-light)' 
-                : 'var(--surface-light)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-light)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.85rem',
-              transition: 'var(--transition)',
-              transform: currentView === 'dashboard' ? 'translateY(-3px)' : 'translateY(0)',
-              boxShadow: currentView === 'dashboard' 
-                ? 'var(--shadow-glow)' 
-                : 'none',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              if (currentView !== 'dashboard') {
-                e.target.style.background = 'var(--border-light)';
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = 'var(--shadow-glow)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentView !== 'dashboard') {
-                e.target.style.background = 'var(--surface-light)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }
-            }}
-          >
-             DASHBOARD
-          </button>
-          <button
-            onClick={() => setCurrentView('outlet')}
-            style={{
-              background: currentView === 'outlet' 
-                ? 'var(--border-light)' 
-                : 'var(--surface-light)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-light)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.85rem',
-              transition: 'var(--transition)',
-              transform: currentView === 'outlet' ? 'translateY(-3px)' : 'translateY(0)',
-              boxShadow: currentView === 'outlet' 
-                ? 'var(--shadow-glow)' 
-                : 'none',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              if (currentView !== 'outlet') {
-                e.target.style.background = 'var(--border-light)';
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = 'var(--shadow-glow)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentView !== 'outlet') {
-                e.target.style.background = 'var(--surface-light)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }
-            }}
-          >
-             OUTLET DASHBOARD
-          </button>
-          <button
-            onClick={() => setCurrentView('employee')}
-            style={{
-              background: currentView === 'employee' 
-                ? 'var(--border-light)' 
-                : 'var(--surface-light)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-light)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.85rem',
-              transition: 'var(--transition)',
-              transform: currentView === 'employee' ? 'translateY(-3px)' : 'translateY(0)',
-              boxShadow: currentView === 'employee' 
-                ? 'var(--shadow-glow)' 
-                : 'none',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              if (currentView !== 'employee') {
-                e.target.style.background = 'var(--border-light)';
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = 'var(--shadow-glow)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentView !== 'employee') {
-                e.target.style.background = 'var(--surface-light)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }
-            }}
-          >
-             EMPLOYEE DASHBOARD
-          </button>
-          <button
-            onClick={() => setCurrentView('checklist')}
-            style={{
-              background: currentView === 'checklist' 
-                ? 'var(--border-light)' 
-                : 'var(--surface-light)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-light)',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.85rem',
-              transition: 'var(--transition)',
-              transform: currentView === 'checklist' ? 'translateY(-3px)' : 'translateY(0)',
-              boxShadow: currentView === 'checklist' 
-                ? 'var(--shadow-glow)' 
-                : 'none',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              if (currentView !== 'checklist') {
-                e.target.style.background = 'var(--border-light)';
-                e.target.style.transform = 'translateY(-2px)';
-                e.target.style.boxShadow = 'var(--shadow-glow)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (currentView !== 'checklist') {
-                e.target.style.background = 'var(--surface-light)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = 'none';
-              }
-            }}
-          >
-             CHECKLISTS
-          </button>
+        
+        {/* Navigation Buttons */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '15px', 
+          flexWrap: 'wrap',
+          alignItems: 'center'
+        }}>
+          {createNavButton('dashboard', 'ZOMATO DB', currentView === 'dashboard')}
+          {createNavButton('swiggy', 'SWIGGY DB', currentView === 'swiggy')}
+          {createNavButton('outlet', 'OUTLET DB', currentView === 'outlet')}
+          {createNavButton('employee', 'EMPLOYEE DB', currentView === 'employee')}
+          {createNavButton('checklist', 'CHECKLISTS', currentView === 'checklist')}
         </div>
       </nav>
 

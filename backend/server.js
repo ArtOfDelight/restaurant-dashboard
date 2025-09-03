@@ -1625,6 +1625,604 @@ app.get('/api/debug-high-rated', async (req, res) => {
   }
 });
 
+// Add these new functions and endpoints to your existing server.js file
+
+// === SWIGGY DASHBOARD SPECIFIC FUNCTIONS ===
+
+// Swiggy-specific data processing function
+function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
+  console.log(`Processing Swiggy data for period: ${requestedPeriod}`);
+  
+  if (!rawData || rawData.length === 0) {
+    console.log('No data found in Swiggy sheet');
+    return createEmptySwiggyDataStructure();
+  }
+
+  let startRow = -1;
+  const columnOffset = 2; // Column C (index 2) is where data starts
+  
+  // Set specific row positions based on period - using your exact specifications
+  if (requestedPeriod === '1 Day') {
+    // 1 Day: Headers at C9 (row 9), data from C10-C21 (rows 10-21)
+    if (rawData.length > 9) {
+      console.log('Processing 1 Day data: headers at C9, data from C10-C21');
+      startRow = 9; // Row 10 (index 9) - data starts here
+    }
+  } else if (requestedPeriod === '7 Day') {
+    // 7 Day: Headers at C25 (row 25), data from C26-C37 (rows 26-37)  
+    if (rawData.length > 25) {
+      console.log('Processing 7 Day data: headers at C25, data from C26-C37');
+      startRow = 25; // Row 26 (index 25) - data starts here
+    }
+  }
+  
+  if (startRow === -1) {
+    console.log(`Could not find ${requestedPeriod} section for Swiggy data`);
+    return createEmptySwiggyDataStructure();
+  }
+
+  const data = {
+    outlets: [],
+    m2o: [],
+    m2oTrend: [],
+    newCustomers: [],
+    newCustomerTrend: [],
+    repeatCustomers: [],
+    repeatCustomerTrend: [],
+    dormantCustomers: [],
+    dormantCustomerTrend: [],
+    totalCustomers: [],
+    totalCustomerTrend: [],
+    kitchenPrepTime: [],
+    foodAccuracy: [],
+    delayedOrders: [],
+    adOrders: [],
+    adOrdersTrend: [],
+    adSpend: [],
+    adM2o: [],
+    adM2oTrend: [],
+    organicM2o: [],
+    organicM2oTrend: [],
+    onlinePercent: [],
+    period: requestedPeriod,
+  };
+  
+  // Set end row based on period and your specifications
+  let endRow;
+  if (requestedPeriod === '1 Day') {
+    endRow = Math.min(20, rawData.length - 1); // C10-C21 range (rows 10-21)
+  } else if (requestedPeriod === '7 Day') {
+    endRow = Math.min(36, rawData.length - 1); // C26-C37 range (rows 26-37)
+  }
+  
+  console.log(`Processing Swiggy ${requestedPeriod} Data from row ${startRow + 1} to row ${endRow + 1}`);
+  
+  // Process each data row within the specified range
+  for (let i = startRow; i <= endRow && i < rawData.length; i++) {
+    const row = rawData[i];
+    
+    if (!row || !row[columnOffset]) {
+      console.log(`Stopping at row ${i + 1}: empty row or no location data`);
+      break;
+    }
+    
+    // Column mapping based on your Swiggy sheet structure
+    // Assuming: C=Location, D=M2O, E=M2O Trend, etc.
+    const location = row[columnOffset]?.toString().trim(); // Column C - Location
+    
+    if (!location || location === '' || location.toLowerCase() === 'total') {
+      console.log(`Stopping at row ${i + 1}: no location or reached total`);
+      break;
+    }
+    
+    console.log(`Processing Swiggy outlet: ${location} at row ${i + 1}`);
+    data.outlets.push(location);
+    
+    // Parse values safely for Swiggy data
+    const parseSwiggyValue = (val) => {
+      if (!val && val !== 0) return 0;
+      const str = val.toString().trim();
+      
+      // Handle error values
+      if (str === '#DIV/0!' || str === '#N/A' || str === '#VALUE!' || str === '' || str === 'No Trend') return 0;
+      
+      // Remove percentage signs and clean the string
+      const cleanStr = str.replace(/%/g, '').replace(/,/g, '').trim();
+      
+      const num = parseFloat(cleanStr);
+      return isNaN(num) ? 0 : num;
+    };
+    
+    // Map columns according to Swiggy sheet structure (adjust indices as needed)
+    data.m2o.push(parseSwiggyValue(row[columnOffset + 1]));              // Column D - M2O
+    data.m2oTrend.push(parseSwiggyValue(row[columnOffset + 2]));         // Column E - M2O Trend  
+    data.newCustomers.push(parseSwiggyValue(row[columnOffset + 3]));     // Column F - New Customer %
+    data.newCustomerTrend.push(parseSwiggyValue(row[columnOffset + 4])); // Column G - New Customer Trend
+    data.repeatCustomers.push(parseSwiggyValue(row[columnOffset + 5])); // Column H - Repeat Customer %
+    data.repeatCustomerTrend.push(parseSwiggyValue(row[columnOffset + 6])); // Column I - Repeat Customer Trend
+    data.dormantCustomers.push(parseSwiggyValue(row[columnOffset + 7])); // Column J - Dormant Customer %
+    data.dormantCustomerTrend.push(parseSwiggyValue(row[columnOffset + 8])); // Column K - Dormant Customer Trend
+    data.totalCustomers.push(parseSwiggyValue(row[columnOffset + 9]));   // Column L - Total Customers
+    data.totalCustomerTrend.push(parseSwiggyValue(row[columnOffset + 10])); // Column M - Total Customer Trend
+    data.kitchenPrepTime.push(parseSwiggyValue(row[columnOffset + 11])); // Column N - Kitchen Prep Time
+    data.foodAccuracy.push(parseSwiggyValue(row[columnOffset + 12]));    // Column O - Food Accuracy
+    data.delayedOrders.push(parseSwiggyValue(row[columnOffset + 13]));   // Column P - Delayed Orders
+    data.adOrders.push(parseSwiggyValue(row[columnOffset + 14]));        // Column Q - % of Ad Orders
+    data.adOrdersTrend.push(parseSwiggyValue(row[columnOffset + 15]));   // Column R - Ad Orders Trend
+    data.adSpend.push(parseSwiggyValue(row[columnOffset + 16]));         // Column S - Ad Spend
+    data.adM2o.push(parseSwiggyValue(row[columnOffset + 17]));           // Column T - Ad M2O
+    data.adM2oTrend.push(parseSwiggyValue(row[columnOffset + 18]));      // Column U - Ad M2O Trend
+    data.organicM2o.push(parseSwiggyValue(row[columnOffset + 19]));      // Column V - Organic M2O
+    data.organicM2oTrend.push(parseSwiggyValue(row[columnOffset + 20])); // Column W - Organic M2O Trend
+    data.onlinePercent.push(parseSwiggyValue(row[columnOffset + 21]));   // Column X - Online %
+    
+    // Debug log for first few outlets
+    if (data.outlets.length <= 2) {
+      console.log(`\n🔍 SWIGGY COLUMN MAPPING DEBUG for "${location}":`);
+      console.log(`  M2O (Column D): "${row[columnOffset + 1]}" -> ${parseSwiggyValue(row[columnOffset + 1])}`);
+      console.log(`  Online % (Column X): "${row[columnOffset + 21]}" -> ${parseSwiggyValue(row[columnOffset + 21])}`);
+      console.log(`  Food Accuracy (Column O): "${row[columnOffset + 12]}" -> ${parseSwiggyValue(row[columnOffset + 12])}`);
+      console.log(`  Kitchen Prep Time (Column N): "${row[columnOffset + 11]}" -> ${parseSwiggyValue(row[columnOffset + 11])}\n`);
+    }
+  }
+  
+  // Calculate summary statistics
+  data.summary = {
+    avgM2O: data.m2o.length > 0 ? (data.m2o.reduce((a, b) => a + b, 0) / data.m2o.length).toFixed(2) : '0',
+    avgOnlinePercent: data.onlinePercent.length > 0 ? (data.onlinePercent.reduce((a, b) => a + b, 0) / data.onlinePercent.length).toFixed(2) : '0',
+    avgFoodAccuracy: data.foodAccuracy.length > 0 ? (data.foodAccuracy.reduce((a, b) => a + b, 0) / data.foodAccuracy.length).toFixed(2) : '0',
+    avgKitchenPrepTime: data.kitchenPrepTime.length > 0 ? (data.kitchenPrepTime.reduce((a, b) => a + b, 0) / data.kitchenPrepTime.length).toFixed(2) : '0',
+    totalOutlets: data.outlets.length,
+  };
+  
+  console.log(`✅ Processed ${data.outlets.length} Swiggy outlets for ${requestedPeriod}`);
+  console.log('Swiggy Summary:', data.summary);
+  
+  return data;
+}
+
+// Helper function to create empty Swiggy data structure
+function createEmptySwiggyDataStructure() {
+  return {
+    outlets: [],
+    m2o: [],
+    m2oTrend: [],
+    newCustomers: [],
+    newCustomerTrend: [],
+    repeatCustomers: [],
+    repeatCustomerTrend: [],
+    dormantCustomers: [],
+    dormantCustomerTrend: [],
+    totalCustomers: [],
+    totalCustomerTrend: [],
+    kitchenPrepTime: [],
+    foodAccuracy: [],
+    delayedOrders: [],
+    adOrders: [],
+    adOrdersTrend: [],
+    adSpend: [],
+    adM2o: [],
+    adM2oTrend: [],
+    organicM2o: [],
+    organicM2oTrend: [],
+    onlinePercent: [],
+    summary: {
+      avgM2O: '0',
+      avgOnlinePercent: '0',
+      avgFoodAccuracy: '0',
+      avgKitchenPrepTime: '0',
+      totalOutlets: 0,
+    },
+  };
+}
+
+// Swiggy-specific AI insights generation
+async function generateSwiggyInsightsWithGemini(data, period) {
+  if (!GEMINI_API_KEY) {
+    return generateSwiggyFallbackInsights(data, period);
+  }
+
+  try {
+    console.log(`🤖 Generating Swiggy AI insights for ${period} data with ${data.outlets.length} outlets`);
+    
+    // Find bottom 3 performers
+    const outletPerformance = data.outlets.map((outlet, i) => ({
+      name: outlet,
+      m2o: data.m2o[i],
+      onlinePercent: data.onlinePercent[i],
+      foodAccuracy: data.foodAccuracy[i],
+      kitchenPrepTime: data.kitchenPrepTime[i]
+    })).sort((a, b) => a.m2o - b.m2o);
+
+    const bottomThree = outletPerformance.slice(0, 3);
+    const flaggedOutlets = outletPerformance.filter(outlet => 
+      outlet.onlinePercent < 98 || 
+      outlet.foodAccuracy < 85 || 
+      outlet.kitchenPrepTime > 4
+    );
+
+    const prompt = `You are analyzing Swiggy restaurant performance data. Focus on identifying critical issues and bottom performers.
+
+PERFORMANCE DATA (${period}):
+- Total Outlets: ${data.outlets.length}
+- Average M2O: ${data.summary.avgM2O}%
+- Average Online Presence: ${data.summary.avgOnlinePercent}%
+- Average Food Accuracy: ${data.summary.avgFoodAccuracy}%
+- Average Kitchen Prep Time: ${data.summary.avgKitchenPrepTime} minutes
+
+BOTTOM 3 PERFORMERS:
+${bottomThree.map(o => `${o.name}: M2O ${o.m2o.toFixed(2)}%, Online ${o.onlinePercent.toFixed(1)}%, Accuracy ${o.foodAccuracy.toFixed(1)}%, Prep Time ${o.kitchenPrepTime.toFixed(1)}min`).join('\n')}
+
+CRITICAL THRESHOLDS VIOLATED:
+- Online Presence < 98%: ${outletPerformance.filter(o => o.onlinePercent < 98).length} outlets
+- Food Accuracy < 85%: ${outletPerformance.filter(o => o.foodAccuracy < 85).length} outlets  
+- Kitchen Prep Time > 4min: ${outletPerformance.filter(o => o.kitchenPrepTime > 4).length} outlets
+
+Provide a JSON response focusing on immediate actions needed for bottom performers and critical threshold violations:
+{
+  "keyFindings": ["3-4 critical insights about bottom performers and threshold violations"],
+  "recommendations": ["3-4 urgent interventions needed"],
+  "bottomThreeAnalysis": ["Specific issues with bottom 3 outlets"],
+  "flaggedOutlets": ["Details about outlets violating critical thresholds"]
+}`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 800,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const insights = JSON.parse(jsonMatch[0]);
+          return {
+            ...insights,
+            bottomThreeOutlets: bottomThree,
+            flaggedOutlets: flaggedOutlets,
+            confidence: 0.85,
+            generatedAt: new Date().toISOString()
+          };
+        }
+      } catch (parseError) {
+        console.log('JSON parsing failed for Swiggy insights, using fallback');
+      }
+    }
+
+    throw new Error('No valid AI response');
+
+  } catch (error) {
+    console.error('Swiggy AI insight generation error:', error.message);
+    return generateSwiggyFallbackInsights(data, period);
+  }
+}
+
+// Fallback insights for Swiggy data
+function generateSwiggyFallbackInsights(data, period) {
+  const avgM2O = parseFloat(data.summary.avgM2O);
+  const avgAccuracy = parseFloat(data.summary.avgFoodAccuracy);
+  const avgOnline = parseFloat(data.summary.avgOnlinePercent);
+  const avgPrepTime = parseFloat(data.summary.avgKitchenPrepTime);
+  
+  // Find bottom performers and flagged outlets
+  const outletPerformance = data.outlets.map((outlet, i) => ({
+    name: outlet,
+    m2o: data.m2o[i],
+    onlinePercent: data.onlinePercent[i],
+    foodAccuracy: data.foodAccuracy[i],
+    kitchenPrepTime: data.kitchenPrepTime[i]
+  })).sort((a, b) => a.m2o - b.m2o);
+
+  const bottomThree = outletPerformance.slice(0, 3);
+  const flaggedOutlets = outletPerformance.filter(outlet => 
+    outlet.onlinePercent < 98 || 
+    outlet.foodAccuracy < 85 || 
+    outlet.kitchenPrepTime > 4
+  );
+
+  return {
+    keyFindings: [
+      `Bottom 3 performers: ${bottomThree.map(o => o.name).join(', ')} require immediate intervention`,
+      `${flaggedOutlets.length} outlets flagged for critical threshold violations`,
+      `Average M2O of ${avgM2O.toFixed(2)}% is ${avgM2O > 20 ? 'excellent' : avgM2O > 15 ? 'good' : 'below target'}`,
+      `${outletPerformance.filter(o => o.onlinePercent < 98).length} outlets below 98% online presence threshold`
+    ],
+    recommendations: [
+      'Immediate intervention required for bottom 3 M2O performers',
+      avgAccuracy < 85 ? 'Critical: Implement emergency food quality protocols' : 'Maintain food quality standards above 85%',
+      avgPrepTime > 4 ? 'Urgent: Optimize kitchen workflows to reduce prep time' : 'Monitor kitchen efficiency',
+      'Enhanced online presence strategy for outlets below 98%'
+    ],
+    bottomThreeAnalysis: [
+      `${bottomThree[0].name}: Lowest performer with ${bottomThree[0].m2o.toFixed(2)}% M2O`,
+      `${bottomThree[1].name}: Second lowest at ${bottomThree[1].m2o.toFixed(2)}% M2O`,
+      `${bottomThree[2].name}: Third lowest at ${bottomThree[2].m2o.toFixed(2)}% M2O`
+    ],
+    flaggedOutlets: flaggedOutlets.map(outlet => 
+      `${outlet.name}: ${outlet.onlinePercent < 98 ? 'Online Low' : ''} ${outlet.foodAccuracy < 85 ? 'Accuracy Critical' : ''} ${outlet.kitchenPrepTime > 4 ? 'Kitchen Slow' : ''}`.trim()
+    ),
+    bottomThreeOutlets: bottomThree,
+    confidence: 0.75,
+    generatedAt: new Date().toISOString(),
+    source: 'fallback-analysis'
+  };
+}
+
+// === SWIGGY DASHBOARD API ENDPOINTS ===
+
+// Swiggy dashboard data endpoint
+app.get('/api/swiggy-dashboard-data', async (req, res) => {
+  try {
+    const period = req.query.period || '7 Day';
+    console.log(`📊 Swiggy dashboard data requested for period: ${period}`);
+    
+    // Only allow 1 Day and 7 Day for Swiggy dashboard
+    if (!['7 Day', '1 Day'].includes(period)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid period for Swiggy dashboard. Must be one of: 7 Day, 1 Day',
+      });
+    }
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const SWIGGY_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+    const SWIGGY_SHEET_NAME = 'Swiggy Dashboard - AOD'; // Adjust sheet name as needed
+
+    console.log(`Fetching Swiggy data for ${period} from: ${SWIGGY_SPREADSHEET_ID}`);
+    console.log(`Sheet: ${SWIGGY_SHEET_NAME}, Range: A1:Z50`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SWIGGY_SPREADSHEET_ID,
+      range: `${SWIGGY_SHEET_NAME}!A1:Z50`, // Adjust range as needed
+    });
+    
+    console.log(`Retrieved ${response.data.values ? response.data.values.length : 0} rows from Swiggy sheet`);
+    
+    const processedData = processSwiggySheetData(response.data.values, period);
+    
+    console.log(`✅ Successfully processed Swiggy data for ${period}:`, {
+      outlets: processedData.outlets.length,
+      avgM2O: processedData.summary.avgM2O,
+      avgOnlinePercent: processedData.summary.avgOnlinePercent
+    });
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: processedData,
+      aiEnabled: !!GEMINI_API_KEY,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching Swiggy dashboard data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details',
+    });
+  }
+});
+
+// Swiggy-specific AI insights endpoint
+app.post('/api/swiggy-generate-insights', async (req, res) => {
+  try {
+    const { data, period, analysisType } = req.body;
+    
+    console.log(`Generating Swiggy AI insights for ${period} data with ${data.outlets.length} outlets`);
+    
+    const insights = await generateSwiggyInsightsWithGemini(data, period, analysisType);
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      insights,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error generating Swiggy insights:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Swiggy outlet analysis endpoint
+app.post('/api/swiggy-analyze-outlet', async (req, res) => {
+  try {
+    const { outlet, period, allData } = req.body;
+    
+    console.log(`Analyzing Swiggy outlet: ${outlet.name} for ${period}`);
+    
+    // Use existing analyzeOutletWithGemini function but with Swiggy context
+    const analysis = await analyzeSwiggyOutletWithGemini(outlet, period, allData);
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      analysis,
+      outlet: outlet.name,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error analyzing Swiggy outlet:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Swiggy outlet-specific analysis function
+async function analyzeSwiggyOutletWithGemini(outlet, period, allData) {
+  if (!GEMINI_API_KEY) {
+    return generateSwiggyOutletFallbackAnalysis(outlet, allData);
+  }
+
+  try {
+    const prompt = `Analyze this Swiggy restaurant outlet performance for ${period}:
+
+OUTLET: ${outlet.name}
+METRICS:
+- M2O: ${outlet.m2o.toFixed(2)}% (Trend: ${outlet.m2oTrend > 0 ? '+' : ''}${outlet.m2oTrend.toFixed(2)}%)
+- Online Presence: ${outlet.onlinePercent.toFixed(2)}%
+- Food Accuracy: ${outlet.foodAccuracy.toFixed(2)}%
+- Kitchen Prep Time: ${outlet.kitchenPrepTime.toFixed(1)} minutes
+- Delayed Orders: ${outlet.delayedOrders.toFixed(2)}%
+- New Customers: ${outlet.newCustomers.toFixed(2)}%
+- Repeat Customers: ${outlet.repeatCustomers.toFixed(2)}%
+- Dormant Customers: ${outlet.dormantCustomers.toFixed(2)}%
+
+SWIGGY CRITICAL THRESHOLDS:
+- M2O benchmark: 20%+
+- Online presence: 98%+
+- Food accuracy: 85%+
+- Kitchen prep time: <4 minutes
+
+CONTEXT:
+- Average M2O across all outlets: ${allData.summary.avgM2O}%
+- Average online presence: ${allData.summary.avgOnlinePercent}%
+
+Provide a concise 2-3 sentence analysis focusing on:
+1. Critical threshold violations (if any)
+2. Immediate actions needed
+3. Performance relative to other outlets`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 200
+        }
+      },
+      { timeout: 15000 }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      return response.data.candidates[0].content.parts[0].text.trim();
+    }
+
+    throw new Error('No AI response');
+
+  } catch (error) {
+    console.error('Swiggy outlet AI analysis error:', error.message);
+    return generateSwiggyOutletFallbackAnalysis(outlet, allData);
+  }
+}
+
+// Fallback analysis for Swiggy outlet
+function generateSwiggyOutletFallbackAnalysis(outlet, allData) {
+  const criticalIssues = [];
+  
+  if (outlet.onlinePercent < 98) criticalIssues.push('online presence below 98%');
+  if (outlet.foodAccuracy < 85) criticalIssues.push('food accuracy below 85%');
+  if (outlet.kitchenPrepTime > 4) criticalIssues.push('kitchen prep time over 4 minutes');
+  
+  const performance = outlet.m2o > 20 ? 'excellent' : outlet.m2o > 15 ? 'good' : outlet.m2o > 10 ? 'average' : 'critical';
+  const trend = outlet.m2oTrend > 0 ? 'improving' : 'declining';
+  
+  let analysis = `${outlet.name} shows ${performance} performance with ${outlet.m2o.toFixed(2)}% M2O and ${trend} trend.`;
+  
+  if (criticalIssues.length > 0) {
+    analysis += ` CRITICAL ISSUES: ${criticalIssues.join(', ')}. Immediate intervention required.`;
+  } else if (outlet.m2o < 15) {
+    analysis += ' Focus needed on customer satisfaction and operational efficiency.';
+  } else {
+    analysis += ' Maintain current strategies while monitoring key metrics.';
+  }
+  
+  return analysis;
+}
+
+// Debug Swiggy endpoint
+app.get('/api/debug-swiggy', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const SWIGGY_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+    const SWIGGY_SHEET_NAME = 'Swiggy Dashboard - AOD';
+
+    console.log(`🔍 Debug: Fetching raw Swiggy data from ${SWIGGY_SPREADSHEET_ID}`);
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SWIGGY_SPREADSHEET_ID,
+      range: `${SWIGGY_SHEET_NAME}!A1:Z50`,
+    });
+
+    const rawData = response.data.values || [];
+    console.log(`Debug: Retrieved ${rawData.length} rows from Swiggy sheet`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: SWIGGY_SPREADSHEET_ID,
+      sheetName: SWIGGY_SHEET_NAME,
+      rawData: rawData.slice(0, 30),
+      totalRows: rawData.length,
+      structure: {
+        oneDayHeaders: "Row 9 (C9)",
+        oneDayDataRange: "Rows 10-21 (C10:C21)",
+        sevenDayHeaders: "Row 25 (C25)", 
+        sevenDayDataRange: "Rows 26-37 (C26:C37)",
+        dataStartsAtColumn: "C (index 2)"
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching debug Swiggy data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs',
+      sheetName: 'Swiggy Dashboard - AOD',
+    });
+  }
+});
+
+// Update the health check endpoint to include Swiggy endpoints
+// Add this to your existing /health endpoint response in the endpoints section:
+/*
+swiggy: {
+  data: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
+  insights: '/api/swiggy-generate-insights (POST)',
+  outletAnalysis: '/api/swiggy-analyze-outlet (POST)',
+  debug: '/api/debug-swiggy',
+  description: 'Swiggy-specific dashboard with bottom 3 outlet focus and critical threshold monitoring'
+}
+*/
+
 // Add this to your existing backend code (server.js)
 
 // Employee Dashboard data endpoint
