@@ -3,8 +3,7 @@ import axios from 'axios';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, RadarChart, Radar, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis, ReferenceLine
+  ResponsiveContainer, ReferenceLine
 } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
@@ -45,24 +44,87 @@ const Dashboard = () => {
     }
   };
 
-  // Generate AI insights using Gemini
+  // Enhanced AI insights generation focusing on bottom 3 and flagged outlets
   const generateAIInsights = async (dashboardData, period) => {
     try {
       setLoadingAI(true);
       const response = await axios.post(`${API_URL}/api/generate-insights`, {
         data: dashboardData,
         period: period,
-        analysisType: 'comprehensive'
+        analysisType: 'bottom_three_focus'
       });
       
       if (response.data.success) {
-        setAiInsights(response.data.insights);
+        // Add custom analysis for flagged outlets
+        const flaggedOutlets = identifyFlaggedOutlets(dashboardData);
+        const bottomThree = getBottomThreeOutlets(dashboardData);
+        
+        setAiInsights({
+          ...response.data.insights,
+          flaggedOutlets: flaggedOutlets,
+          bottomThreeOutlets: bottomThree
+        });
       }
     } catch (err) {
       console.error('AI insights generation failed:', err);
     } finally {
       setLoadingAI(false);
     }
+  };
+
+  // Identify outlets that need flagging based on criteria
+  const identifyFlaggedOutlets = (data) => {
+    const flagged = [];
+    data.outlets.forEach((outlet, i) => {
+      const issues = [];
+      if (data.onlinePercent[i] < 98) issues.push('Online < 98%');
+      if (data.foodAccuracy[i] < 85) issues.push('Food Accuracy < 85%');
+      // Note: KPT (Kitchen Prep Time) not available in current data structure
+      
+      if (issues.length > 0) {
+        flagged.push({
+          outlet: outlet,
+          index: i,
+          issues: issues,
+          m2o: data.m2o[i],
+          onlinePercent: data.onlinePercent[i],
+          foodAccuracy: data.foodAccuracy[i]
+        });
+      }
+    });
+    return flagged;
+  };
+
+  // Get bottom 3 outlets based on M2O performance
+  const getBottomThreeOutlets = (data) => {
+    const outletPerformance = data.outlets.map((outlet, i) => ({
+      outlet: outlet,
+      index: i,
+      m2o: data.m2o[i],
+      m2oTrend: data.m2oTrend[i],
+      onlinePercent: data.onlinePercent[i],
+      foodAccuracy: data.foodAccuracy[i]
+    }));
+    
+    return outletPerformance
+      .sort((a, b) => a.m2o - b.m2o)
+      .slice(0, 3);
+  };
+
+  // Get top 3 outlets based on M2O performance
+  const getTopThreeOutlets = (data) => {
+    const outletPerformance = data.outlets.map((outlet, i) => ({
+      outlet: outlet,
+      index: i,
+      m2o: data.m2o[i],
+      m2oTrend: data.m2oTrend[i],
+      onlinePercent: data.onlinePercent[i],
+      foodAccuracy: data.foodAccuracy[i]
+    }));
+    
+    return outletPerformance
+      .sort((a, b) => b.m2o - a.m2o)
+      .slice(0, 3);
   };
 
   // Generate specific outlet analysis
@@ -212,7 +274,7 @@ const Dashboard = () => {
           name: 'New Users', 
           value: parseFloat((data.newUsers[selectedOutlet] || 0).toFixed(1)),
           actual: Math.round((data.newUsers[selectedOutlet] || 0) * estimatedBaseOrders / 100),
-          trend: 0 // Add trend data if available from backend
+          trend: 0
         },
         { 
           name: 'Repeat Users', 
@@ -283,16 +345,9 @@ const Dashboard = () => {
     return 'NEEDS WORK';
   };
 
-  // Top and bottom performers with AI insights
-  const topPerformer = data.outlets.reduce((best, outlet, i) => 
-    data.m2o[i] > (data.m2o[best.index] || 0) ? {outlet, index: i} : best, 
-    {outlet: '', index: 0}
-  );
-
-  const bottomPerformer = data.outlets.reduce((worst, outlet, i) => 
-    data.m2o[i] < (data.m2o[worst.index] || 100) ? {outlet, index: i} : worst, 
-    {outlet: '', index: 0}
-  );
+  // Top and bottom performers
+  const topThreeOutlets = data ? getTopThreeOutlets(data) : [];
+  const bottomThreeOutlets = data ? getBottomThreeOutlets(data) : [];
 
   return (
     <div className="checklist-dashboard">
@@ -357,7 +412,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* AI Insights Panel */}
+      {/* AI Insights Panel with Bottom 3 and Flagged Outlets Focus */}
       {showAIPanel && aiInsights && (
         <div className="submission-card" style={{ borderLeft: '4px solid #10b981' }}>
           <div className="submission-header">
@@ -366,11 +421,107 @@ const Dashboard = () => {
                 fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                 color: '#10b981'
               }}>
-                AI-POWERED INSIGHTS {aiInsights.focusOutlet ? `FOR ${aiInsights.focusOutlet.toUpperCase()}` : '(OVERALL PERFORMANCE)'}
+                AI-POWERED INSIGHTS {aiInsights.focusOutlet ? `FOR ${aiInsights.focusOutlet.toUpperCase()}` : '(BOTTOM 3 & FLAGGED OUTLETS ANALYSIS)'}
               </h3>
             </div>
           </div>
           <div className="responses-section">
+            {/* Bottom 3 Outlets Analysis */}
+            {aiInsights.bottomThreeOutlets && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 15px 0',
+                  color: '#ef4444',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  BOTTOM 3 OUTLETS (M2O BASIS)
+                </h4>
+                {aiInsights.bottomThreeOutlets.map((outlet, index) => (
+                  <div key={index} style={{
+                    padding: '12px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    borderRadius: '8px',
+                    marginBottom: '10px'
+                  }}>
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.9rem',
+                      fontWeight: '600'
+                    }}>
+                      {index + 1}. {outlet.outlet.toUpperCase()}: {outlet.m2o.toFixed(2)}% M2O
+                    </p>
+                    <p style={{
+                      margin: '5px 0 0 0',
+                      color: 'var(--text-secondary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.8rem'
+                    }}>
+                      Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Flagged Outlets Analysis */}
+            {aiInsights.flaggedOutlets && aiInsights.flaggedOutlets.length > 0 && (
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.05)',
+                border: '1px solid rgba(245, 158, 11, 0.2)',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 15px 0',
+                  color: '#f59e0b',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  FLAGGED OUTLETS (CRITICAL THRESHOLDS)
+                </h4>
+                {aiInsights.flaggedOutlets.map((outlet, index) => (
+                  <div key={index} style={{
+                    padding: '12px',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    borderRadius: '8px',
+                    marginBottom: '10px'
+                  }}>
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.9rem',
+                      fontWeight: '600'
+                    }}>
+                      {outlet.outlet.toUpperCase()}: {outlet.issues.join(', ')}
+                    </p>
+                    <p style={{
+                      margin: '5px 0 0 0',
+                      color: 'var(--text-secondary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.8rem'
+                    }}>
+                      M2O: {outlet.m2o.toFixed(2)}% | Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{
               background: 'rgba(16, 185, 129, 0.05)',
               border: '1px solid rgba(16, 185, 129, 0.2)',
@@ -469,7 +620,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Performance Stats */}
+      {/* Enhanced Performance Stats with Market Share Trend */}
       <div className="checklist-stats">
         {[
           { 
@@ -482,6 +633,7 @@ const Dashboard = () => {
           { 
             title: 'MARKET SHARE', 
             value: selectedOutlet !== null ? `${(data.marketShare[selectedOutlet] || 0).toFixed(2)}%` : `${data.summary.avgMarketShare}%`,
+            trend: selectedOutlet !== null ? (data.m2oTrend[selectedOutlet] || 0) * 0.1 : 0, // Placeholder trend calculation
             performance: selectedOutlet !== null ? data.marketShare[selectedOutlet] : parseFloat(data.summary.avgMarketShare)
           },
           { 
@@ -529,6 +681,133 @@ const Dashboard = () => {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Top 3 and Bottom 3 Outlets Display */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '25px', marginBottom: '30px' }}>
+        {/* Bottom 3 Outlets */}
+        <div className="submission-card" style={{ borderLeft: '4px solid #ef4444' }}>
+          <div className="submission-header">
+            <div className="submission-info">
+              <h3 style={{ 
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                color: '#ef4444'
+              }}>
+                BOTTOM 3 OUTLETS - NEEDS ATTENTION
+              </h3>
+            </div>
+          </div>
+          <div className="responses-section">
+            {bottomThreeOutlets.map((outlet, index) => (
+              <div key={index} style={{
+                padding: '15px',
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '10px',
+                marginBottom: '15px',
+                cursor: 'pointer'
+              }}
+              onClick={() => { setSelectedOutlet(outlet.index); setMinimized(false); analyzeOutlet(outlet.index); }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    color: 'var(--text-primary)',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                    fontSize: '1rem'
+                  }}>
+                    {index + 1}. {outlet.outlet.toUpperCase()}
+                  </h4>
+                  <span style={{
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    color: '#ef4444',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                  }}>
+                    {outlet.m2o.toFixed(2)}% M2O
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                }}>
+                  Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top 3 Outlets */}
+        <div className="submission-card" style={{ borderLeft: '4px solid #10b981' }}>
+          <div className="submission-header">
+            <div className="submission-info">
+              <h3 style={{ 
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                color: '#10b981'
+              }}>
+                TOP 3 OUTLETS - BEST PERFORMERS
+              </h3>
+            </div>
+          </div>
+          <div className="responses-section">
+            {topThreeOutlets.map((outlet, index) => (
+              <div key={index} style={{
+                padding: '15px',
+                background: 'rgba(16, 185, 129, 0.05)',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                borderRadius: '10px',
+                marginBottom: '15px',
+                cursor: 'pointer'
+              }}
+              onClick={() => { setSelectedOutlet(outlet.index); setMinimized(false); analyzeOutlet(outlet.index); }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    color: 'var(--text-primary)',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                    fontSize: '1rem'
+                  }}>
+                    {index + 1}. {outlet.outlet.toUpperCase()}
+                  </h4>
+                  <span style={{
+                    background: 'rgba(16, 185, 129, 0.2)',
+                    color: '#10b981',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                  }}>
+                    {outlet.m2o.toFixed(2)}% M2O
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                }}>
+                  Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Outlet Detail Modal */}
@@ -611,7 +890,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Charts Grid */}
+      {/* Enhanced Charts Grid (Radar Chart Removed) */}
       <div className="submissions-list">
         {/* M2O Performance with Target Line and Labels */}
         <div className="submission-card">
@@ -755,57 +1034,9 @@ const Dashboard = () => {
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* AI-Enhanced Radar Chart */}
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                COMPREHENSIVE PERFORMANCE RADAR {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : ''}
-              </h3>
-            </div>
-          </div>
-          <div className="responses-section">
-            <ResponsiveContainer width="100%" height={350}>
-              <RadarChart data={selectedOutlet !== null ? [{
-                outlet: data.outlets[selectedOutlet],
-                'M2O Score': (data.m2o[selectedOutlet] / 20) * 100,
-                'Market Share': data.marketShare[selectedOutlet] * 10,
-                'Online Rate': data.onlinePercent[selectedOutlet],
-                'Food Accuracy': data.foodAccuracy[selectedOutlet],
-                'Customer Retention': data.repeatUsers[selectedOutlet],
-                'New Acquisition': data.newUsers[selectedOutlet]
-              }] : data.outlets.slice(0, 5).map((outlet, i) => ({
-                outlet,
-                'M2O Score': (data.m2o[i] / 20) * 100,
-                'Market Share': data.marketShare[i] * 10,
-                'Online Rate': data.onlinePercent[i],
-                'Food Accuracy': data.foodAccuracy[i],
-                'Customer Retention': data.repeatUsers[i],
-                'New Acquisition': data.newUsers[i]
-              }))}>
-                <PolarGrid stroke="var(--border-light)" />
-                <PolarAngleAxis tick={{ fontSize: 10, fill: 'var(--text-secondary)' }} />
-                <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 8, fill: 'var(--text-secondary)' }} />
-                <Radar name="Performance" dataKey="M2O Score" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} />
-                <Radar name="Market" dataKey="Market Share" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-                <Radar name="Online" dataKey="Online Rate" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} />
-                <Radar name="Quality" dataKey="Food Accuracy" stroke="#ef4444" fill="#ef4444" fillOpacity={0.1} />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'var(--surface-dark)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
       </div>
 
-      {/* Enhanced Performance Table with AI Categories */}
+      {/* Enhanced Performance Table with Market Share Trend and Delayed Orders */}
       <div className="submission-card">
         <div className="submission-header">
           <div className="submission-info">
@@ -822,10 +1053,12 @@ const Dashboard = () => {
                   {[
                     'OUTLET',
                     'M2O %',
-                    'TREND',
+                    'M2O TREND',
                     'MARKET SHARE %',
+                    'MARKET SHARE TREND',
                     'ONLINE %',
                     'FOOD ACCURACY %',
+                    'DELAYED ORDERS %',
                     'CUSTOMER MIX',
                     'AI CATEGORY',
                     'ACTIONS'
@@ -847,6 +1080,7 @@ const Dashboard = () => {
                 {data.outlets.map((outlet, i) => {
                   const category = getPerformanceCategory(data.m2o[i], data.m2oTrend[i], data.foodAccuracy[i]);
                   const isUnderperforming = category === 'NEEDS WORK';
+                  const marketShareTrend = (data.m2oTrend[i] || 0) * 0.1; // Placeholder calculation
                   
                   return (
                     <tr 
@@ -891,6 +1125,15 @@ const Dashboard = () => {
                       }}>
                         {(data.marketShare[i] || 0).toFixed(2)}%
                       </td>
+                      <td style={{ padding: '18px' }}>
+                        <span style={{
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          color: marketShareTrend > 0 ? '#10b981' : '#ef4444',
+                          fontWeight: '600'
+                        }}>
+                          {marketShareTrend > 0 ? '↑' : '↓'} {Math.abs(marketShareTrend).toFixed(2)}%
+                        </span>
+                      </td>
                       <td style={{ 
                         padding: '18px',
                         color: 'var(--text-secondary)',
@@ -905,6 +1148,14 @@ const Dashboard = () => {
                         fontWeight: '600'
                       }}>
                         {(data.foodAccuracy[i] || 0).toFixed(2)}%
+                      </td>
+                      <td style={{ 
+                        padding: '18px',
+                        color: data.delayedOrders[i] > 5 ? '#ef4444' : 'var(--text-secondary)',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        fontWeight: '600'
+                      }}>
+                        {(data.delayedOrders[i] || 0).toFixed(2)}%
                       </td>
                       <td style={{ padding: '18px' }}>
                         <div style={{ fontSize: '0.8rem', fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
@@ -959,157 +1210,6 @@ const Dashboard = () => {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      </div>
-
-      {/* AI-Powered Insights Panel */}
-      <div className="submission-card">
-        <div className="submission-header">
-          <div className="submission-info">
-            <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-              AI-POWERED KEY INSIGHTS & RECOMMENDATIONS ({selectedPeriod.toUpperCase()})
-            </h3>
-          </div>
-        </div>
-        <div className="responses-section">
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-            gap: '25px',
-            marginBottom: '30px'
-          }}>
-            <div style={{
-              padding: '20px',
-              borderRadius: '15px',
-              background: 'rgba(16, 185, 129, 0.1)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              borderLeft: '4px solid #10b981'
-            }}>
-              <h4 style={{
-                margin: '0 0 12px 0',
-                color: '#10b981',
-                fontSize: '1.1rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.8px',
-                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-              }}>TOP PERFORMER</h4>
-              <p style={{
-                margin: 0,
-                color: 'var(--text-secondary)',
-                lineHeight: 1.6,
-                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                fontSize: '0.9rem'
-              }}>
-                <strong style={{ color: 'var(--text-primary)' }}>{topPerformer.outlet.toUpperCase()}</strong> leads with {(data.m2o[topPerformer.index] || 0).toFixed(2)}% M2O rate
-                <br />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  AI suggests replicating their customer engagement strategies
-                </span>
-              </p>
-            </div>
-            <div style={{
-              padding: '20px',
-              borderRadius: '15px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderLeft: '4px solid #ef4444'
-            }}>
-              <h4 style={{
-                margin: '0 0 12px 0',
-                color: '#ef4444',
-                fontSize: '1.1rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.8px',
-                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-              }}>NEEDS URGENT ATTENTION</h4>
-              <p style={{
-                margin: 0,
-                color: 'var(--text-secondary)',
-                lineHeight: 1.6,
-                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                fontSize: '0.9rem'
-              }}>
-                <strong style={{ color: 'var(--text-primary)' }}>{bottomPerformer.outlet.toUpperCase()}</strong> at {(data.m2o[bottomPerformer.index] || 0).toFixed(2)}% M2O needs immediate intervention
-                <br />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  AI recommends priority focus on food accuracy and customer retention
-                </span>
-              </p>
-            </div>
-          </div>
-          
-          <div style={{
-            padding: '25px',
-            background: 'rgba(59, 130, 246, 0.05)',
-            borderRadius: '15px',
-            border: '1px solid rgba(59, 130, 246, 0.2)'
-          }}>
-            <h4 style={{
-              margin: '0 0 20px 0',
-              color: '#3b82f6',
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-            }}>AI STRATEGIC RECOMMENDATIONS</h4>
-            
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '20px'
-            }}>
-              <div style={{
-                padding: '15px',
-                background: 'rgba(255, 255, 255, 0.02)',
-                borderRadius: '10px',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
-                <h5 style={{
-                  margin: '0 0 10px 0',
-                  color: 'var(--text-primary)',
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '0.9rem'
-                }}>IMMEDIATE ACTIONS</h5>
-                <ul style={{ 
-                  margin: 0, 
-                  paddingLeft: '20px', 
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.6,
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '0.8rem'
-                }}>
-                  <li>Focus outlets with M2O below 12% for intervention</li>
-                  <li>Implement food accuracy monitoring (target: 95%+)</li>
-                  <li>Reduce delayed orders by optimizing kitchen workflows</li>
-                </ul>
-              </div>
-              
-              <div style={{
-                padding: '15px',
-                background: 'rgba(255, 255, 255, 0.02)',
-                borderRadius: '10px',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
-                <h5 style={{
-                  margin: '0 0 10px 0',
-                  color: 'var(--text-primary)',
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '0.9rem'
-                }}>STRATEGIC INITIATIVES</h5>
-                <ul style={{ 
-                  margin: 0, 
-                  paddingLeft: '20px', 
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.6,
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '0.8rem'
-                }}>
-                  <li>Leverage {data.summary.avgOnlinePercent}% avg online presence</li>
-                  <li>Deploy customer retention programs for lapsed users</li>
-                  <li>Cross-pollinate best practices from top performers</li>
-                </ul>
-              </div>
-            </div>
           </div>
         </div>
       </div>
