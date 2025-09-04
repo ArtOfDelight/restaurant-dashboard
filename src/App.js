@@ -1,276 +1,409 @@
-import React, { useState } from 'react';
-import Dashboard from './Dashboard';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import logo from './ggg.png';
 
-// Try to import ChecklistDashboard, fall back to placeholder if not found
-let ChecklistDashboard;
-try {
-  ChecklistDashboard = require('./ChecklistDashboard').default;
-} catch (error) {
-  ChecklistDashboard = () => (
+// Import Dashboard directly since it's the main component
+import Dashboard from './Dashboard';
+
+// Lazy load other components for better performance
+const ChecklistDashboard = lazy(() => 
+  import('./ChecklistDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="CHECKLIST DASHBOARD" fileName="ChecklistDashboard" />
+  }))
+);
+
+const HighRatedDashboard = lazy(() => 
+  import('./HighRatedDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="OUTLET DASHBOARD" fileName="HighRatedDashboard" />
+  }))
+);
+
+const EmployeeDashboard = lazy(() => 
+  import('./EmployeeDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="EMPLOYEE DASHBOARD" fileName="EmployeeDashboard" />
+  }))
+);
+
+const SwiggyDashboard = lazy(() => 
+  import('./SwiggyDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="SWIGGY DASHBOARD" fileName="SwiggyDashboard" />
+  }))
+);
+
+// Loading component
+const LoadingComponent = () => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '60vh',
+    background: 'var(--surface-dark)',
+    borderRadius: '20px',
+    margin: '20px',
+    backdropFilter: 'blur(15px)',
+    boxShadow: 'var(--shadow-dark)'
+  }}>
     <div style={{
-      background: 'var(--surface-dark)',
-      border: '1px solid var(--border-light)',
-      padding: '50px',
-      borderRadius: '20px',
-      textAlign: 'center',
-      margin: '20px',
-      backdropFilter: 'blur(15px)',
-      boxShadow: 'var(--shadow-dark)'
+      width: '50px',
+      height: '50px',
+      border: '3px solid var(--border-light)',
+      borderTop: '3px solid var(--text-primary)',
+      borderRadius: '50%',
+      animation: 'spin 1s linear infinite'
+    }} />
+    <p style={{
+      marginTop: '20px',
+      color: 'var(--text-primary)',
+      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+      fontSize: '1.1rem',
+      letterSpacing: '2px',
+      textTransform: 'uppercase'
     }}>
-      <h1 style={{
-        color: 'var(--text-primary)',
+      LOADING DASHBOARD...
+    </p>
+    <style>
+      {`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}
+    </style>
+  </div>
+);
+
+// Fallback component for missing dashboards
+const MissingComponent = ({ componentName, fileName }) => (
+  <div style={{
+    background: 'var(--surface-dark)',
+    border: '2px solid var(--border-light)',
+    padding: '60px 40px',
+    borderRadius: '20px',
+    textAlign: 'center',
+    margin: '20px',
+    backdropFilter: 'blur(15px)',
+    boxShadow: 'var(--shadow-dark)',
+    position: 'relative',
+    overflow: 'hidden'
+  }}>
+    {/* Animated background pattern */}
+    <div style={{
+      position: 'absolute',
+      top: '0',
+      left: '0',
+      right: '0',
+      bottom: '0',
+      background: 'linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.02) 50%, transparent 70%)',
+      animation: 'shimmer 3s infinite'
+    }} />
+    
+    <h1 style={{
+      color: 'var(--text-primary)',
+      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+      textTransform: 'uppercase',
+      letterSpacing: '3px',
+      marginBottom: '25px',
+      fontSize: '1.8rem',
+      position: 'relative',
+      zIndex: '1'
+    }}>
+      {componentName}
+    </h1>
+    
+    <div style={{
+      background: 'rgba(239, 68, 68, 0.1)',
+      border: '1px solid rgba(239, 68, 68, 0.3)',
+      borderRadius: '15px',
+      padding: '25px',
+      marginBottom: '25px',
+      position: 'relative',
+      zIndex: '1'
+    }}>
+      <p style={{
+        color: '#ef4444',
+        fontSize: '1.2rem',
+        marginBottom: '15px',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        textTransform: 'uppercase',
-        letterSpacing: '2px',
-        marginBottom: '20px'
+        fontWeight: '600'
       }}>
-        CHECKLIST DASHBOARD
-      </h1>
+        COMPONENT NOT FOUND
+      </p>
       <p style={{
         color: 'var(--text-secondary)',
-        fontSize: '1.1rem',
-        marginBottom: '15px',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        fontSize: '0.95rem',
+        lineHeight: '1.6'
       }}>
-        CHECKLISTDASHBOARD COMPONENT NOT FOUND
+        The {fileName} component is missing from your project.
       </p>
+    </div>
+    
+    <div style={{
+      background: 'var(--surface-light)',
+      border: '1px solid var(--border-light)',
+      borderRadius: '12px',
+      padding: '20px',
+      position: 'relative',
+      zIndex: '1'
+    }}>
       <p style={{
         color: 'var(--text-muted)',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        fontSize: '0.9rem'
+        fontSize: '0.9rem',
+        marginBottom: '15px'
       }}>
-        PLEASE CREATE: <code style={{
-          background: 'var(--surface-light)',
-          padding: '4px 8px',
-          borderRadius: '6px',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-light)'
-        }}>ChecklistDashboard.js</code>
+        TO RESOLVE THIS ISSUE:
       </p>
-    </div>
-  );
-}
-
-// Try to import HighRatedDashboard, fall back to placeholder if not found
-let HighRatedDashboard;
-try {
-  HighRatedDashboard = require('./HighRatedDashboard').default;
-} catch (error) {
-  HighRatedDashboard = () => (
-    <div style={{
-      background: 'var(--surface-dark)',
-      border: '1px solid var(--border-light)',
-      padding: '50px',
-      borderRadius: '20px',
-      textAlign: 'center',
-      margin: '20px',
-      backdropFilter: 'blur(15px)',
-      boxShadow: 'var(--shadow-dark)'
-    }}>
-      <h1 style={{
+      <code style={{
+        background: 'var(--surface-dark)',
         color: 'var(--text-primary)',
+        padding: '10px 15px',
+        borderRadius: '8px',
+        border: '1px solid var(--border-light)',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        textTransform: 'uppercase',
-        letterSpacing: '2px',
-        marginBottom: '20px'
+        fontSize: '0.85rem',
+        display: 'block',
+        textAlign: 'left'
       }}>
-        OUTLET DASHBOARD
-      </h1>
-      <p style={{
-        color: 'var(--text-secondary)',
-        fontSize: '1.1rem',
-        marginBottom: '15px',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-      }}>
-        HIGHRATEDDASHBOARD COMPONENT NOT FOUND
-      </p>
-      <p style={{
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        fontSize: '0.9rem'
-      }}>
-        PLEASE CREATE: <code style={{
-          background: 'var(--surface-light)',
-          padding: '4px 8px',
-          borderRadius: '6px',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-light)'
-        }}>HighRatedDashboard.js</code>
-      </p>
+        Create: ./{fileName}.js
+      </code>
     </div>
-  );
+    
+    <style>
+      {`
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+      `}
+    </style>
+  </div>
+);
+
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Dashboard Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          background: 'var(--surface-dark)',
+          border: '2px solid #ef4444',
+          borderRadius: '20px',
+          padding: '40px',
+          margin: '20px',
+          textAlign: 'center',
+          backdropFilter: 'blur(15px)',
+          boxShadow: 'var(--shadow-dark)'
+        }}>
+          <h2 style={{
+            color: '#ef4444',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontSize: '1.5rem',
+            marginBottom: '20px',
+            textTransform: 'uppercase',
+            letterSpacing: '2px'
+          }}>
+            SYSTEM ERROR
+          </h2>
+          <p style={{
+            color: 'var(--text-secondary)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            marginBottom: '20px'
+          }}>
+            Something went wrong while loading this dashboard.
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+            style={{
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid #ef4444',
+              color: '#ef4444',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              fontWeight: '600'
+            }}
+          >
+            RELOAD APPLICATION
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
-// Try to import EmployeeDashboard, fall back to placeholder if not found
-let EmployeeDashboard;
-try {
-  EmployeeDashboard = require('./EmployeeDashboard').default;
-} catch (error) {
-  EmployeeDashboard = () => (
-    <div style={{
-      background: 'var(--surface-dark)',
-      border: '1px solid var(--border-light)',
-      padding: '50px',
-      borderRadius: '20px',
-      textAlign: 'center',
-      margin: '20px',
-      backdropFilter: 'blur(15px)',
-      boxShadow: 'var(--shadow-dark)'
-    }}>
-      <h1 style={{
-        color: 'var(--text-primary)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        textTransform: 'uppercase',
-        letterSpacing: '2px',
-        marginBottom: '20px'
-      }}>
-        EMPLOYEE DASHBOARD
-      </h1>
-      <p style={{
-        color: 'var(--text-secondary)',
-        fontSize: '1.1rem',
-        marginBottom: '15px',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-      }}>
-        EMPLOYEEDASHBOARD COMPONENT NOT FOUND
-      </p>
-      <p style={{
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        fontSize: '0.9rem'
-      }}>
-        PLEASE CREATE: <code style={{
-          background: 'var(--surface-light)',
-          padding: '4px 8px',
-          borderRadius: '6px',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-light)'
-        }}>EmployeeDashboard.js</code>
-      </p>
-    </div>
-  );
-}
-
-// Try to import SwiggyDashboard, fall back to placeholder if not found
-let SwiggyDashboard;
-try {
-  SwiggyDashboard = require('./SwiggyDashboard').default;
-} catch (error) {
-  SwiggyDashboard = () => (
-    <div style={{
-      background: 'var(--surface-dark)',
-      border: '1px solid var(--border-light)',
-      padding: '50px',
-      borderRadius: '20px',
-      textAlign: 'center',
-      margin: '20px',
-      backdropFilter: 'blur(15px)',
-      boxShadow: 'var(--shadow-dark)'
-    }}>
-      <h1 style={{
-        color: 'var(--text-primary)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        textTransform: 'uppercase',
-        letterSpacing: '2px',
-        marginBottom: '20px'
-      }}>
-        SWIGGY DASHBOARD
-      </h1>
-      <p style={{
-        color: 'var(--text-secondary)',
-        fontSize: '1.1rem',
-        marginBottom: '15px',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-      }}>
-        SWIGGYDASHBOARD COMPONENT NOT FOUND
-      </p>
-      <p style={{
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        fontSize: '0.9rem'
-      }}>
-        PLEASE CREATE: <code style={{
-          background: 'var(--surface-light)',
-          padding: '4px 8px',
-          borderRadius: '6px',
-          color: 'var(--text-primary)',
-          border: '1px solid var(--border-light)'
-        }}>SwiggyDashboard.js</code>
-      </p>
-    </div>
-  );
-}
-
+// Main App Component
 function App() {
   const [currentView, setCurrentView] = useState('dashboard');
+  const [isNavigating, setIsNavigating] = useState(false);
 
-  const renderCurrentView = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'swiggy':
-        return <SwiggyDashboard />;
-      case 'outlet':
-        return <HighRatedDashboard />;
-      case 'employee':
-        return <EmployeeDashboard />;
-      case 'checklist':
-        return <ChecklistDashboard />;
-      default:
-        return <Dashboard />;
-    }
+  // Navigation configuration
+  const navigationItems = [
+    { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
+    { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
+    { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
+    { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
+    { key: 'checklist', label: 'CHECKLISTS', icon: '✅' }
+  ];
+
+  // Handle view changes with smooth transitions
+  const handleViewChange = (newView) => {
+    if (newView === currentView) return;
+    
+    setIsNavigating(true);
+    setTimeout(() => {
+      setCurrentView(newView);
+      setIsNavigating(false);
+    }, 150);
   };
 
-  const createNavButton = (viewName, label, isActive) => {
+  // Render current view with error boundary
+  const renderCurrentView = () => {
+    const viewComponents = {
+      dashboard: <Dashboard />,
+      swiggy: <SwiggyDashboard />,
+      outlet: <HighRatedDashboard />,
+      employee: <EmployeeDashboard />,
+      checklist: <ChecklistDashboard />
+    };
+
+    const CurrentComponent = viewComponents[currentView] || <Dashboard />;
+
+    return (
+      <ErrorBoundary key={currentView}>
+        <Suspense fallback={<LoadingComponent />}>
+          <div style={{
+            opacity: isNavigating ? 0.7 : 1,
+            transform: isNavigating ? 'translateY(10px)' : 'translateY(0)',
+            transition: 'all 0.15s ease-out'
+          }}>
+            {CurrentComponent}
+          </div>
+        </Suspense>
+      </ErrorBoundary>
+    );
+  };
+
+  // Create navigation button with enhanced styling
+  const createNavButton = (item, isActive) => {
+    const { key, label, icon } = item;
+    
     const buttonStyle = {
-      background: isActive ? 'var(--border-light)' : 'var(--surface-light)',
-      color: 'var(--text-primary)',
-      border: '1px solid var(--border-light)',
-      padding: '8px 16px',
-      borderRadius: '8px',
+      background: isActive 
+        ? 'linear-gradient(135deg, var(--border-light) 0%, var(--surface-light) 100%)' 
+        : 'var(--surface-light)',
+      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+      border: isActive ? '2px solid var(--border-light)' : '1px solid var(--border-light)',
+      padding: '10px 18px',
+      borderRadius: '10px',
       cursor: 'pointer',
-      fontWeight: '600',
+      fontWeight: isActive ? '700' : '600',
       fontSize: '0.85rem',
-      transition: 'var(--transition)',
-      transform: isActive ? 'translateY(-3px)' : 'translateY(0)',
-      boxShadow: isActive ? 'var(--shadow-glow)' : 'none',
+      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+      transform: isActive ? 'translateY(-3px) scale(1.02)' : 'translateY(0) scale(1)',
+      boxShadow: isActive 
+        ? 'var(--shadow-glow), 0 8px 25px rgba(0, 0, 0, 0.3)' 
+        : '0 2px 10px rgba(0, 0, 0, 0.1)',
       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
       textTransform: 'uppercase',
       letterSpacing: '1px',
-      backdropFilter: 'blur(10px)',
+      backdropFilter: 'blur(15px)',
       position: 'relative',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      minWidth: '120px',
+      justifyContent: 'center'
     };
 
     const handleMouseEnter = (e) => {
       if (!isActive) {
-        e.target.style.background = 'var(--border-light)';
-        e.target.style.transform = 'translateY(-2px)';
-        e.target.style.boxShadow = 'var(--shadow-glow)';
+        e.target.style.background = 'linear-gradient(135deg, var(--border-light) 0%, var(--surface-light) 100%)';
+        e.target.style.transform = 'translateY(-2px) scale(1.01)';
+        e.target.style.boxShadow = 'var(--shadow-glow), 0 6px 20px rgba(0, 0, 0, 0.2)';
+        e.target.style.color = 'var(--text-primary)';
       }
     };
 
     const handleMouseLeave = (e) => {
       if (!isActive) {
         e.target.style.background = 'var(--surface-light)';
-        e.target.style.transform = 'translateY(0)';
-        e.target.style.boxShadow = 'none';
+        e.target.style.transform = 'translateY(0) scale(1)';
+        e.target.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+        e.target.style.color = 'var(--text-secondary)';
       }
     };
 
     return (
       <button
-        key={viewName}
-        onClick={() => setCurrentView(viewName)}
+        key={key}
+        onClick={() => handleViewChange(key)}
         style={buttonStyle}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        disabled={isNavigating}
       >
-        {label}
+        <span style={{ fontSize: '1rem' }}>{icon}</span>
+        <span>{label}</span>
+        {isActive && (
+          <div style={{
+            position: 'absolute',
+            bottom: '0',
+            left: '0',
+            right: '0',
+            height: '2px',
+            background: 'linear-gradient(90deg, transparent, var(--text-primary), transparent)',
+            animation: 'pulse 2s infinite'
+          }} />
+        )}
       </button>
     );
   };
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.altKey) {
+        const keyMap = {
+          '1': 'dashboard',
+          '2': 'swiggy', 
+          '3': 'outlet',
+          '4': 'employee',
+          '5': 'checklist'
+        };
+        
+        if (keyMap[e.key]) {
+          e.preventDefault();
+          handleViewChange(keyMap[e.key]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div style={{
@@ -278,60 +411,171 @@ function App() {
       background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #000000 100%)',
       padding: '0',
       margin: '0',
-      color: 'var(--text-primary)'
+      color: 'var(--text-primary)',
+      position: 'relative'
     }}>
+      {/* Global Styles */}
+      <style>
+        {`
+          @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+          }
+          
+          /* Scrollbar styling */
+          ::-webkit-scrollbar {
+            width: 8px;
+          }
+          
+          ::-webkit-scrollbar-track {
+            background: var(--surface-dark);
+          }
+          
+          ::-webkit-scrollbar-thumb {
+            background: var(--border-light);
+            border-radius: 4px;
+          }
+          
+          ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+          }
+        `}
+      </style>
+
       {/* Navigation Header */}
       <nav style={{
         background: 'var(--surface-dark)',
         border: 'none',
-        padding: '10px 20px',
+        padding: '15px 25px',
         display: 'flex',
-        gap: '15px',
+        gap: '20px',
         justifyContent: 'space-between',
         alignItems: 'center',
-        backdropFilter: 'blur(15px)',
-        boxShadow: 'var(--shadow-dark)',
+        backdropFilter: 'blur(20px)',
+        boxShadow: 'var(--shadow-dark), 0 1px 0 rgba(255, 255, 255, 0.05)',
         marginBottom: '25px',
         position: 'sticky',
         top: '0px',
-        zIndex: '100',
+        zIndex: '1000',
         backgroundImage: 'linear-gradient(var(--surface-dark), var(--surface-dark)), var(--primary-gradient)',
         backgroundOrigin: 'padding-box',
         backgroundClip: 'padding-box, border-box'
       }}>
-        {/* Logo */}
-        <img
-          src={logo}
-          alt="Logo"
-          style={{
-            height: '40px',
-            width: 'auto',
-            backdropFilter: 'blur(10px)'
-          }}
-        />
+        {/* Logo Section */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '15px' 
+        }}>
+          <img
+            src={logo}
+            alt="Logo"
+            style={{
+              height: '45px',
+              width: 'auto',
+              backdropFilter: 'blur(10px)',
+              transition: 'transform 0.3s ease'
+            }}
+            onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
+            onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+          />
+          <div>
+            <h1 style={{
+              margin: 0,
+              fontSize: '1.2rem',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              color: 'var(--text-primary)',
+              letterSpacing: '2px'
+            }}>
+              AOD ANALYTICS
+            </h1>
+            <p style={{
+              margin: 0,
+              fontSize: '0.7rem',
+              color: 'var(--text-muted)',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              letterSpacing: '1px'
+            }}>
+              REAL-TIME DASHBOARD SUITE
+            </p>
+          </div>
+        </div>
         
         {/* Navigation Buttons */}
         <div style={{ 
           display: 'flex', 
-          gap: '15px', 
+          gap: '12px', 
           flexWrap: 'wrap',
           alignItems: 'center'
         }}>
-          {createNavButton('dashboard', 'ZOMATO DB', currentView === 'dashboard')}
-          {createNavButton('swiggy', 'SWIGGY DB', currentView === 'swiggy')}
-          {createNavButton('outlet', 'OUTLET DB', currentView === 'outlet')}
-          {createNavButton('employee', 'EMPLOYEE DB', currentView === 'employee')}
-          {createNavButton('checklist', 'CHECKLISTS', currentView === 'checklist')}
+          {navigationItems.map(item => 
+            createNavButton(item, currentView === item.key)
+          )}
+        </div>
+
+        {/* Keyboard Shortcuts Indicator */}
+        <div style={{
+          fontSize: '0.7rem',
+          color: 'var(--text-muted)',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+          textAlign: 'right',
+          lineHeight: '1.2'
+        }}>
+          <div>ALT + 1-5</div>
+          <div>SHORTCUTS</div>
         </div>
       </nav>
 
+      {/* Status Bar */}
+      <div style={{
+        background: 'rgba(0, 0, 0, 0.5)',
+        padding: '8px 25px',
+        fontSize: '0.75rem',
+        color: 'var(--text-muted)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid var(--border-light)',
+        marginBottom: '15px'
+      }}>
+        <div>
+          ACTIVE: {navigationItems.find(item => item.key === currentView)?.label || 'UNKNOWN'}
+        </div>
+        <div>
+          STATUS: {isNavigating ? 'SWITCHING...' : 'READY'}
+        </div>
+        <div>
+          SESSION: {new Date().toLocaleTimeString()}
+        </div>
+      </div>
+
       {/* Content Area */}
-      <div style={{ 
-        padding: '0 20px',
-        paddingBottom: '40px'
+      <main style={{ 
+        padding: '0 25px',
+        paddingBottom: '50px',
+        minHeight: 'calc(100vh - 200px)'
       }}>
         {renderCurrentView()}
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer style={{
+        background: 'var(--surface-dark)',
+        borderTop: '1px solid var(--border-light)',
+        padding: '20px 25px',
+        textAlign: 'center',
+        fontSize: '0.8rem',
+        color: 'var(--text-muted)',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+      }}>
+        <div>
+          AOD ANALYTICS DASHBOARD SUITE v2.0 • POWERED BY REACT & GOOGLE SHEETS API
+        </div>
+        <div style={{ marginTop: '5px', fontSize: '0.7rem' }}>
+          USE ALT + 1-5 FOR QUICK NAVIGATION BETWEEN DASHBOARDS
+        </div>
+      </footer>
     </div>
   );
 }

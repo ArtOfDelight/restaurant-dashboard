@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios'; // Added missing import
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -19,105 +20,152 @@ const SwiggyDashboard = () => {
   const [loadingAI, setLoadingAI] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
 
-  // Mock data based on the provided document structure
-  const mockData = {
-    outlets: [
-      'Yelahanka', 'Residency Road', 'Mahadevapura', 'Koramangala', 'Kalyan Nagar', 
-      'Bellandur', 'Indiranagar', 'J P Nagar', 'Jayanagar', 'HSR', 'Rajajinagara'
-    ],
-    oneDayData: {
-      m2o: [24.2, 25.7, 19.5, 28.9, 21.6, 22.8, 23.4, 19.5, 20.3, 23.5, 11.8],
-      m2oTrend: [36.4, 39.4, 7.8, 21.7, 24.2, -11.5, 10.2, 21.8, 8.3, 21.0, -48.4],
-      newCustomers: [31.4, 41.5, 37.5, 38.0, 35.4, 39.7, 44.7, 39.5, 45.8, 50.7, 52.2],
-      newCustomerTrend: [-5.88, 83.33, -34.78, -5.00, 27.78, 3.57, 13.33, 240.00, -26.67, 48.00, -33.33],
-      repeatCustomers: [43.1, 34.0, 42.5, 36.0, 38.5, 37.0, 34.2, 30.2, 33.3, 31.5, 43.5],
-      repeatCustomerTrend: [10.00, 0.00, -10.53, -18.18, -21.88, -37.21, -51.85, -27.78, -52.94, -8.00, -44.44],
-      dormantCustomers: [25.5, 24.5, 20.0, 26.0, 26.2, 23.3, 21.1, 30.2, 20.8, 17.8, 4.3],
-      totalCustomers: [51, 53, 40, 50, 65, 73, 38, 43, 24, 73, 23],
-      totalCustomerTrend: [37.84, 76.67, -4.76, 19.05, 30.00, 2.82, -9.52, 86.96, -25.00, 46.00, -36.11],
-      kitchenPrepTime: [3.3, 1.6, 5.8, 3.3, 3.9, 3.1, 4.5, 4.2, 6.8, 4.7, 2.4],
-      foodAccuracy: [96.08, 92.45, 92.68, 82.00, 90.77, 91.78, 90.00, 90.70, 84.00, 93.24, 83.33],
-      delayedOrders: [5.88, 3.77, 9.76, 4.00, 3.08, 1.37, 10.00, 11.63, 8.00, 4.05, 4.17],
-      adOrders: [5.4, 37.8, -87.6, -67.7, 14.1, -82.4, -74.0, 97.5, -100.0, 28.6, 18.6],
-      adSpend: [1612, 1488, 204, 480, 2724, 384, 384, 1920, 0, 2700, 1275],
-      adM2o: [15.5, 20.2, 18.6, 19.6, 15.8, 17.5, 19.6, 12.8, 6.1, 19.1, 8.4],
-      adM2oTrend: [13.1, 15.6, 42.5, 5.4, 25.9, -20.9, 16.8, 32.9, -58.1, 51.4, -49.1],
-      organicM2o: [41.1, 34.6, 20.6, 41.0, 37.2, 29.1, 29.2, 38.6, 30.4, 34.0, 17.6],
-      organicM2oTrend: [57.9, 54.6, -19.2, 9.4, 18.1, -15.7, -7.7, 57.0, -11.2, -9.3, -46.2],
-      onlinePercent: [100.00, 99.88, 88.85, 100.00, 97.93, 94.94, 100.00, 98.05, 100.00, 94.83, 100.00]
-    },
-    sevenDayData: {
-      m2o: [22.3, 21.2, 19.0, 21.2, 18.7, 20.3, 23.9, 15.9, 19.4, 20.5, 14.5],
-      m2oTrend: [22.5, -4.0, 15.3, 10.7, 4.3, -11.0, 4.1, -6.3, 17.2, -3.9, -23.2],
-      newCustomers: [36.4, 38.1, 45.7, 33.0, 33.0, 38.3, 36.3, 39.6, 44.9, 51.4, 48.3],
-      newCustomerTrend: [13.79, 48.53, 21.84, 7.14, -5.17, 22.73, 22.22, 24.59, 20.97, 41.98, 14.75],
-      repeatCustomers: [58.8, 57.0, 50.9, 61.2, 61.9, 57.7, 60.8, 53.6, 52.1, 45.0, 51.0],
-      repeatCustomerTrend: [60.00, 18.90, 81.54, 80.52, 54.89, 45.24, 31.75, 35.53, 42.62, 11.64, -5.13],
-      dormantCustomers: [4.8, 4.9, 3.4, 5.7, 5.1, 4.0, 2.9, 6.8, 3.0, 3.6, 0.7],
-      dormantCustomerTrend: [8.33, -50.00, 14.29, -7.14, -19.05, -37.04, -42.86, -13.33, -44.44, -31.58, -90.00],
-      totalCustomers: [272, 265, 232, 227, 333, 423, 273, 192, 167, 362, 145],
-      totalCustomerTrend: [-26.84, -16.60, -31.47, -29.07, -18.92, -22.70, -19.05, -20.83, -20.96, -18.23, 2.76],
-      kitchenPrepTime: [4.0, 1.2, 5.4, 2.2, 3.1, 3.3, 3.8, 3.5, 5.2, 2.8, 2.7],
-      foodAccuracy: [87.36, 95.05, 92.61, 90.59, 95.11, 95.07, 90.29, 96.17, 78.91, 96.75, 89.30],
-      delayedOrders: [9.52, 2.35, 6.01, 3.85, 2.53, 4.20, 6.50, 5.34, 10.31, 0.51, 5.03],
-      adOrders: [22.8, 34.6, -5.5, -2.7, 16.1, -8.4, 6.2, 48.2, -43.9, 24.5, 20.4],
-      adSpend: [8427, 8736, 6132, 5700, 13188, 9087, 7248, 8784, 3168, 13536, 6339],
-      adM2o: [20.1, 18.8, 16.4, 16.5, 15.1, 17.9, 20.7, 12.8, 14.5, 18.5, 11.5],
-      adM2oTrend: [15.8, 7.2, 9.9, 7.6, 17.6, -3.9, 16.3, -20.7, 8.8, 11.5, -21.1],
-      organicM2o: [25.9, 24.4, 22.6, 27.4, 26.9, 23.4, 29.9, 21.7, 24.5, 24.7, 19.1],
-      organicM2oTrend: [23.5, -10.2, 23.0, 10.4, -0.8, -19.2, -5.3, 20.1, 11.4, -19.7, -22.5],
-      onlinePercent: [98.41, 99.74, 93.51, 99.97, 97.96, 95.49, 99.68, 97.83, 99.55, 90.26, 100.00]
-    }
-  };
-
-  // Fetch data with AI analysis
+  // Fetch data with real API calls
   const fetchData = async (period) => {
     try {
       setLoading(true);
-      // In a real implementation, this would call Google Sheets API
-      // const response = await axios.get(`${API_URL}/api/swiggy-dashboard-data`, {
-      //   params: { 
-      //     fileId: '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs',
-      //     period,
-      //     oneDayRange: 'C9:C21',
-      //     sevenDayRange: 'C25:C37'
-      //   }
-      // });
-      
-      // Using mock data for now
-      const dashboardData = {
-        outlets: mockData.outlets,
-        currentData: period === '1 Day' ? mockData.oneDayData : mockData.sevenDayData,
-        summary: {
-          totalOutlets: mockData.outlets.length,
-          avgM2O: period === '1 Day' 
-            ? (mockData.oneDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-            : (mockData.sevenDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-          avgOnlinePercent: period === '1 Day'
-            ? (mockData.oneDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-            : (mockData.sevenDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-          avgFoodAccuracy: period === '1 Day'
-            ? (mockData.oneDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-            : (mockData.sevenDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-          avgKitchenPrepTime: period === '1 Day'
-            ? (mockData.oneDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-            : (mockData.sevenDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-        }
-      };
-      
-      setData(dashboardData);
-      setLastUpdate(new Date().toLocaleString());
       setError(null);
       
-      // Generate AI insights for new data
-      generateAIInsights(dashboardData, period);
+      // Call the real Swiggy dashboard API
+      const response = await axios.get(`${API_URL}/api/swiggy-dashboard-data`, {
+        params: { period }
+      });
+      
+      if (response.data.success) {
+        const apiData = response.data.data;
+        
+        // Transform the API data to match component expectations
+        const dashboardData = {
+          outlets: apiData.outlets,
+          currentData: {
+            m2o: apiData.m2o,
+            m2oTrend: apiData.m2oTrend,
+            newCustomers: apiData.newCustomers,
+            newCustomerTrend: apiData.newCustomerTrend,
+            repeatCustomers: apiData.repeatCustomers,
+            repeatCustomerTrend: apiData.repeatCustomerTrend,
+            dormantCustomers: apiData.dormantCustomers,
+            dormantCustomerTrend: apiData.dormantCustomerTrend,
+            totalCustomers: apiData.totalCustomers,
+            totalCustomerTrend: apiData.totalCustomerTrend,
+            kitchenPrepTime: apiData.kitchenPrepTime,
+            foodAccuracy: apiData.foodAccuracy,
+            delayedOrders: apiData.delayedOrders,
+            adOrders: apiData.adOrders,
+            adOrdersTrend: apiData.adOrdersTrend,
+            adSpend: apiData.adSpend,
+            adM2o: apiData.adM2o,
+            adM2oTrend: apiData.adM2oTrend,
+            organicM2o: apiData.organicM2o,
+            organicM2oTrend: apiData.organicM2oTrend,
+            onlinePercent: apiData.onlinePercent
+          },
+          summary: apiData.summary
+        };
+        
+        setData(dashboardData);
+        setLastUpdate(new Date().toLocaleString());
+        
+        // Generate AI insights for new data
+        if (response.data.aiEnabled) {
+          generateAIInsights(dashboardData, period);
+        }
+        
+      } else {
+        throw new Error(response.data.error || 'Failed to fetch data');
+      }
       
     } catch (err) {
-      setError('Failed to load data. Make sure backend is running.');
-      console.error(err);
+      console.error('API Error:', err);
+      setError(err.response?.data?.error || err.message || 'Failed to load data. Make sure backend is running.');
+      
+      // Fallback to mock data if API fails
+      console.log('Falling back to mock data...');
+      setMockData(period);
+      
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fallback mock data function
+  const setMockData = (period) => {
+    const mockData = {
+      outlets: [
+        'Yelahanka', 'Residency Road', 'Mahadevapura', 'Koramangala', 'Kalyan Nagar', 
+        'Bellandur', 'Indiranagar', 'J P Nagar', 'Jayanagar', 'HSR', 'Rajajinagara'
+      ],
+      oneDayData: {
+        m2o: [24.2, 25.7, 19.5, 28.9, 21.6, 22.8, 23.4, 19.5, 20.3, 23.5, 11.8],
+        m2oTrend: [36.4, 39.4, 7.8, 21.7, 24.2, -11.5, 10.2, 21.8, 8.3, 21.0, -48.4],
+        newCustomers: [31.4, 41.5, 37.5, 38.0, 35.4, 39.7, 44.7, 39.5, 45.8, 50.7, 52.2],
+        newCustomerTrend: [-5.88, 83.33, -34.78, -5.00, 27.78, 3.57, 13.33, 240.00, -26.67, 48.00, -33.33],
+        repeatCustomers: [43.1, 34.0, 42.5, 36.0, 38.5, 37.0, 34.2, 30.2, 33.3, 31.5, 43.5],
+        repeatCustomerTrend: [10.00, 0.00, -10.53, -18.18, -21.88, -37.21, -51.85, -27.78, -52.94, -8.00, -44.44],
+        dormantCustomers: [25.5, 24.5, 20.0, 26.0, 26.2, 23.3, 21.1, 30.2, 20.8, 17.8, 4.3],
+        totalCustomers: [51, 53, 40, 50, 65, 73, 38, 43, 24, 73, 23],
+        totalCustomerTrend: [37.84, 76.67, -4.76, 19.05, 30.00, 2.82, -9.52, 86.96, -25.00, 46.00, -36.11],
+        kitchenPrepTime: [3.3, 1.6, 5.8, 3.3, 3.9, 3.1, 4.5, 4.2, 6.8, 4.7, 2.4],
+        foodAccuracy: [96.08, 92.45, 92.68, 82.00, 90.77, 91.78, 90.00, 90.70, 84.00, 93.24, 83.33],
+        delayedOrders: [5.88, 3.77, 9.76, 4.00, 3.08, 1.37, 10.00, 11.63, 8.00, 4.05, 4.17],
+        adOrders: [5.4, 37.8, -87.6, -67.7, 14.1, -82.4, -74.0, 97.5, -100.0, 28.6, 18.6],
+        adSpend: [1612, 1488, 204, 480, 2724, 384, 384, 1920, 0, 2700, 1275],
+        adM2o: [15.5, 20.2, 18.6, 19.6, 15.8, 17.5, 19.6, 12.8, 6.1, 19.1, 8.4],
+        adM2oTrend: [13.1, 15.6, 42.5, 5.4, 25.9, -20.9, 16.8, 32.9, -58.1, 51.4, -49.1],
+        organicM2o: [41.1, 34.6, 20.6, 41.0, 37.2, 29.1, 29.2, 38.6, 30.4, 34.0, 17.6],
+        organicM2oTrend: [57.9, 54.6, -19.2, 9.4, 18.1, -15.7, -7.7, 57.0, -11.2, -9.3, -46.2],
+        onlinePercent: [100.00, 99.88, 88.85, 100.00, 97.93, 94.94, 100.00, 98.05, 100.00, 94.83, 100.00]
+      },
+      sevenDayData: {
+        m2o: [22.3, 21.2, 19.0, 21.2, 18.7, 20.3, 23.9, 15.9, 19.4, 20.5, 14.5],
+        m2oTrend: [22.5, -4.0, 15.3, 10.7, 4.3, -11.0, 4.1, -6.3, 17.2, -3.9, -23.2],
+        newCustomers: [36.4, 38.1, 45.7, 33.0, 33.0, 38.3, 36.3, 39.6, 44.9, 51.4, 48.3],
+        newCustomerTrend: [13.79, 48.53, 21.84, 7.14, -5.17, 22.73, 22.22, 24.59, 20.97, 41.98, 14.75],
+        repeatCustomers: [58.8, 57.0, 50.9, 61.2, 61.9, 57.7, 60.8, 53.6, 52.1, 45.0, 51.0],
+        repeatCustomerTrend: [60.00, 18.90, 81.54, 80.52, 54.89, 45.24, 31.75, 35.53, 42.62, 11.64, -5.13],
+        dormantCustomers: [4.8, 4.9, 3.4, 5.7, 5.1, 4.0, 2.9, 6.8, 3.0, 3.6, 0.7],
+        dormantCustomerTrend: [8.33, -50.00, 14.29, -7.14, -19.05, -37.04, -42.86, -13.33, -44.44, -31.58, -90.00],
+        totalCustomers: [272, 265, 232, 227, 333, 423, 273, 192, 167, 362, 145],
+        totalCustomerTrend: [-26.84, -16.60, -31.47, -29.07, -18.92, -22.70, -19.05, -20.83, -20.96, -18.23, 2.76],
+        kitchenPrepTime: [4.0, 1.2, 5.4, 2.2, 3.1, 3.3, 3.8, 3.5, 5.2, 2.8, 2.7],
+        foodAccuracy: [87.36, 95.05, 92.61, 90.59, 95.11, 95.07, 90.29, 96.17, 78.91, 96.75, 89.30],
+        delayedOrders: [9.52, 2.35, 6.01, 3.85, 2.53, 4.20, 6.50, 5.34, 10.31, 0.51, 5.03],
+        adOrders: [22.8, 34.6, -5.5, -2.7, 16.1, -8.4, 6.2, 48.2, -43.9, 24.5, 20.4],
+        adSpend: [8427, 8736, 6132, 5700, 13188, 9087, 7248, 8784, 3168, 13536, 6339],
+        adM2o: [20.1, 18.8, 16.4, 16.5, 15.1, 17.9, 20.7, 12.8, 14.5, 18.5, 11.5],
+        adM2oTrend: [15.8, 7.2, 9.9, 7.6, 17.6, -3.9, 16.3, -20.7, 8.8, 11.5, -21.1],
+        organicM2o: [25.9, 24.4, 22.6, 27.4, 26.9, 23.4, 29.9, 21.7, 24.5, 24.7, 19.1],
+        organicM2oTrend: [23.5, -10.2, 23.0, 10.4, -0.8, -19.2, -5.3, 20.1, 11.4, -19.7, -22.5],
+        onlinePercent: [98.41, 99.74, 93.51, 99.97, 97.96, 95.49, 99.68, 97.83, 99.55, 90.26, 100.00]
+      }
+    };
+
+    const dashboardData = {
+      outlets: mockData.outlets,
+      currentData: period === '1 Day' ? mockData.oneDayData : mockData.sevenDayData,
+      summary: {
+        totalOutlets: mockData.outlets.length,
+        avgM2O: period === '1 Day' 
+          ? (mockData.oneDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
+          : (mockData.sevenDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
+        avgOnlinePercent: period === '1 Day'
+          ? (mockData.oneDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
+          : (mockData.sevenDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
+        avgFoodAccuracy: period === '1 Day'
+          ? (mockData.oneDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
+          : (mockData.sevenDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
+        avgKitchenPrepTime: period === '1 Day'
+          ? (mockData.oneDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
+          : (mockData.sevenDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
+      }
+    };
+    
+    setData(dashboardData);
+    setLastUpdate(new Date().toLocaleString());
+    setError('Using mock data - backend API not available');
+    
+    // Generate AI insights for new data
+    generateAIInsights(dashboardData, period);
   };
 
   // Generate AI insights focusing on bottom performers
@@ -125,7 +173,23 @@ const SwiggyDashboard = () => {
     try {
       setLoadingAI(true);
       
-      // Mock AI insights generation - in real implementation, use Gemini API
+      // Try to call real AI insights API first
+      try {
+        const response = await axios.post(`${API_URL}/api/swiggy-generate-insights`, {
+          data: dashboardData,
+          period: period,
+          analysisType: 'comprehensive'
+        });
+        
+        if (response.data.success) {
+          setAiInsights(response.data.insights);
+          return;
+        }
+      } catch (apiError) {
+        console.log('AI API not available, using fallback analysis');
+      }
+      
+      // Fallback AI insights generation
       const currentData = dashboardData.currentData;
       
       // Find bottom 3 outlets based on M2O
@@ -159,7 +223,10 @@ const SwiggyDashboard = () => {
           'Enhance online presence strategy for flagged outlets'
         ],
         bottomThreeAnalysis: bottomThree,
-        flaggedOutlets: flaggedOutlets
+        flaggedOutlets: flaggedOutlets,
+        confidence: 0.75,
+        generatedAt: new Date().toISOString(),
+        source: 'fallback-analysis'
       };
       
       setAiInsights(insights);
@@ -191,38 +258,29 @@ const SwiggyDashboard = () => {
         dormantCustomers: currentData.dormantCustomers[outletIndex]
       };
       
-      // Call real Swiggy outlet analysis endpoint
-      const response = await axios.post(`${API_URL}/api/swiggy-analyze-outlet`, {
-        outlet: outletData,
-        period: selectedPeriod,
-        allData: data
-      });
-      
-      if (response.data.success) {
-        setAiInsights({
-          ...aiInsights,
-          outletAnalysis: response.data.analysis,
-          focusOutlet: data.outlets[outletIndex]
+      // Try real API call first
+      try {
+        const response = await axios.post(`${API_URL}/api/swiggy-analyze-outlet`, {
+          outlet: outletData,
+          period: selectedPeriod,
+          allData: data
         });
-        setShowAIPanel(true);
-        console.log('✅ Successfully generated outlet analysis for:', data.outlets[outletIndex]);
-      } else {
-        throw new Error(response.data.error || 'Failed to analyze outlet');
+        
+        if (response.data.success) {
+          setAiInsights({
+            ...aiInsights,
+            outletAnalysis: response.data.analysis,
+            focusOutlet: data.outlets[outletIndex]
+          });
+          setShowAIPanel(true);
+          console.log('Successfully generated outlet analysis for:', data.outlets[outletIndex]);
+          return;
+        }
+      } catch (apiError) {
+        console.log('Outlet analysis API not available, using fallback');
       }
       
-    } catch (err) {
-      console.error('Outlet analysis failed:', err);
-      
       // Fallback analysis if backend fails
-      const currentData = data.currentData;
-      const outletData = {
-        name: data.outlets[outletIndex],
-        m2o: currentData.m2o[outletIndex],
-        onlinePercent: currentData.onlinePercent[outletIndex],
-        foodAccuracy: currentData.foodAccuracy[outletIndex],
-        kitchenPrepTime: currentData.kitchenPrepTime[outletIndex]
-      };
-      
       const criticalIssues = [];
       if (outletData.onlinePercent < 98) criticalIssues.push('online presence below 98%');
       if (outletData.foodAccuracy < 85) criticalIssues.push('food accuracy below 85%');
@@ -246,6 +304,9 @@ const SwiggyDashboard = () => {
         focusOutlet: data.outlets[outletIndex]
       });
       setShowAIPanel(true);
+      
+    } catch (err) {
+      console.error('Outlet analysis failed:', err);
     } finally {
       setLoadingAI(false);
     }
@@ -313,7 +374,7 @@ const SwiggyDashboard = () => {
   }
 
   // Error screen
-  if (error) {
+  if (error && !data) {
     return (
       <div className="checklist-error">
         <h3 style={{
@@ -434,6 +495,7 @@ const SwiggyDashboard = () => {
           }}>
             AI-POWERED INSIGHTS • LIVE DATA FROM GOOGLE SHEETS • {data.summary.totalOutlets} OUTLETS • {selectedPeriod.toUpperCase()} DATA
             {selectedOutlet !== null && ` • VIEWING: ${data.outlets[selectedOutlet].toUpperCase()}`}
+            {error && error.includes('mock') && ' • USING MOCK DATA'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -695,6 +757,29 @@ const SwiggyDashboard = () => {
           </div>
         ))}
       </div>
+
+      {/* Show error message if using mock data */}
+      {error && error.includes('mock') && (
+        <div style={{
+          background: 'rgba(245, 158, 11, 0.1)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: '15px',
+          padding: '15px',
+          marginBottom: '20px',
+          textAlign: 'center'
+        }}>
+          <p style={{
+            color: '#f59e0b',
+            margin: 0,
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontSize: '0.9rem',
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            ⚠ BACKEND API NOT AVAILABLE - DISPLAYING SAMPLE DATA
+          </p>
+        </div>
+      )}
 
       {/* Outlet Detail Modal */}
       {selectedOutlet !== null && data.outlets[selectedOutlet] && !minimized && (
