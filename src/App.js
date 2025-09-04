@@ -255,7 +255,7 @@ class ErrorBoundary extends React.Component {
 
 // Main App Component
 function App() {
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState('checklist'); // CHANGED: Now defaults to checklist
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Navigation configuration
@@ -288,7 +288,7 @@ function App() {
       checklist: <ChecklistDashboard />
     };
 
-    const CurrentComponent = viewComponents[currentView] || <Dashboard />;
+    const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />; // CHANGED: Default fallback to ChecklistDashboard
 
     return (
       <ErrorBoundary key={currentView}>
