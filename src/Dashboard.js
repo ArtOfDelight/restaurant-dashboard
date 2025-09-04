@@ -55,7 +55,6 @@ const Dashboard = () => {
       });
       
       if (response.data.success) {
-        // Add custom analysis for flagged outlets
         const flaggedOutlets = identifyFlaggedOutlets(dashboardData);
         const bottomThree = getBottomThreeOutlets(dashboardData);
         
@@ -79,7 +78,6 @@ const Dashboard = () => {
       const issues = [];
       if (data.onlinePercent[i] < 98) issues.push('Online < 98%');
       if (data.foodAccuracy[i] < 85) issues.push('Food Accuracy < 85%');
-      // Note: KPT (Kitchen Prep Time) not available in current data structure
       
       if (issues.length > 0) {
         flagged.push({
@@ -176,13 +174,23 @@ const Dashboard = () => {
   // Handle period change
   const handlePeriodChange = (period) => {
     setSelectedPeriod(period);
-    setSelectedOutlet(null);
+    setSelectedOutlet(null); // Reset outlet selection when period changes
     setMinimized(false);
     setShowAIPanel(false);
     fetchData(period);
   };
 
-  // Handle outlet click with AI analysis
+  // Handle outlet change from dropdown
+  const handleOutletChange = (event) => {
+    const index = data.outlets.indexOf(event.target.value);
+    setSelectedOutlet(index);
+    setMinimized(false);
+    if (index !== null) {
+      analyzeOutlet(index);
+    }
+  };
+
+  // Handle outlet click from charts
   const handleOutletClick = (event) => {
     const index = event?.activeTooltipIndex ?? null;
     setSelectedOutlet(index);
@@ -324,7 +332,6 @@ const Dashboard = () => {
         delayed: data.delayedOrders[i]
       }));
 
-  // Market Share data for bar chart
   const marketShareData = selectedOutlet !== null
     ? [{
         outlet: data.outlets[selectedOutlet],
@@ -337,7 +344,6 @@ const Dashboard = () => {
 
   const COLORS = ['#ffffff', '#cccccc', '#888888'];
 
-  // AI-powered performance categorization
   const getPerformanceCategory = (m2o, trend, accuracy) => {
     if (m2o > 14 && trend > 0 && accuracy > 95) return 'EXCELLENT';
     if (m2o > 12 && accuracy > 90) return 'GOOD';
@@ -345,7 +351,6 @@ const Dashboard = () => {
     return 'NEEDS WORK';
   };
 
-  // Top and bottom performers
   const topThreeOutlets = data ? getTopThreeOutlets(data) : [];
   const bottomThreeOutlets = data ? getBottomThreeOutlets(data) : [];
 
@@ -390,6 +395,30 @@ const Dashboard = () => {
           >
             <option value="7 Day">7 DAY DATA</option>
             <option value="1 Day">1 DAY DATA</option>
+          </select>
+          <select
+            value={selectedOutlet !== null ? data.outlets[selectedOutlet] : ''}
+            onChange={handleOutletChange}
+            style={{
+              padding: '12px 18px',
+              background: 'var(--surface-light)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '12px',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              color: 'var(--text-primary)',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <option value="">ALL OUTLETS</option>
+            {data.outlets.map((outlet, index) => (
+              <option key={index} value={outlet}>
+                {outlet.toUpperCase()}
+              </option>
+            ))}
           </select>
           <button
             onClick={() => setShowAIPanel(!showAIPanel)}
@@ -633,7 +662,7 @@ const Dashboard = () => {
           { 
             title: 'MARKET SHARE', 
             value: selectedOutlet !== null ? `${(data.marketShare[selectedOutlet] || 0).toFixed(2)}%` : `${data.summary.avgMarketShare}%`,
-            trend: selectedOutlet !== null ? (data.m2oTrend[selectedOutlet] || 0) * 0.1 : 0, // Placeholder trend calculation
+            trend: selectedOutlet !== null ? (data.m2oTrend[selectedOutlet] || 0) * 0.1 : 0,
             performance: selectedOutlet !== null ? data.marketShare[selectedOutlet] : parseFloat(data.summary.avgMarketShare)
           },
           { 
@@ -1080,7 +1109,7 @@ const Dashboard = () => {
                 {data.outlets.map((outlet, i) => {
                   const category = getPerformanceCategory(data.m2o[i], data.m2oTrend[i], data.foodAccuracy[i]);
                   const isUnderperforming = category === 'NEEDS WORK';
-                  const marketShareTrend = (data.m2oTrend[i] || 0) * 0.1; // Placeholder calculation
+                  const marketShareTrend = (data.m2oTrend[i] || 0) * 0.1;
                   
                   return (
                     <tr 
