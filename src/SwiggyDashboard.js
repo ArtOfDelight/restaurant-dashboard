@@ -1260,6 +1260,7 @@ const SwiggyDashboard = () => {
                   const hasAlerts = currentData.onlinePercent[i] < 98 || 
                                    currentData.foodAccuracy[i] < 85 || 
                                    currentData.kitchenPrepTime[i] > 4;
+                  const marketShareTrend = currentData.m2oTrend[i] || 0; // Using M2O trend as proxy
                   
                   return (
                     <tr 
