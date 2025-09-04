@@ -416,24 +416,22 @@ const SwiggyDashboard = () => {
         outlet: data.outlets[selectedOutlet],
         online: currentData.onlinePercent[selectedOutlet],
         accuracy: currentData.foodAccuracy[selectedOutlet],
-        delayed: currentData.delayedOrders[selectedOutlet],
-        marketShareTrend: currentData.m2oTrend[selectedOutlet] // Using M2O trend as market share trend proxy
+        delayed: currentData.delayedOrders[selectedOutlet]
       }]
     : data.outlets.map((outlet, i) => ({
         outlet,
         online: currentData.onlinePercent[i],
         accuracy: currentData.foodAccuracy[i],
-        delayed: currentData.delayedOrders[i],
-        marketShareTrend: currentData.m2oTrend[i]
+        delayed: currentData.delayedOrders[i]
       }));
 
   const COLORS = ['#ff6b6b', '#4ecdc4', '#45b7d1'];
 
   // AI-powered performance categorization
-  const getPerformanceCategory = (m2o, trend, accuracy, onlinePercent) => {
-    if (m2o > 20 && trend > 10 && accuracy > 95 && onlinePercent > 98) return 'EXCELLENT';
-    if (m2o > 18 && accuracy > 90 && onlinePercent > 95) return 'GOOD';
-    if (m2o > 15 && onlinePercent > 90) return 'AVERAGE';
+  const getPerformanceCategory = (m2o, accuracy, onlinePercent, dormant) => {
+    if (m2o > 20 && dormant < 20 && accuracy > 95 && onlinePercent > 98) return 'EXCELLENT';
+    if (m2o > 18 && dormant < 30 && accuracy > 90 && onlinePercent > 95) return 'GOOD';
+    if (m2o > 15 && dormant < 40 && onlinePercent > 90) return 'AVERAGE';
     return 'NEEDS URGENT ATTENTION';
   };
 
@@ -752,12 +750,6 @@ const SwiggyDashboard = () => {
             performance: selectedOutlet !== null ? currentData.m2o[selectedOutlet] : parseFloat(data.summary.avgM2O)
           },
           { 
-            title: 'MARKET SHARE TREND', 
-            value: selectedOutlet !== null ? `${(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '+' : ''}${(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%` : `${(currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length).toFixed(2)}%`,
-            trend: selectedOutlet !== null ? currentData.m2oTrend[selectedOutlet] : (currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length),
-            performance: selectedOutlet !== null ? currentData.m2oTrend[selectedOutlet] : (currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length)
-          },
-          { 
             title: 'ONLINE PRESENCE', 
             value: selectedOutlet !== null ? `${(currentData.onlinePercent[selectedOutlet] || 0).toFixed(2)}%` : `${data.summary.avgOnlinePercent}%`,
             target: 98,
@@ -967,21 +959,21 @@ const SwiggyDashboard = () => {
                 marginBottom: '20px',
                 background: getPerformanceCategory(
                   currentData.m2o[selectedOutlet], 
-                  currentData.m2oTrend[selectedOutlet], 
                   currentData.foodAccuracy[selectedOutlet],
-                  currentData.onlinePercent[selectedOutlet]
+                  currentData.onlinePercent[selectedOutlet],
+                  currentData.dormantCustomers[selectedOutlet]
                 ) === 'EXCELLENT' ? 'rgba(16, 185, 129, 0.2)' :
                 getPerformanceCategory(
                   currentData.m2o[selectedOutlet], 
-                  currentData.m2oTrend[selectedOutlet], 
                   currentData.foodAccuracy[selectedOutlet],
-                  currentData.onlinePercent[selectedOutlet]
+                  currentData.onlinePercent[selectedOutlet],
+                  currentData.dormantCustomers[selectedOutlet]
                 ) === 'GOOD' ? 'rgba(59, 130, 246, 0.2)' : 
                 getPerformanceCategory(
                   currentData.m2o[selectedOutlet], 
-                  currentData.m2oTrend[selectedOutlet], 
                   currentData.foodAccuracy[selectedOutlet],
-                  currentData.onlinePercent[selectedOutlet]
+                  currentData.onlinePercent[selectedOutlet],
+                  currentData.dormantCustomers[selectedOutlet]
                 ) === 'AVERAGE' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)'
               }}>
                 <p style={{
@@ -994,9 +986,9 @@ const SwiggyDashboard = () => {
                 }}>
                   AI CATEGORY: {getPerformanceCategory(
                     currentData.m2o[selectedOutlet], 
-                    currentData.m2oTrend[selectedOutlet], 
                     currentData.foodAccuracy[selectedOutlet],
-                    currentData.onlinePercent[selectedOutlet]
+                    currentData.onlinePercent[selectedOutlet],
+                    currentData.dormantCustomers[selectedOutlet]
                   )}
                 </p>
               </div>
@@ -1009,9 +1001,6 @@ const SwiggyDashboard = () => {
               }}>
                 <p><strong style={{ color: 'var(--text-primary)' }}>M2O:</strong> <span style={{ color: 'var(--text-secondary)' }}>{(currentData.m2o[selectedOutlet] || 0).toFixed(2)}%</span></p>
                 <p><strong style={{ color: 'var(--text-primary)' }}>M2O TREND:</strong> <span style={{ color: (currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '#10b981' : '#ef4444' }}>
-                  {(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '↑' : '↓'} {Math.abs(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%
-                </span></p>
-                <p><strong style={{ color: 'var(--text-primary)' }}>MARKET SHARE TREND:</strong> <span style={{ color: (currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '#10b981' : '#ef4444' }}>
                   {(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '↑' : '↓'} {Math.abs(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%
                 </span></p>
                 <p><strong style={{ color: 'var(--text-primary)' }}>ONLINE %:</strong> <span style={{ color: 'var(--text-secondary)' }}>{(currentData.onlinePercent[selectedOutlet] || 0).toFixed(2)}%</span></p>
@@ -1142,37 +1131,6 @@ const SwiggyDashboard = () => {
           </div>
         </div>
 
-        {/* Market Share Trend */}
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                MARKET SHARE TREND {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : 'BY OUTLET'}
-              </h3>
-            </div>
-          </div>
-          <div className="responses-section">
-            <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={performanceData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
-                <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'var(--surface-dark)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
-                <Line type="monotone" dataKey="marketShareTrend" stroke="#4ecdc4" strokeWidth={3} name="Market Share Trend %" />
-                <ReferenceLine y={0} stroke="#666" strokeDasharray="2 2" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
         {/* Multi-Metric Performance */}
         <div className="submission-card">
           <div className="submission-header">
@@ -1226,7 +1184,6 @@ const SwiggyDashboard = () => {
                     'OUTLET',
                     'M2O %',
                     'M2O TREND',
-                    'MARKET SHARE TREND',
                     'ONLINE %',
                     'FOOD ACCURACY %',
                     'DELAYED ORDERS %',
@@ -1252,15 +1209,14 @@ const SwiggyDashboard = () => {
                 {data.outlets.map((outlet, i) => {
                   const category = getPerformanceCategory(
                     currentData.m2o[i], 
-                    currentData.m2oTrend[i], 
                     currentData.foodAccuracy[i],
-                    currentData.onlinePercent[i]
+                    currentData.onlinePercent[i],
+                    currentData.dormantCustomers[i]
                   );
                   const isBottomThree = bottomThreeOutlets.some(bottom => bottom.index === i);
                   const hasAlerts = currentData.onlinePercent[i] < 98 || 
                                    currentData.foodAccuracy[i] < 85 || 
                                    currentData.kitchenPrepTime[i] > 4;
-                  const marketShareTrend = currentData.m2oTrend[i] || 0; // Using M2O trend as proxy
                   
                   return (
                     <tr 
@@ -1299,15 +1255,6 @@ const SwiggyDashboard = () => {
                           fontWeight: '600'
                         }}>
                           {(currentData.m2oTrend[i] || 0) > 0 ? '↑' : '↓'} {Math.abs(currentData.m2oTrend[i] || 0).toFixed(2)}%
-                        </span>
-                      </td>
-                      <td style={{ padding: '18px' }}>
-                        <span style={{
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          color: marketShareTrend > 0 ? '#10b981' : '#ef4444',
-                          fontWeight: '600'
-                        }}>
-                          {marketShareTrend > 0 ? '↑' : '↓'} {Math.abs(marketShareTrend).toFixed(2)}%
                         </span>
                       </td>
                       <td style={{ 
