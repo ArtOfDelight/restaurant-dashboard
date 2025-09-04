@@ -1644,15 +1644,15 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
   
   // Set specific row positions based on period - using your exact specifications
   if (requestedPeriod === '1 Day') {
-    // 1 Day: Headers at C9 (row 9), data from C10-C21 (rows 10-21)
+    // 1 Day: Headers at C9 (row 9), data from C10-C21 (rows 10-21), Total at C22
     if (rawData.length > 9) {
-      console.log('Processing 1 Day data: headers at C9, data from C10-C21');
+      console.log('Processing 1 Day data: headers at C9, data from C10-C21, Total at C22');
       startRow = 9; // Row 10 (index 9) - data starts here
     }
   } else if (requestedPeriod === '7 Day') {
-    // 7 Day: Headers at C25 (row 25), data from C26-C37 (rows 26-37)  
+    // 7 Day: Headers at C25 (row 25), data from C26-C37 (rows 26-37), Total at C38
     if (rawData.length > 25) {
-      console.log('Processing 7 Day data: headers at C25, data from C26-C37');
+      console.log('Processing 7 Day data: headers at C25, data from C26-C37, Total at C38');
       startRow = 25; // Row 26 (index 25) - data starts here
     }
   }
@@ -1686,20 +1686,28 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     organicM2oTrend: [],
     onlinePercent: [],
     period: requestedPeriod,
+    summary: {
+      avgM2O: '0',
+      avgOnlinePercent: '0',
+      avgFoodAccuracy: '0',
+      avgKitchenPrepTime: '0',
+      totalOutlets: 0,
+      totalRow: null // Initialize totalRow as null
+    }
   };
   
   // Set end row based on period and your specifications
   let endRow;
   if (requestedPeriod === '1 Day') {
-    endRow = Math.min(20, rawData.length - 1); // C10-C21 range (rows 10-21)
+    endRow = Math.min(21, rawData.length - 1); // C10-C21 range (rows 10-21), Total at C22
   } else if (requestedPeriod === '7 Day') {
-    endRow = Math.min(36, rawData.length - 1); // C26-C37 range (rows 26-37)
+    endRow = Math.min(37, rawData.length - 1); // C26-C37 range (rows 26-37), Total at C38
   }
   
   console.log(`Processing Swiggy ${requestedPeriod} Data from row ${startRow + 1} to row ${endRow + 1}`);
   
-  // Process each data row within the specified range
-  for (let i = startRow; i <= endRow && i < rawData.length; i++) {
+  // Process each data row within the specified range, including Total row
+  for (let i = startRow; i <= endRow + 1 && i < rawData.length; i++) { // Include +1 to capture Total row
     const row = rawData[i];
     
     if (!row || !row[columnOffset]) {
@@ -1708,16 +1716,13 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     }
     
     // Column mapping based on your Swiggy sheet structure
-    // Assuming: C=Location, D=M2O, E=M2O Trend, etc.
+    // Assuming: C=Location, D=M2O, E=M2O Trend, ..., J=Dormant Customer %, ...
     const location = row[columnOffset]?.toString().trim(); // Column C - Location
     
-    if (!location || location === '' || location.toLowerCase() === 'total') {
-      console.log(`Stopping at row ${i + 1}: no location or reached total`);
+    if (!location || location === '') {
+      console.log(`Stopping at row ${i + 1}: no location`);
       break;
     }
-    
-    console.log(`Processing Swiggy outlet: ${location} at row ${i + 1}`);
-    data.outlets.push(location);
     
     // Parse values safely for Swiggy data
     const parseSwiggyValue = (val) => {
@@ -1734,7 +1739,48 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
       return isNaN(num) ? 0 : num;
     };
     
-    // FIXED COLUMN MAPPING - corrected the last two columns
+    if (location.toLowerCase() === 'total') {
+      console.log(`Processing Total row at row ${i + 1}`);
+      // Process Total row and store in summary
+      data.summary.totalRow = {
+        location: 'Total',
+        m2o: parseSwiggyValue(row[columnOffset + 1]),              // Column D - M2O
+        m2oTrend: parseSwiggyValue(row[columnOffset + 2]),         // Column E - M2O Trend  
+        newCustomers: parseSwiggyValue(row[columnOffset + 3]),     // Column F - New Customer %
+        newCustomerTrend: parseSwiggyValue(row[columnOffset + 4]), // Column G - New Customer Trend
+        repeatCustomers: parseSwiggyValue(row[columnOffset + 5]), // Column H - Repeat Customer %
+        repeatCustomerTrend: parseSwiggyValue(row[columnOffset + 6]), // Column I - Repeat Customer Trend
+        dormantCustomers: parseSwiggyValue(row[columnOffset + 7]), // Column J - Dormant Customer %
+        dormantCustomerTrend: parseSwiggyValue(row[columnOffset + 8]), // Column K - Dormant Customer Trend
+        totalCustomers: parseSwiggyValue(row[columnOffset + 9]),   // Column L - Total Customers
+        totalCustomerTrend: parseSwiggyValue(row[columnOffset + 10]), // Column M - Total Customer Trend
+        kitchenPrepTime: parseSwiggyValue(row[columnOffset + 11]), // Column N - Kitchen Prep Time
+        foodAccuracy: parseSwiggyValue(row[columnOffset + 12]),    // Column O - Food Accuracy
+        delayedOrders: parseSwiggyValue(row[columnOffset + 13]),   // Column P - Delayed Orders
+        adOrders: parseSwiggyValue(row[columnOffset + 14]),        // Column Q - % of Ad Orders
+        adOrdersTrend: parseSwiggyValue(row[columnOffset + 15]),   // Column R - Ad Orders Trend
+        adSpend: parseSwiggyValue(row[columnOffset + 16]),         // Column S - Ad Spend
+        adM2o: parseSwiggyValue(row[columnOffset + 17]),           // Column T - Ad M2O
+        adM2oTrend: parseSwiggyValue(row[columnOffset + 18]),      // Column U - Ad M2O Trend
+        organicM2o: parseSwiggyValue(row[columnOffset + 19]),      // Column V - Organic M2O
+        organicM2oTrend: parseSwiggyValue(row[columnOffset + 21]), // Column X - Organic M2O Trend
+        onlinePercent: parseSwiggyValue(row[columnOffset + 23])    // Column Z - Online %
+      };
+      
+      // Debug log for Total row
+      console.log(`\n🔍 SWIGGY TOTAL ROW DEBUG for row ${i + 1}:`);
+      console.log(`  Location (Column C): "${row[columnOffset]}" -> ${data.summary.totalRow.location}`);
+      console.log(`  M2O (Column D): "${row[columnOffset + 1]}" -> ${data.summary.totalRow.m2o}`);
+      console.log(`  Dormant Customers % (Column J): "${row[columnOffset + 7]}" -> ${data.summary.totalRow.dormantCustomers}`);
+      console.log(`  Online % (Column Z): "${row[columnOffset + 23]}" -> ${data.summary.totalRow.onlinePercent}\n`);
+      
+      break; // Stop processing after Total row
+    }
+    
+    console.log(`Processing Swiggy outlet: ${location} at row ${i + 1}`);
+    data.outlets.push(location);
+    
+    // Process regular outlet data
     data.m2o.push(parseSwiggyValue(row[columnOffset + 1]));              // Column D - M2O
     data.m2oTrend.push(parseSwiggyValue(row[columnOffset + 2]));         // Column E - M2O Trend  
     data.newCustomers.push(parseSwiggyValue(row[columnOffset + 3]));     // Column F - New Customer %
@@ -1754,30 +1800,28 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     data.adM2o.push(parseSwiggyValue(row[columnOffset + 17]));           // Column T - Ad M2O
     data.adM2oTrend.push(parseSwiggyValue(row[columnOffset + 18]));      // Column U - Ad M2O Trend
     data.organicM2o.push(parseSwiggyValue(row[columnOffset + 19]));      // Column V - Organic M2O
-    data.organicM2oTrend.push(parseSwiggyValue(row[columnOffset + 21])); // Column X - Organic M2O Trend (FIXED)
-    data.onlinePercent.push(parseSwiggyValue(row[columnOffset + 23]));   // Column Z - Online % (FIXED)
+    data.organicM2oTrend.push(parseSwiggyValue(row[columnOffset + 21])); // Column X - Organic M2O Trend
+    data.onlinePercent.push(parseSwiggyValue(row[columnOffset + 23]));   // Column Z - Online %
     
     // Debug log for first few outlets
     if (data.outlets.length <= 2) {
-      console.log(`\n🔍 SWIGGY COLUMN MAPPING DEBUG (FIXED) for "${location}":`);
+      console.log(`\n🔍 SWIGGY COLUMN MAPPING DEBUG for "${location}":`);
       console.log(`  M2O (Column D): "${row[columnOffset + 1]}" -> ${parseSwiggyValue(row[columnOffset + 1])}`);
+      console.log(`  Dormant Customers % (Column J): "${row[columnOffset + 7]}" -> ${parseSwiggyValue(row[columnOffset + 7])}`);
       console.log(`  Organic M2O Trend (Column X): "${row[columnOffset + 21]}" -> ${parseSwiggyValue(row[columnOffset + 21])}`);
       console.log(`  Online % (Column Z): "${row[columnOffset + 23]}" -> ${parseSwiggyValue(row[columnOffset + 23])}`);
-      console.log(`  Food Accuracy (Column O): "${row[columnOffset + 12]}" -> ${parseSwiggyValue(row[columnOffset + 12])}`);
-      console.log(`  Kitchen Prep Time (Column N): "${row[columnOffset + 11]}" -> ${parseSwiggyValue(row[columnOffset + 11])}\n`);
+      console.log(`  Food Accuracy (Column O): "${row[columnOffset + 12]}" -> ${parseSwiggyValue(row[columnOffset + 12])}\n`);
     }
   }
   
   // Calculate summary statistics
-  data.summary = {
-    avgM2O: data.m2o.length > 0 ? (data.m2o.reduce((a, b) => a + b, 0) / data.m2o.length).toFixed(2) : '0',
-    avgOnlinePercent: data.onlinePercent.length > 0 ? (data.onlinePercent.reduce((a, b) => a + b, 0) / data.onlinePercent.length).toFixed(2) : '0',
-    avgFoodAccuracy: data.foodAccuracy.length > 0 ? (data.foodAccuracy.reduce((a, b) => a + b, 0) / data.foodAccuracy.length).toFixed(2) : '0',
-    avgKitchenPrepTime: data.kitchenPrepTime.length > 0 ? (data.kitchenPrepTime.reduce((a, b) => a + b, 0) / data.kitchenPrepTime.length).toFixed(2) : '0',
-    totalOutlets: data.outlets.length,
-  };
+  data.summary.avgM2O = data.m2o.length > 0 ? (data.m2o.reduce((a, b) => a + b, 0) / data.m2o.length).toFixed(2) : '0';
+  data.summary.avgOnlinePercent = data.onlinePercent.length > 0 ? (data.onlinePercent.reduce((a, b) => a + b, 0) / data.onlinePercent.length).toFixed(2) : '0';
+  data.summary.avgFoodAccuracy = data.foodAccuracy.length > 0 ? (data.foodAccuracy.reduce((a, b) => a + b, 0) / data.foodAccuracy.length).toFixed(2) : '0';
+  data.summary.avgKitchenPrepTime = data.kitchenPrepTime.length > 0 ? (data.kitchenPrepTime.reduce((a, b) => a + b, 0) / data.kitchenPrepTime.length).toFixed(2) : '0';
+  data.summary.totalOutlets = data.outlets.length;
   
-  console.log(`✅ Processed ${data.outlets.length} Swiggy outlets for ${requestedPeriod}`);
+  console.log(`✅ Processed ${data.outlets.length} Swiggy outlets and Total row for ${requestedPeriod}`);
   console.log('Swiggy Summary:', data.summary);
   
   return data;
