@@ -1187,7 +1187,7 @@ const SwiggyDashboard = () => {
           </div>
           <div className="responses-section">
             <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={performanceData} onClick={selectedOutlet === null ? handleOutletClick : null}>
+              <LineChart data={performanceData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
                 <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
@@ -1218,7 +1218,7 @@ const SwiggyDashboard = () => {
           </div>
           <div className="responses-section">
             <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={performanceData} onClick={selectedOutlet === null ? handleOutletClick : null}>
+              <LineChart data={performanceData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
                 <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
