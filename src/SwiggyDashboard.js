@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios'; // Added missing import
+import axios from 'axios';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -26,7 +26,6 @@ const SwiggyDashboard = () => {
       setLoading(true);
       setError(null);
       
-      // Call the real Swiggy dashboard API
       const response = await axios.get(`${API_URL}/api/swiggy-dashboard-data`, {
         params: { period }
       });
@@ -34,7 +33,6 @@ const SwiggyDashboard = () => {
       if (response.data.success) {
         const apiData = response.data.data;
         
-        // Transform the API data to match component expectations
         const dashboardData = {
           outlets: apiData.outlets,
           currentData: {
@@ -66,7 +64,6 @@ const SwiggyDashboard = () => {
         setData(dashboardData);
         setLastUpdate(new Date().toLocaleString());
         
-        // Generate AI insights for new data
         if (response.data.aiEnabled) {
           generateAIInsights(dashboardData, period);
         }
@@ -78,8 +75,6 @@ const SwiggyDashboard = () => {
     } catch (err) {
       console.error('API Error:', err);
       setError(err.response?.data?.error || err.message || 'Failed to load data. Make sure backend is running.');
-      
-      // Fallback to mock data if API fails
       console.log('Falling back to mock data...');
       setMockData(period);
       
@@ -164,16 +159,14 @@ const SwiggyDashboard = () => {
     setLastUpdate(new Date().toLocaleString());
     setError('Using mock data - backend API not available');
     
-    // Generate AI insights for new data
     generateAIInsights(dashboardData, period);
   };
 
-  // Generate AI insights focusing on bottom performers
+  // Enhanced AI insights generation focusing on bottom 3 and flagged outlets
   const generateAIInsights = async (dashboardData, period) => {
     try {
       setLoadingAI(true);
       
-      // Try to call real AI insights API first
       try {
         const response = await axios.post(`${API_URL}/api/swiggy-generate-insights`, {
           data: dashboardData,
@@ -182,47 +175,38 @@ const SwiggyDashboard = () => {
         });
         
         if (response.data.success) {
-          setAiInsights(response.data.insights);
+          const flaggedOutlets = identifyFlaggedOutlets(dashboardData);
+          const bottomThree = getBottomThreeOutlets(dashboardData);
+          
+          setAiInsights({
+            ...response.data.insights,
+            flaggedOutlets: flaggedOutlets,
+            bottomThreeOutlets: bottomThree
+          });
           return;
         }
       } catch (apiError) {
         console.log('AI API not available, using fallback analysis');
       }
       
-      // Fallback AI insights generation
       const currentData = dashboardData.currentData;
+      const flaggedOutlets = identifyFlaggedOutlets(dashboardData);
+      const bottomThree = getBottomThreeOutlets(dashboardData);
       
-      // Find bottom 3 outlets based on M2O
-      const outletPerformance = dashboardData.outlets.map((outlet, index) => ({
-        name: outlet,
-        index,
-        m2o: currentData.m2o[index],
-        onlinePercent: currentData.onlinePercent[index],
-        foodAccuracy: currentData.foodAccuracy[index],
-        kitchenPrepTime: currentData.kitchenPrepTime[index]
-      })).sort((a, b) => a.m2o - b.m2o);
-
-      const bottomThree = outletPerformance.slice(0, 3);
-      const flaggedOutlets = outletPerformance.filter(outlet => 
-        outlet.onlinePercent < 98 || 
-        outlet.foodAccuracy < 85 || 
-        outlet.kitchenPrepTime > 4
-      );
-
       const insights = {
         keyFindings: [
-          `Bottom 3 performers: ${bottomThree.map(o => o.name).join(', ')} with M2O rates below ${bottomThree[2].m2o.toFixed(1)}%`,
-          `${flaggedOutlets.length} outlets flagged for immediate attention based on critical thresholds`,
-          `Average food accuracy: ${dashboardData.summary.avgFoodAccuracy}% - target should be 95%+`,
-          `${outletPerformance.filter(o => o.onlinePercent < 98).length} outlets below 98% online presence threshold`
+          `Bottom 3 performers: ${bottomThree.map(o => o.outlet).join(', ')} require immediate intervention`,
+          `${flaggedOutlets.length} outlets flagged for critical threshold violations`,
+          `Average food accuracy: ${dashboardData.summary.avgFoodAccuracy}% - target should be 85%+`,
+          `${bottomThree.filter(o => o.onlinePercent < 98).length} outlets in bottom 3 also have online presence issues`
         ],
         recommendations: [
           'Immediate intervention needed for bottom 3 M2O performers',
           'Focus on food accuracy improvements for outlets below 85%',
           'Optimize kitchen workflows for outlets with prep time > 4 minutes',
-          'Enhance online presence strategy for flagged outlets'
+          'Enhanced online presence strategy for flagged outlets'
         ],
-        bottomThreeAnalysis: bottomThree,
+        bottomThreeOutlets: bottomThree,
         flaggedOutlets: flaggedOutlets,
         confidence: 0.75,
         generatedAt: new Date().toISOString(),
@@ -236,6 +220,67 @@ const SwiggyDashboard = () => {
     } finally {
       setLoadingAI(false);
     }
+  };
+
+  // Identify outlets that need flagging based on criteria
+  const identifyFlaggedOutlets = (data) => {
+    const flagged = [];
+    const currentData = data.currentData;
+    data.outlets.forEach((outlet, i) => {
+      const issues = [];
+      if (currentData.onlinePercent[i] < 98) issues.push('Online < 98%');
+      if (currentData.foodAccuracy[i] < 85) issues.push('Food Accuracy < 85%');
+      if (currentData.kitchenPrepTime[i] > 4) issues.push('Kitchen Prep > 4min');
+      
+      if (issues.length > 0) {
+        flagged.push({
+          outlet: outlet,
+          index: i,
+          issues: issues,
+          m2o: currentData.m2o[i],
+          onlinePercent: currentData.onlinePercent[i],
+          foodAccuracy: currentData.foodAccuracy[i],
+          kitchenPrepTime: currentData.kitchenPrepTime[i]
+        });
+      }
+    });
+    return flagged;
+  };
+
+  // Get bottom 3 outlets based on M2O performance
+  const getBottomThreeOutlets = (data) => {
+    const currentData = data.currentData;
+    const outletPerformance = data.outlets.map((outlet, i) => ({
+      outlet: outlet,
+      index: i,
+      m2o: currentData.m2o[i],
+      m2oTrend: currentData.m2oTrend[i],
+      onlinePercent: currentData.onlinePercent[i],
+      foodAccuracy: currentData.foodAccuracy[i],
+      kitchenPrepTime: currentData.kitchenPrepTime[i]
+    }));
+    
+    return outletPerformance
+      .sort((a, b) => a.m2o - b.m2o)
+      .slice(0, 3);
+  };
+
+  // Get top 3 outlets based on M2O performance
+  const getTopThreeOutlets = (data) => {
+    const currentData = data.currentData;
+    const outletPerformance = data.outlets.map((outlet, i) => ({
+      outlet: outlet,
+      index: i,
+      m2o: currentData.m2o[i],
+      m2oTrend: currentData.m2oTrend[i],
+      onlinePercent: currentData.onlinePercent[i],
+      foodAccuracy: currentData.foodAccuracy[i],
+      kitchenPrepTime: currentData.kitchenPrepTime[i]
+    }));
+    
+    return outletPerformance
+      .sort((a, b) => b.m2o - a.m2o)
+      .slice(0, 3);
   };
 
   // Generate specific outlet analysis using real backend
@@ -258,7 +303,6 @@ const SwiggyDashboard = () => {
         dormantCustomers: currentData.dormantCustomers[outletIndex]
       };
       
-      // Try real API call first
       try {
         const response = await axios.post(`${API_URL}/api/swiggy-analyze-outlet`, {
           outlet: outletData,
@@ -273,14 +317,12 @@ const SwiggyDashboard = () => {
             focusOutlet: data.outlets[outletIndex]
           });
           setShowAIPanel(true);
-          console.log('Successfully generated outlet analysis for:', data.outlets[outletIndex]);
           return;
         }
       } catch (apiError) {
         console.log('Outlet analysis API not available, using fallback');
       }
       
-      // Fallback analysis if backend fails
       const criticalIssues = [];
       if (outletData.onlinePercent < 98) criticalIssues.push('online presence below 98%');
       if (outletData.foodAccuracy < 85) criticalIssues.push('food accuracy below 85%');
@@ -318,7 +360,6 @@ const SwiggyDashboard = () => {
     return () => clearInterval(interval);
   }, [selectedPeriod]);
 
-  // Handle period change
   const handlePeriodChange = (period) => {
     setSelectedPeriod(period);
     setSelectedOutlet(null);
@@ -327,7 +368,6 @@ const SwiggyDashboard = () => {
     fetchData(period);
   };
 
-  // Handle outlet click with AI analysis
   const handleOutletClick = (event) => {
     const index = event?.activeTooltipIndex ?? null;
     setSelectedOutlet(index);
@@ -337,24 +377,20 @@ const SwiggyDashboard = () => {
     }
   };
 
-  // Clear outlet selection
   const clearOutletSelection = () => {
     setSelectedOutlet(null);
     setMinimized(false);
     setShowAIPanel(false);
   };
 
-  // Minimize modal
   const minimizeModal = () => {
     setMinimized(true);
   };
 
-  // Restore modal
   const restoreModal = () => {
     setMinimized(false);
   };
 
-  // Loading screen
   if (loading) {
     return (
       <div className="checklist-loading">
@@ -373,7 +409,6 @@ const SwiggyDashboard = () => {
     );
   }
 
-  // Error screen
   if (error && !data) {
     return (
       <div className="checklist-error">
@@ -470,11 +505,9 @@ const SwiggyDashboard = () => {
     return 'NEEDS URGENT ATTENTION';
   };
 
-  // Bottom three performers
-  const bottomThreeOutlets = data.outlets
-    .map((outlet, i) => ({ outlet, index: i, m2o: currentData.m2o[i] }))
-    .sort((a, b) => a.m2o - b.m2o)
-    .slice(0, 3);
+  // Top and bottom performers
+  const topThreeOutlets = data ? getTopThreeOutlets(data) : [];
+  const bottomThreeOutlets = data ? getBottomThreeOutlets(data) : [];
 
   return (
     <div className="checklist-dashboard">
@@ -484,7 +517,7 @@ const SwiggyDashboard = () => {
           <h1 style={{
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
           }}>
-            SWIGGY DASHBOARD
+            SWIGGY DB
           </h1>
           <p style={{ 
             color: 'var(--text-secondary)', 
@@ -540,7 +573,7 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* AI Insights Panel */}
+      {/* AI Insights Panel with Bottom 3 and Flagged Outlets Focus */}
       {showAIPanel && aiInsights && (
         <div className="submission-card" style={{ borderLeft: '4px solid #10b981' }}>
           <div className="submission-header">
@@ -549,27 +582,123 @@ const SwiggyDashboard = () => {
                 fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                 color: '#10b981'
               }}>
-                AI-POWERED BOTTOM 3 OUTLET ANALYSIS {aiInsights.focusOutlet ? `FOR ${aiInsights.focusOutlet.toUpperCase()}` : ''}
+                AI-POWERED INSIGHTS {aiInsights.focusOutlet ? `FOR ${aiInsights.focusOutlet.toUpperCase()}` : '(BOTTOM 3 & FLAGGED OUTLETS ANALYSIS)'}
               </h3>
             </div>
           </div>
           <div className="responses-section">
+            {/* Bottom 3 Outlets Analysis */}
+            {aiInsights.bottomThreeOutlets && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 15px 0',
+                  color: '#ef4444',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  BOTTOM 3 OUTLETS (M2O BASIS)
+                </h4>
+                {aiInsights.bottomThreeOutlets.map((outlet, index) => (
+                  <div key={index} style={{
+                    padding: '12px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    borderRadius: '8px',
+                    marginBottom: '10px'
+                  }}>
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.9rem',
+                      fontWeight: '600'
+                    }}>
+                      {index + 1}. {outlet.outlet.toUpperCase()}: {outlet.m2o.toFixed(2)}% M2O
+                    </p>
+                    <p style={{
+                      margin: '5px 0 0 0',
+                      color: 'var(--text-secondary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.8rem'
+                    }}>
+                      Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}% | Kitchen: {outlet.kitchenPrepTime.toFixed(1)}min
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Flagged Outlets Analysis */}
+            {aiInsights.flaggedOutlets && aiInsights.flaggedOutlets.length > 0 && (
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.05)',
+                border: '1px solid rgba(245, 158, 11, 0.2)',
+                borderRadius: '15px',
+                padding: '25px',
+                marginBottom: '20px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 15px 0',
+                  color: '#f59e0b',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '1rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  FLAGGED OUTLETS (CRITICAL THRESHOLDS)
+                </h4>
+                {aiInsights.flaggedOutlets.map((outlet, index) => (
+                  <div key={index} style={{
+                    padding: '12px',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    borderRadius: '8px',
+                    marginBottom: '10px'
+                  }}>
+                    <p style={{
+                      margin: 0,
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.9rem',
+                      fontWeight: '600'
+                    }}>
+                      {outlet.outlet.toUpperCase()}: {outlet.issues.join(', ')}
+                    </p>
+                    <p style={{
+                      margin: '5px 0 0 0',
+                      color: 'var(--text-secondary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.8rem'
+                    }}>
+                      M2O: {outlet.m2o.toFixed(2)}% | Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}% | Kitchen: {outlet.kitchenPrepTime.toFixed(1)}min
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div style={{
-              background: 'rgba(239, 68, 68, 0.05)',
-              border: '1px solid rgba(239, 68, 68, 0.2)',
+              background: 'rgba(16, 185, 129, 0.05)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
               borderRadius: '15px',
               padding: '25px',
               marginBottom: '20px'
             }}>
               <h4 style={{
                 margin: '0 0 15px 0',
-                color: '#ef4444',
+                color: 'var(--text-primary)',
                 fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                 fontSize: '1rem',
                 textTransform: 'uppercase',
                 letterSpacing: '1px'
               }}>
-                CRITICAL FINDINGS
+                KEY FINDINGS
               </h4>
               {aiInsights.keyFindings && (
                 <ul style={{
@@ -591,8 +720,7 @@ const SwiggyDashboard = () => {
               background: 'rgba(59, 130, 246, 0.05)',
               border: '1px solid rgba(59, 130, 246, 0.2)',
               borderRadius: '15px',
-              padding: '25px',
-              marginBottom: '20px'
+              padding: '25px'
             }}>
               <h4 style={{
                 margin: '0 0 15px 0',
@@ -602,7 +730,7 @@ const SwiggyDashboard = () => {
                 textTransform: 'uppercase',
                 letterSpacing: '1px'
               }}>
-                URGENT INTERVENTIONS REQUIRED
+                AI RECOMMENDATIONS
               </h4>
               {aiInsights.recommendations && (
                 <ul style={{
@@ -619,54 +747,18 @@ const SwiggyDashboard = () => {
                 </ul>
               )}
             </div>
-
-            {aiInsights.flaggedOutlets && aiInsights.flaggedOutlets.length > 0 && (
-              <div style={{
-                background: 'rgba(245, 158, 11, 0.05)',
-                border: '1px solid rgba(245, 158, 11, 0.2)',
-                borderRadius: '15px',
-                padding: '25px'
-              }}>
-                <h4 style={{
-                  margin: '0 0 15px 0',
-                  color: '#f59e0b',
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '1rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px'
-                }}>
-                  OUTLETS FLAGGED FOR IMMEDIATE ATTENTION
-                </h4>
-                <div style={{ display: 'grid', gap: '10px' }}>
-                  {aiInsights.flaggedOutlets.map((outlet, index) => (
-                    <div key={index} style={{
-                      padding: '10px',
-                      background: 'rgba(245, 158, 11, 0.1)',
-                      borderRadius: '8px',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                      fontSize: '0.8rem'
-                    }}>
-                      <strong>{outlet.name.toUpperCase()}:</strong> 
-                      {outlet.onlinePercent < 98 && ` Online: ${outlet.onlinePercent.toFixed(1)}% (Target: 98%+)`}
-                      {outlet.foodAccuracy < 85 && ` Food Accuracy: ${outlet.foodAccuracy.toFixed(1)}% (Target: 85%+)`}
-                      {outlet.kitchenPrepTime > 4 && ` Kitchen Prep: ${outlet.kitchenPrepTime.toFixed(1)}min (Target: <4min)`}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             
             {aiInsights.outletAnalysis && (
               <div style={{
-                background: 'rgba(16, 185, 129, 0.05)',
-                border: '1px solid rgba(16, 185, 129, 0.2)',
+                background: 'rgba(245, 158, 11, 0.05)',
+                border: '1px solid rgba(245, 158, 11, 0.2)',
                 borderRadius: '15px',
                 padding: '25px',
                 marginTop: '20px'
               }}>
                 <h4 style={{
                   margin: '0 0 15px 0',
-                  color: '#10b981',
+                  color: 'var(--text-primary)',
                   fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                   fontSize: '1rem',
                   textTransform: 'uppercase',
@@ -689,7 +781,7 @@ const SwiggyDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Performance Stats */}
+      {/* Enhanced Performance Stats with Market Share Trend */}
       <div className="checklist-stats">
         {[
           { 
@@ -698,6 +790,12 @@ const SwiggyDashboard = () => {
             trend: selectedOutlet !== null ? currentData.m2oTrend[selectedOutlet] : null,
             target: 20,
             performance: selectedOutlet !== null ? currentData.m2o[selectedOutlet] : parseFloat(data.summary.avgM2O)
+          },
+          { 
+            title: 'MARKET SHARE TREND', 
+            value: selectedOutlet !== null ? `${(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '+' : ''}${(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%` : `${(currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length).toFixed(2)}%`,
+            trend: selectedOutlet !== null ? currentData.m2oTrend[selectedOutlet] : (currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length),
+            performance: selectedOutlet !== null ? currentData.m2oTrend[selectedOutlet] : (currentData.m2oTrend.reduce((a, b) => a + b, 0) / currentData.m2oTrend.length)
           },
           { 
             title: 'ONLINE PRESENCE', 
@@ -756,6 +854,133 @@ const SwiggyDashboard = () => {
             )}
           </div>
         ))}
+      </div>
+
+      {/* Top 3 and Bottom 3 Outlets Display */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '25px', marginBottom: '30px' }}>
+        {/* Bottom 3 Outlets */}
+        <div className="submission-card" style={{ borderLeft: '4px solid #ef4444' }}>
+          <div className="submission-header">
+            <div className="submission-info">
+              <h3 style={{ 
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                color: '#ef4444'
+              }}>
+                BOTTOM 3 OUTLETS - NEEDS ATTENTION
+              </h3>
+            </div>
+          </div>
+          <div className="responses-section">
+            {bottomThreeOutlets.map((outlet, index) => (
+              <div key={index} style={{
+                padding: '15px',
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '10px',
+                marginBottom: '15px',
+                cursor: 'pointer'
+              }}
+              onClick={() => { setSelectedOutlet(outlet.index); setMinimized(false); analyzeOutlet(outlet.index); }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    color: 'var(--text-primary)',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                    fontSize: '1rem'
+                  }}>
+                    {index + 1}. {outlet.outlet.toUpperCase()}
+                  </h4>
+                  <span style={{
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    color: '#ef4444',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                  }}>
+                    {outlet.m2o.toFixed(2)}% M2O
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                }}>
+                  Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}% | Kitchen: {outlet.kitchenPrepTime.toFixed(1)}min
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top 3 Outlets */}
+        <div className="submission-card" style={{ borderLeft: '4px solid #10b981' }}>
+          <div className="submission-header">
+            <div className="submission-info">
+              <h3 style={{ 
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                color: '#10b981'
+              }}>
+                TOP 3 OUTLETS - BEST PERFORMERS
+              </h3>
+            </div>
+          </div>
+          <div className="responses-section">
+            {topThreeOutlets.map((outlet, index) => (
+              <div key={index} style={{
+                padding: '15px',
+                background: 'rgba(16, 185, 129, 0.05)',
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+                borderRadius: '10px',
+                marginBottom: '15px',
+                cursor: 'pointer'
+              }}
+              onClick={() => { setSelectedOutlet(outlet.index); setMinimized(false); analyzeOutlet(outlet.index); }}
+              >
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    color: 'var(--text-primary)',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                    fontSize: '1rem'
+                  }}>
+                    {index + 1}. {outlet.outlet.toUpperCase()}
+                  </h4>
+                  <span style={{
+                    background: 'rgba(16, 185, 129, 0.2)',
+                    color: '#10b981',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                  }}>
+                    {outlet.m2o.toFixed(2)}% M2O
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                }}>
+                  Food Accuracy: {outlet.foodAccuracy.toFixed(2)}% | Online: {outlet.onlinePercent.toFixed(2)}% | Kitchen: {outlet.kitchenPrepTime.toFixed(1)}min
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Show error message if using mock data */}
@@ -849,6 +1074,9 @@ const SwiggyDashboard = () => {
                 <p><strong style={{ color: 'var(--text-primary)' }}>M2O TREND:</strong> <span style={{ color: (currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '#10b981' : '#ef4444' }}>
                   {(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '↑' : '↓'} {Math.abs(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%
                 </span></p>
+                <p><strong style={{ color: 'var(--text-primary)' }}>MARKET SHARE TREND:</strong> <span style={{ color: (currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '#10b981' : '#ef4444' }}>
+                  {(currentData.m2oTrend[selectedOutlet] || 0) > 0 ? '↑' : '↓'} {Math.abs(currentData.m2oTrend[selectedOutlet] || 0).toFixed(2)}%
+                </span></p>
                 <p><strong style={{ color: 'var(--text-primary)' }}>ONLINE %:</strong> <span style={{ color: 'var(--text-secondary)' }}>{(currentData.onlinePercent[selectedOutlet] || 0).toFixed(2)}%</span></p>
                 <p><strong style={{ color: 'var(--text-primary)' }}>FOOD ACCURACY:</strong> <span style={{ color: 'var(--text-secondary)' }}>{(currentData.foodAccuracy[selectedOutlet] || 0).toFixed(2)}%</span></p>
                 <p><strong style={{ color: 'var(--text-primary)' }}>DELAYED ORDERS:</strong> <span style={{ color: 'var(--text-secondary)' }}>{(currentData.delayedOrders[selectedOutlet] || 0).toFixed(2)}%</span></p>
@@ -870,14 +1098,14 @@ const SwiggyDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Charts Grid */}
+      {/* Enhanced Charts Grid (Removed Radar Chart) */}
       <div className="submissions-list">
         {/* M2O Performance */}
         <div className="submission-card">
           <div className="submission-header">
             <div className="submission-info">
               <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                M2O PERFORMANCE {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : 'BY OUTLET'}
+                M2O PERFORMANCE VS TARGET {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : 'BY OUTLET'}
               </h3>
             </div>
           </div>
@@ -1014,12 +1242,12 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* Enhanced Performance Table */}
+      {/* Enhanced Performance Table with Market Share Trend and Delayed Orders */}
       <div className="submission-card">
         <div className="submission-header">
           <div className="submission-info">
             <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-              OUTLET PERFORMANCE ANALYSIS WITH AI ALERTS ({selectedPeriod.toUpperCase()})
+              AI-ENHANCED OUTLET PERFORMANCE ANALYSIS ({selectedPeriod.toUpperCase()})
             </h3>
           </div>
         </div>
@@ -1037,7 +1265,8 @@ const SwiggyDashboard = () => {
                     'FOOD ACCURACY %',
                     'DELAYED ORDERS %',
                     'KITCHEN PREP TIME',
-                    'AI ALERT',
+                    'CUSTOMER MIX',
+                    'AI CATEGORY',
                     'ACTIONS'
                   ].map((header) => (
                     <th key={header} style={{ 
@@ -1065,6 +1294,7 @@ const SwiggyDashboard = () => {
                   const hasAlerts = currentData.onlinePercent[i] < 98 || 
                                    currentData.foodAccuracy[i] < 85 || 
                                    currentData.kitchenPrepTime[i] > 4;
+                  const marketShareTrend = currentData.m2oTrend[i] || 0; // Using M2O trend as proxy
                   
                   return (
                     <tr 
@@ -1108,10 +1338,10 @@ const SwiggyDashboard = () => {
                       <td style={{ padding: '18px' }}>
                         <span style={{
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          color: (currentData.m2oTrend[i] || 0) > 0 ? '#10b981' : '#ef4444',
+                          color: marketShareTrend > 0 ? '#10b981' : '#ef4444',
                           fontWeight: '600'
                         }}>
-                          {(currentData.m2oTrend[i] || 0) > 0 ? '↗' : '↘'} {Math.abs(currentData.m2oTrend[i] || 0).toFixed(1)}%
+                          {marketShareTrend > 0 ? '↑' : '↓'} {Math.abs(marketShareTrend).toFixed(2)}%
                         </span>
                       </td>
                       <td style={{ 
@@ -1132,8 +1362,9 @@ const SwiggyDashboard = () => {
                       </td>
                       <td style={{ 
                         padding: '18px',
-                        color: 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                        color: currentData.delayedOrders[i] > 5 ? '#ef4444' : 'var(--text-secondary)',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        fontWeight: '600'
                       }}>
                         {(currentData.delayedOrders[i] || 0).toFixed(2)}%
                       </td>
@@ -1146,6 +1377,12 @@ const SwiggyDashboard = () => {
                         {(currentData.kitchenPrepTime[i] || 0).toFixed(1)}min
                       </td>
                       <td style={{ padding: '18px' }}>
+                        <div style={{ fontSize: '0.8rem', fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                          <div>N: {(currentData.newCustomers[i] || 0).toFixed(1)}%</div>
+                          <div>R: {(currentData.repeatCustomers[i] || 0).toFixed(1)}%</div>
+                        </div>
+                      </td>
+                      <td style={{ padding: '18px' }}>
                         <span style={{
                           padding: '6px 12px',
                           borderRadius: '15px',
@@ -1155,11 +1392,15 @@ const SwiggyDashboard = () => {
                           letterSpacing: '0.5px',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           background: hasAlerts ? 'rgba(239, 68, 68, 0.2)' : 
-                                     category === 'EXCELLENT' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                                     category === 'EXCELLENT' ? 'rgba(16, 185, 129, 0.2)' : 
+                                     category === 'GOOD' ? 'rgba(59, 130, 246, 0.2)' :
+                                     category === 'AVERAGE' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
                           color: hasAlerts ? '#ef4444' :
-                                category === 'EXCELLENT' ? '#10b981' : '#3b82f6'
+                                category === 'EXCELLENT' ? '#10b981' :
+                                category === 'GOOD' ? '#3b82f6' :
+                                category === 'AVERAGE' ? '#f59e0b' : '#ef4444'
                         }}>
-                          {hasAlerts ? 'CRITICAL' : category === 'NEEDS URGENT ATTENTION' ? 'URGENT' : 'OK'}
+                          {hasAlerts ? 'CRITICAL' : category === 'NEEDS URGENT ATTENTION' ? 'URGENT' : category}
                         </span>
                       </td>
                       <td style={{ padding: '18px' }}>
@@ -1194,121 +1435,6 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* Bottom Three Outlets Analysis */}
-      <div className="submission-card">
-        <div className="submission-header">
-          <div className="submission-info">
-            <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-              BOTTOM THREE OUTLETS - IMMEDIATE INTERVENTION REQUIRED ({selectedPeriod.toUpperCase()})
-            </h3>
-          </div>
-        </div>
-        <div className="responses-section">
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-            gap: '25px'
-          }}>
-            {bottomThreeOutlets.map((outlet, index) => (
-              <div key={outlet.index} style={{
-                padding: '25px',
-                borderRadius: '15px',
-                background: 'rgba(239, 68, 68, 0.05)',
-                border: '2px solid rgba(239, 68, 68, 0.3)',
-                borderLeft: '6px solid #ef4444'
-              }}>
-                <h4 style={{
-                  margin: '0 0 15px 0',
-                  color: '#ef4444',
-                  fontSize: '1.2rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                }}>
-                  #{index + 1} PRIORITY: {outlet.outlet.toUpperCase()}
-                </h4>
-                
-                <div style={{
-                  display: 'grid',
-                  gap: '10px',
-                  marginBottom: '15px',
-                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                  fontSize: '0.9rem'
-                }}>
-                  <p><strong>M2O:</strong> <span style={{color: '#ef4444'}}>{outlet.m2o.toFixed(2)}%</span></p>
-                  <p><strong>Online:</strong> <span style={{color: currentData.onlinePercent[outlet.index] < 98 ? '#ef4444' : 'var(--text-secondary)'}}>{currentData.onlinePercent[outlet.index].toFixed(1)}%</span></p>
-                  <p><strong>Food Accuracy:</strong> <span style={{color: currentData.foodAccuracy[outlet.index] < 85 ? '#ef4444' : 'var(--text-secondary)'}}>{currentData.foodAccuracy[outlet.index].toFixed(1)}%</span></p>
-                  <p><strong>Kitchen Prep:</strong> <span style={{color: currentData.kitchenPrepTime[outlet.index] > 4 ? '#ef4444' : 'var(--text-secondary)'}}>{currentData.kitchenPrepTime[outlet.index].toFixed(1)}min</span></p>
-                </div>
-
-                <div style={{
-                  display: 'flex',
-                  gap: '10px',
-                  flexWrap: 'wrap'
-                }}>
-                  {currentData.onlinePercent[outlet.index] < 98 && (
-                    <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '0.7rem',
-                      background: 'rgba(239, 68, 68, 0.2)',
-                      color: '#ef4444',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                    }}>
-                      ONLINE LOW
-                    </span>
-                  )}
-                  {currentData.foodAccuracy[outlet.index] < 85 && (
-                    <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '0.7rem',
-                      background: 'rgba(239, 68, 68, 0.2)',
-                      color: '#ef4444',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                    }}>
-                      ACCURACY CRITICAL
-                    </span>
-                  )}
-                  {currentData.kitchenPrepTime[outlet.index] > 4 && (
-                    <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '0.7rem',
-                      background: 'rgba(239, 68, 68, 0.2)',
-                      color: '#ef4444',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                    }}>
-                      KITCHEN SLOW
-                    </span>
-                  )}
-                </div>
-
-                <button 
-                  onClick={() => { setSelectedOutlet(outlet.index); analyzeOutlet(outlet.index); }}
-                  style={{
-                    marginTop: '15px',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    fontSize: '0.8rem',
-                    fontWeight: '600',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    color: '#ef4444',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  URGENT AI ANALYSIS
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* Status and Update Info */}
       {lastUpdate && (
         <div style={{
@@ -1327,7 +1453,7 @@ const SwiggyDashboard = () => {
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             letterSpacing: '0.5px'
           }}>
-            LAST UPDATED: {lastUpdate.toUpperCase()} • AI INSIGHTS: {aiInsights ? 'ACTIVE' : 'GENERATING...'} • GOOGLE SHEETS FILE: 1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs
+            LAST UPDATED: {lastUpdate.toUpperCase()} • AI INSIGHTS: {aiInsights ? 'ACTIVE' : 'GENERATING...'}
           </p>
         </div>
       )}
