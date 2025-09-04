@@ -75,91 +75,10 @@ const SwiggyDashboard = () => {
     } catch (err) {
       console.error('API Error:', err);
       setError(err.response?.data?.error || err.message || 'Failed to load data. Make sure backend is running.');
-      console.log('Falling back to mock data...');
-      setMockData(period);
       
     } finally {
       setLoading(false);
     }
-  };
-
-  // Fallback mock data function
-  const setMockData = (period) => {
-    const mockData = {
-      outlets: [
-        'Yelahanka', 'Residency Road', 'Mahadevapura', 'Koramangala', 'Kalyan Nagar', 
-        'Bellandur', 'Indiranagar', 'J P Nagar', 'Jayanagar', 'HSR', 'Rajajinagara'
-      ],
-      oneDayData: {
-        m2o: [24.2, 25.7, 19.5, 28.9, 21.6, 22.8, 23.4, 19.5, 20.3, 23.5, 11.8],
-        m2oTrend: [36.4, 39.4, 7.8, 21.7, 24.2, -11.5, 10.2, 21.8, 8.3, 21.0, -48.4],
-        newCustomers: [31.4, 41.5, 37.5, 38.0, 35.4, 39.7, 44.7, 39.5, 45.8, 50.7, 52.2],
-        newCustomerTrend: [-5.88, 83.33, -34.78, -5.00, 27.78, 3.57, 13.33, 240.00, -26.67, 48.00, -33.33],
-        repeatCustomers: [43.1, 34.0, 42.5, 36.0, 38.5, 37.0, 34.2, 30.2, 33.3, 31.5, 43.5],
-        repeatCustomerTrend: [10.00, 0.00, -10.53, -18.18, -21.88, -37.21, -51.85, -27.78, -52.94, -8.00, -44.44],
-        dormantCustomers: [25.5, 24.5, 20.0, 26.0, 26.2, 23.3, 21.1, 30.2, 20.8, 17.8, 4.3],
-        totalCustomers: [51, 53, 40, 50, 65, 73, 38, 43, 24, 73, 23],
-        totalCustomerTrend: [37.84, 76.67, -4.76, 19.05, 30.00, 2.82, -9.52, 86.96, -25.00, 46.00, -36.11],
-        kitchenPrepTime: [3.3, 1.6, 5.8, 3.3, 3.9, 3.1, 4.5, 4.2, 6.8, 4.7, 2.4],
-        foodAccuracy: [96.08, 92.45, 92.68, 82.00, 90.77, 91.78, 90.00, 90.70, 84.00, 93.24, 83.33],
-        delayedOrders: [5.88, 3.77, 9.76, 4.00, 3.08, 1.37, 10.00, 11.63, 8.00, 4.05, 4.17],
-        adOrders: [5.4, 37.8, -87.6, -67.7, 14.1, -82.4, -74.0, 97.5, -100.0, 28.6, 18.6],
-        adSpend: [1612, 1488, 204, 480, 2724, 384, 384, 1920, 0, 2700, 1275],
-        adM2o: [15.5, 20.2, 18.6, 19.6, 15.8, 17.5, 19.6, 12.8, 6.1, 19.1, 8.4],
-        adM2oTrend: [13.1, 15.6, 42.5, 5.4, 25.9, -20.9, 16.8, 32.9, -58.1, 51.4, -49.1],
-        organicM2o: [41.1, 34.6, 20.6, 41.0, 37.2, 29.1, 29.2, 38.6, 30.4, 34.0, 17.6],
-        organicM2oTrend: [57.9, 54.6, -19.2, 9.4, 18.1, -15.7, -7.7, 57.0, -11.2, -9.3, -46.2],
-        onlinePercent: [100.00, 99.88, 88.85, 100.00, 97.93, 94.94, 100.00, 98.05, 100.00, 94.83, 100.00]
-      },
-      sevenDayData: {
-        m2o: [22.3, 21.2, 19.0, 21.2, 18.7, 20.3, 23.9, 15.9, 19.4, 20.5, 14.5],
-        m2oTrend: [22.5, -4.0, 15.3, 10.7, 4.3, -11.0, 4.1, -6.3, 17.2, -3.9, -23.2],
-        newCustomers: [36.4, 38.1, 45.7, 33.0, 33.0, 38.3, 36.3, 39.6, 44.9, 51.4, 48.3],
-        newCustomerTrend: [13.79, 48.53, 21.84, 7.14, -5.17, 22.73, 22.22, 24.59, 20.97, 41.98, 14.75],
-        repeatCustomers: [58.8, 57.0, 50.9, 61.2, 61.9, 57.7, 60.8, 53.6, 52.1, 45.0, 51.0],
-        repeatCustomerTrend: [60.00, 18.90, 81.54, 80.52, 54.89, 45.24, 31.75, 35.53, 42.62, 11.64, -5.13],
-        dormantCustomers: [4.8, 4.9, 3.4, 5.7, 5.1, 4.0, 2.9, 6.8, 3.0, 3.6, 0.7],
-        dormantCustomerTrend: [8.33, -50.00, 14.29, -7.14, -19.05, -37.04, -42.86, -13.33, -44.44, -31.58, -90.00],
-        totalCustomers: [272, 265, 232, 227, 333, 423, 273, 192, 167, 362, 145],
-        totalCustomerTrend: [-26.84, -16.60, -31.47, -29.07, -18.92, -22.70, -19.05, -20.83, -20.96, -18.23, 2.76],
-        kitchenPrepTime: [4.0, 1.2, 5.4, 2.2, 3.1, 3.3, 3.8, 3.5, 5.2, 2.8, 2.7],
-        foodAccuracy: [87.36, 95.05, 92.61, 90.59, 95.11, 95.07, 90.29, 96.17, 78.91, 96.75, 89.30],
-        delayedOrders: [9.52, 2.35, 6.01, 3.85, 2.53, 4.20, 6.50, 5.34, 10.31, 0.51, 5.03],
-        adOrders: [22.8, 34.6, -5.5, -2.7, 16.1, -8.4, 6.2, 48.2, -43.9, 24.5, 20.4],
-        adSpend: [8427, 8736, 6132, 5700, 13188, 9087, 7248, 8784, 3168, 13536, 6339],
-        adM2o: [20.1, 18.8, 16.4, 16.5, 15.1, 17.9, 20.7, 12.8, 14.5, 18.5, 11.5],
-        adM2oTrend: [15.8, 7.2, 9.9, 7.6, 17.6, -3.9, 16.3, -20.7, 8.8, 11.5, -21.1],
-        organicM2o: [25.9, 24.4, 22.6, 27.4, 26.9, 23.4, 29.9, 21.7, 24.5, 24.7, 19.1],
-        organicM2oTrend: [23.5, -10.2, 23.0, 10.4, -0.8, -19.2, -5.3, 20.1, 11.4, -19.7, -22.5],
-        onlinePercent: [98.41, 99.74, 93.51, 99.97, 97.96, 95.49, 99.68, 97.83, 99.55, 90.26, 100.00]
-      }
-    };
-
-    const dashboardData = {
-      outlets: mockData.outlets,
-      currentData: period === '1 Day' ? mockData.oneDayData : mockData.sevenDayData,
-      summary: {
-        totalOutlets: mockData.outlets.length,
-        avgM2O: period === '1 Day' 
-          ? (mockData.oneDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-          : (mockData.sevenDayData.m2o.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-        avgOnlinePercent: period === '1 Day'
-          ? (mockData.oneDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-          : (mockData.sevenDayData.onlinePercent.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-        avgFoodAccuracy: period === '1 Day'
-          ? (mockData.oneDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-          : (mockData.sevenDayData.foodAccuracy.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2),
-        avgKitchenPrepTime: period === '1 Day'
-          ? (mockData.oneDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-          : (mockData.sevenDayData.kitchenPrepTime.reduce((a, b) => a + b, 0) / mockData.outlets.length).toFixed(2)
-      }
-    };
-    
-    setData(dashboardData);
-    setLastUpdate(new Date().toLocaleString());
-    setError('Using mock data - backend API not available');
-    
-    generateAIInsights(dashboardData, period);
   };
 
   // Enhanced AI insights generation focusing on bottom 3 and flagged outlets
@@ -368,15 +287,6 @@ const SwiggyDashboard = () => {
     fetchData(period);
   };
 
-  const handleOutletClick = (event) => {
-    const index = event?.activeTooltipIndex ?? null;
-    setSelectedOutlet(index);
-    setMinimized(false);
-    if (index !== null) {
-      analyzeOutlet(index);
-    }
-  };
-
   const clearOutletSelection = () => {
     setSelectedOutlet(null);
     setMinimized(false);
@@ -409,7 +319,7 @@ const SwiggyDashboard = () => {
     );
   }
 
-  if (error && !data) {
+  if (error) {
     return (
       <div className="checklist-error">
         <h3 style={{
@@ -447,36 +357,58 @@ const SwiggyDashboard = () => {
         trend: currentData.m2oTrend[i]
       }));
 
-  // Customer segmentation data
+  // Customer segmentation data - Calculate absolute numbers from percentages and totals
   const customerData = selectedOutlet !== null
     ? [
         { 
           name: 'New Customers', 
-          value: parseFloat((currentData.newCustomers[selectedOutlet] || 0).toFixed(1)),
+          value: Math.round((currentData.newCustomers[selectedOutlet] / 100) * (currentData.totalCustomers[selectedOutlet] || 0)),
+          percentage: parseFloat((currentData.newCustomers[selectedOutlet] || 0).toFixed(1))
         },
         { 
           name: 'Repeat Customers', 
-          value: parseFloat((currentData.repeatCustomers[selectedOutlet] || 0).toFixed(1)),
+          value: Math.round((currentData.repeatCustomers[selectedOutlet] / 100) * (currentData.totalCustomers[selectedOutlet] || 0)),
+          percentage: parseFloat((currentData.repeatCustomers[selectedOutlet] || 0).toFixed(1))
         },
         { 
           name: 'Dormant Customers', 
-          value: parseFloat((currentData.dormantCustomers[selectedOutlet] || 0).toFixed(1)),
+          value: Math.round((currentData.dormantCustomers[selectedOutlet] / 100) * (currentData.totalCustomers[selectedOutlet] || 0)),
+          percentage: parseFloat((currentData.dormantCustomers[selectedOutlet] || 0).toFixed(1))
         }
       ]
-    : [
-        { 
-          name: 'New Customers', 
-          value: parseFloat((currentData.newCustomers.reduce((a, b) => a + b, 0) / (currentData.newCustomers.length || 1)).toFixed(1)),
-        },
-        { 
-          name: 'Repeat Customers', 
-          value: parseFloat((currentData.repeatCustomers.reduce((a, b) => a + b, 0) / (currentData.repeatCustomers.length || 1)).toFixed(1)),
-        },
-        { 
-          name: 'Dormant Customers', 
-          value: parseFloat((currentData.dormantCustomers.reduce((a, b) => a + b, 0) / (currentData.dormantCustomers.length || 1)).toFixed(1)),
+    : (() => {
+        // Calculate total absolute numbers across all outlets
+        let totalNewCustomers = 0;
+        let totalRepeatCustomers = 0;
+        let totalDormantCustomers = 0;
+        let grandTotalCustomers = 0;
+        
+        for (let i = 0; i < data.outlets.length; i++) {
+          const outletTotal = currentData.totalCustomers[i] || 0;
+          totalNewCustomers += (currentData.newCustomers[i] / 100) * outletTotal;
+          totalRepeatCustomers += (currentData.repeatCustomers[i] / 100) * outletTotal;
+          totalDormantCustomers += (currentData.dormantCustomers[i] / 100) * outletTotal;
+          grandTotalCustomers += outletTotal;
         }
-      ];
+        
+        return [
+          { 
+            name: 'New Customers', 
+            value: Math.round(totalNewCustomers),
+            percentage: grandTotalCustomers > 0 ? parseFloat((totalNewCustomers / grandTotalCustomers * 100).toFixed(1)) : 0
+          },
+          { 
+            name: 'Repeat Customers', 
+            value: Math.round(totalRepeatCustomers),
+            percentage: grandTotalCustomers > 0 ? parseFloat((totalRepeatCustomers / grandTotalCustomers * 100).toFixed(1)) : 0
+          },
+          { 
+            name: 'Dormant Customers', 
+            value: Math.round(totalDormantCustomers),
+            percentage: grandTotalCustomers > 0 ? parseFloat((totalDormantCustomers / grandTotalCustomers * 100).toFixed(1)) : 0
+          }
+        ];
+      })();
 
   // Performance data with market share trend
   const performanceData = selectedOutlet !== null
@@ -528,7 +460,6 @@ const SwiggyDashboard = () => {
           }}>
             AI-POWERED INSIGHTS • LIVE DATA FROM GOOGLE SHEETS • {data.summary.totalOutlets} OUTLETS • {selectedPeriod.toUpperCase()} DATA
             {selectedOutlet !== null && ` • VIEWING: ${data.outlets[selectedOutlet].toUpperCase()}`}
-            {error && error.includes('mock') && ' • USING MOCK DATA'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -551,6 +482,35 @@ const SwiggyDashboard = () => {
           >
             <option value="7 Day">7 DAY DATA</option>
             <option value="1 Day">1 DAY DATA</option>
+          </select>
+          <select
+            value={selectedOutlet !== null ? selectedOutlet : ''}
+            onChange={(e) => {
+              const index = e.target.value === '' ? null : parseInt(e.target.value);
+              setSelectedOutlet(index);
+              setMinimized(false);
+              if (index !== null) {
+                analyzeOutlet(index);
+              }
+            }}
+            style={{
+              padding: '12px 18px',
+              background: 'var(--surface-light)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '12px',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              color: 'var(--text-primary)',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <option value="">ALL OUTLETS</option>
+            {data?.outlets.map((outlet, index) => (
+              <option key={index} value={index}>{outlet.toUpperCase()}</option>
+            ))}
           </select>
           <button
             onClick={() => setShowAIPanel(!showAIPanel)}
@@ -983,29 +943,6 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* Show error message if using mock data */}
-      {error && error.includes('mock') && (
-        <div style={{
-          background: 'rgba(245, 158, 11, 0.1)',
-          border: '1px solid rgba(245, 158, 11, 0.3)',
-          borderRadius: '15px',
-          padding: '15px',
-          marginBottom: '20px',
-          textAlign: 'center'
-        }}>
-          <p style={{
-            color: '#f59e0b',
-            margin: 0,
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-            fontSize: '0.9rem',
-            textTransform: 'uppercase',
-            letterSpacing: '1px'
-          }}>
-            ⚠ BACKEND API NOT AVAILABLE - DISPLAYING SAMPLE DATA
-          </p>
-        </div>
-      )}
-
       {/* Outlet Detail Modal */}
       {selectedOutlet !== null && data.outlets[selectedOutlet] && !minimized && (
         <div className="image-modal" onClick={clearOutletSelection}>
@@ -1098,7 +1035,7 @@ const SwiggyDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Charts Grid (Removed Radar Chart) */}
+      {/* Enhanced Charts Grid */}
       <div className="submissions-list">
         {/* M2O Performance */}
         <div className="submission-card">
@@ -1111,7 +1048,7 @@ const SwiggyDashboard = () => {
           </div>
           <div className="responses-section">
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={m2oChartData} onClick={selectedOutlet === null ? handleOutletClick : null}>
+              <BarChart data={m2oChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
                 <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
@@ -1141,7 +1078,7 @@ const SwiggyDashboard = () => {
           <div className="submission-header">
             <div className="submission-info">
               <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                CUSTOMER SEGMENTATION {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : '(AVERAGE)'}
+                CUSTOMER SEGMENTATION {selectedOutlet !== null ? `FOR ${data.outlets[selectedOutlet].toUpperCase()}` : '(TOTAL ACROSS ALL OUTLETS)'}
               </h3>
             </div>
           </div>
@@ -1155,7 +1092,7 @@ const SwiggyDashboard = () => {
                   outerRadius={120}
                   fill="#8884d8"
                   dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}%`}
+                  label={({ name, value, percentage }) => `${name}: ${value} (${percentage}%)`}
                   labelLine={false}
                 >
                   {customerData.map((entry, index) => (
@@ -1169,10 +1106,39 @@ const SwiggyDashboard = () => {
                     borderRadius: '10px',
                     color: 'var(--text-primary)'
                   }}
-                  formatter={(value, name) => [`${value}%`, name]}
+                  formatter={(value, name, props) => [
+                    `${value} customers (${props.payload.percentage}%)`, 
+                    name
+                  ]}
                 />
               </PieChart>
             </ResponsiveContainer>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '20px',
+              marginTop: '15px',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontSize: '0.9rem'
+            }}>
+              {customerData.map((segment, index) => (
+                <div key={index} style={{ textAlign: 'center' }}>
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    backgroundColor: COLORS[index], 
+                    margin: '0 auto 5px',
+                    borderRadius: '2px'
+                  }}></div>
+                  <div style={{ color: 'var(--text-primary)', fontWeight: '600' }}>
+                    {segment.value}
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    {segment.name} ({segment.percentage}%)
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
