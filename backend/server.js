@@ -1353,7 +1353,7 @@ app.get('/api/debug-sheet', async (req, res) => {
   }
 });
 
-// High Rated Dashboard data endpoint - COMPLETELY FIXED VERSION
+// High Rated Dashboard Live data endpoint - COMPLETELY FIXED VERSION
 app.get('/api/high-rated-data-gemini', async (req, res) => {
   try {
     const period = req.query.period || '7 Days';
@@ -1380,7 +1380,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
     }
 
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard';
+    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard Live';
 
     console.log(`Fetching High Rated data for ${period} from: ${HIGH_RATED_SPREADSHEET_ID}`);
 
@@ -1565,7 +1565,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
     }
 
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard';
+    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard Live';
 
     console.log(`🔍 Debug: Fetching raw High Rated data from ${HIGH_RATED_SPREADSHEET_ID}`);
 
