@@ -1620,7 +1620,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
       success: false,
       error: error.message,
       spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
-      sheetName: 'High Rated Dashboard',
+      sheetName: 'High Rated Dashboard Live',
     });
   }
 });
