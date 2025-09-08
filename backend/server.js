@@ -24,8 +24,8 @@ async function initializeGoogleSheets() {
       email: serviceAccount.client_email,
       key: serviceAccount.private_key,
       scopes: [
-        'https://www.googleapis.com/auth/spreadsheets.readonly',
-        'https://www.googleapis.com/auth/drive.readonly'
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
       ],
     });
 
