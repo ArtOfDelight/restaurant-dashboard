@@ -1,4 +1,6 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, createContext, useContext } from 'react';
+import { GoogleOAuthProvider, GoogleLogin, googleLogout } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
 import logo from './ggg.png';
 
 // Import Dashboard directly since it's the main component
@@ -34,6 +36,386 @@ const SwiggyDashboard = lazy(() =>
     default: () => <MissingComponent componentName="SWIGGY DASHBOARD" fileName="SwiggyDashboard" />
   }))
 );
+
+// Replace with your actual Google OAuth Client ID
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID";
+
+// Authorized email domains (you can modify this list)
+const AUTHORIZED_DOMAINS = ['gmail.com', 'yourdomain.com']; // Add your organization domain
+const AUTHORIZED_EMAILS = [
+  'your-email@gmail.com', // Add specific authorized emails
+  'admin@yourdomain.com'
+];
+
+// Authentication Context
+const AuthContext = createContext();
+
+// Custom hook to use auth context
+const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+// Authentication Provider
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const userData = JSON.parse(savedUser);
+        if (isEmailAuthorized(userData.email)) {
+          setUser(userData);
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('user');
+        }
+      } catch (error) {
+        localStorage.removeItem('user');
+      }
+    }
+    setIsLoading(false);
+  }, []);
+
+  const isEmailAuthorized = (email) => {
+    // Check if email is in authorized list
+    if (AUTHORIZED_EMAILS.includes(email)) return true;
+    
+    // Check if email domain is authorized
+    const domain = email.split('@')[1];
+    return AUTHORIZED_DOMAINS.includes(domain);
+  };
+
+  const handleLoginSuccess = (credentialResponse) => {
+    try {
+      const decoded = jwtDecode(credentialResponse.credential);
+      
+      if (!isEmailAuthorized(decoded.email)) {
+        alert('Access denied. Your email is not authorized to access this system.');
+        return;
+      }
+
+      const userData = {
+        email: decoded.email,
+        name: decoded.name,
+        picture: decoded.picture,
+        sub: decoded.sub
+      };
+
+      setUser(userData);
+      setIsAuthenticated(true);
+      localStorage.setItem('user', JSON.stringify(userData));
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Login failed. Please try again.');
+    }
+  };
+
+  const handleLoginFailure = () => {
+    console.error('Login Failed');
+    alert('Login failed. Please try again.');
+  };
+
+  const logout = () => {
+    googleLogout();
+    setUser(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem('user');
+  };
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
+      isLoading,
+      handleLoginSuccess,
+      handleLoginFailure,
+      logout
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// Login Component with Futuristic Design
+const LoginScreen = () => {
+  const { handleLoginSuccess, handleLoginFailure } = useAuth();
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #000000 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Animated background elements */}
+      <div style={{
+        position: 'absolute',
+        top: '10%',
+        left: '10%',
+        width: '200px',
+        height: '200px',
+        background: 'radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%)',
+        borderRadius: '50%',
+        animation: 'float 6s ease-in-out infinite'
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '10%',
+        right: '10%',
+        width: '150px',
+        height: '150px',
+        background: 'radial-gradient(circle, rgba(255,255,255,0.02) 0%, transparent 70%)',
+        borderRadius: '50%',
+        animation: 'float 8s ease-in-out infinite reverse'
+      }} />
+
+      <div style={{
+        background: 'var(--surface-dark, #1a1a1a)',
+        border: '1px solid var(--border-light, #444444)',
+        borderRadius: '20px',
+        padding: '50px 40px',
+        backdropFilter: 'blur(15px)',
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+        width: '100%',
+        maxWidth: '450px',
+        textAlign: 'center',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Top gradient line */}
+        <div style={{
+          position: 'absolute',
+          top: '0',
+          left: '0',
+          right: '0',
+          height: '2px',
+          background: 'linear-gradient(90deg, transparent, #ffffff, transparent)',
+          opacity: 0.8
+        }} />
+
+        {/* Logo */}
+        <div style={{ marginBottom: '30px' }}>
+          <img
+            src={logo}
+            alt="Logo"
+            style={{
+              height: '60px',
+              width: 'auto',
+              filter: 'brightness(1.2)',
+              marginBottom: '20px'
+            }}
+          />
+        </div>
+
+        {/* Title */}
+        <h1 style={{
+          fontSize: '2rem',
+          fontWeight: '700',
+          background: 'linear-gradient(90deg, #ffffff, #aaaaaa)',
+          backgroundClip: 'text',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          color: 'transparent',
+          margin: '0 0 10px 0',
+          letterSpacing: '2px',
+          textTransform: 'uppercase',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+        }}>
+          Dashboard Suite
+        </h1>
+
+        <p style={{
+          color: 'var(--text-secondary, #cccccc)',
+          margin: '0 0 40px 0',
+          fontSize: '1rem',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+          letterSpacing: '1px'
+        }}>
+          Secure Access Required
+        </p>
+
+        {/* Security notice */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid var(--border-light, #444444)',
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '30px',
+          textAlign: 'left'
+        }}>
+          <h3 style={{
+            color: 'var(--text-primary, #ffffff)',
+            fontSize: '0.9rem',
+            margin: '0 0 10px 0',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            Security Notice
+          </h3>
+          <p style={{
+            color: 'var(--text-secondary, #cccccc)',
+            fontSize: '0.85rem',
+            margin: '0',
+            lineHeight: '1.5',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+          }}>
+            This system requires authorized Gmail authentication. Only pre-approved email addresses can access the dashboard.
+          </p>
+        </div>
+
+        {/* Google Login Button */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          marginBottom: '20px'
+        }}>
+          <GoogleLogin
+            onSuccess={handleLoginSuccess}
+            onError={handleLoginFailure}
+            theme="filled_black"
+            shape="rectangular"
+            size="large"
+            text="signin_with"
+            width="300px"
+          />
+        </div>
+
+        {/* Footer text */}
+        <p style={{
+          color: 'var(--text-muted, #888888)',
+          fontSize: '0.75rem',
+          margin: '20px 0 0 0',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+          letterSpacing: '0.5px'
+        }}>
+          Powered by Google OAuth 2.0
+        </p>
+      </div>
+
+      <style>
+        {`
+          @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(5deg); }
+          }
+        `}
+      </style>
+    </div>
+  );
+};
+
+// User Profile Component in Header
+const UserProfile = () => {
+  const { user, logout } = useAuth();
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setShowDropdown(!showDropdown)}
+        style={{
+          background: 'var(--surface-light)',
+          border: '1px solid var(--border-light)',
+          borderRadius: '25px',
+          padding: '8px 15px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          color: 'var(--text-primary)',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+          fontSize: '0.8rem'
+        }}
+      >
+        <img
+          src={user.picture}
+          alt={user.name}
+          style={{
+            width: '24px',
+            height: '24px',
+            borderRadius: '50%',
+            border: '1px solid var(--border-light)'
+          }}
+        />
+        <span>{user.name}</span>
+        <span style={{ fontSize: '0.7rem' }}>▼</span>
+      </button>
+
+      {showDropdown && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: '0',
+          background: 'var(--surface-dark)',
+          border: '1px solid var(--border-light)',
+          borderRadius: '12px',
+          padding: '10px',
+          marginTop: '5px',
+          minWidth: '200px',
+          backdropFilter: 'blur(15px)',
+          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+          zIndex: 1000
+        }}>
+          <div style={{
+            padding: '10px',
+            borderBottom: '1px solid var(--border-light)',
+            marginBottom: '10px'
+          }}>
+            <div style={{
+              color: 'var(--text-primary)',
+              fontSize: '0.9rem',
+              fontWeight: '600',
+              marginBottom: '5px'
+            }}>
+              {user.name}
+            </div>
+            <div style={{
+              color: 'var(--text-secondary)',
+              fontSize: '0.8rem'
+            }}>
+              {user.email}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setShowDropdown(false);
+              logout();
+            }}
+            style={{
+              width: '100%',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+              padding: '10px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '0.8rem',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Loading component
 const LoadingComponent = () => (
@@ -92,7 +474,6 @@ const MissingComponent = ({ componentName, fileName }) => (
     position: 'relative',
     overflow: 'hidden'
   }}>
-    {/* Animated background pattern */}
     <div style={{
       position: 'absolute',
       top: '0',
@@ -259,12 +640,13 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Main App Component
-function App() {
-  const [currentView, setCurrentView] = useState('checklist'); // CHANGED: Now defaults to checklist
+// Protected Dashboard Component
+const ProtectedDashboard = () => {
+  const { user } = useAuth();
+  const [currentView, setCurrentView] = useState('checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - Updated to include tickets
+  // Navigation configuration
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
@@ -296,7 +678,7 @@ function App() {
       tickets: <TicketDashboard />
     };
 
-    const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />; // CHANGED: Default fallback to ChecklistDashboard
+    const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />;
 
     return (
       <ErrorBoundary key={currentView}>
@@ -346,31 +728,11 @@ function App() {
       justifyContent: 'center'
     };
 
-    const handleMouseEnter = (e) => {
-      if (!isActive) {
-        e.target.style.background = 'linear-gradient(135deg, var(--border-light) 0%, var(--surface-light) 100%)';
-        e.target.style.transform = 'translateY(-2px) scale(1.01)';
-        e.target.style.boxShadow = 'var(--shadow-glow), 0 6px 20px rgba(0, 0, 0, 0.2)';
-        e.target.style.color = 'var(--text-primary)';
-      }
-    };
-
-    const handleMouseLeave = (e) => {
-      if (!isActive) {
-        e.target.style.background = 'var(--surface-light)';
-        e.target.style.transform = 'translateY(0) scale(1)';
-        e.target.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
-        e.target.style.color = 'var(--text-secondary)';
-      }
-    };
-
     return (
       <button
         key={key}
         onClick={() => handleViewChange(key)}
         style={buttonStyle}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
         disabled={isNavigating}
       >
         <span style={{ fontSize: '1rem' }}>{icon}</span>
@@ -390,7 +752,7 @@ function App() {
     );
   };
 
-  // Keyboard navigation - Updated to include tickets
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey) {
@@ -431,7 +793,6 @@ function App() {
             50% { opacity: 1; }
           }
           
-          /* Scrollbar styling */
           ::-webkit-scrollbar {
             width: 8px;
           }
@@ -465,12 +826,9 @@ function App() {
         marginBottom: '25px',
         position: 'sticky',
         top: '0px',
-        zIndex: '1000',
-        backgroundImage: 'linear-gradient(var(--surface-dark), var(--surface-dark)), var(--primary-gradient)',
-        backgroundOrigin: 'padding-box',
-        backgroundClip: 'padding-box, border-box'
+        zIndex: '1000'
       }}>
-        {/* Logo Section - Text Removed */}
+        {/* Logo Section */}
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
@@ -485,8 +843,6 @@ function App() {
               backdropFilter: 'blur(10px)',
               transition: 'transform 0.3s ease'
             }}
-            onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-            onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
           />
         </div>
         
@@ -502,17 +858,8 @@ function App() {
           )}
         </div>
 
-        {/* Keyboard Shortcuts Indicator - Updated */}
-        <div style={{
-          fontSize: '0.7rem',
-          color: 'var(--text-muted)',
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-          textAlign: 'right',
-          lineHeight: '1.2'
-        }}>
-          <div>ALT + 1-6</div>
-          <div>SHORTCUTS</div>
-        </div>
+        {/* User Profile */}
+        <UserProfile />
       </nav>
 
       {/* Status Bar */}
@@ -532,10 +879,10 @@ function App() {
           ACTIVE: {navigationItems.find(item => item.key === currentView)?.label || 'UNKNOWN'}
         </div>
         <div>
-          STATUS: {isNavigating ? 'SWITCHING...' : 'READY'}
+          USER: {user.name.toUpperCase()}
         </div>
         <div>
-          SESSION: {new Date().toLocaleTimeString()}
+          STATUS: {isNavigating ? 'SWITCHING...' : 'READY'}
         </div>
       </div>
 
@@ -548,7 +895,7 @@ function App() {
         {renderCurrentView()}
       </main>
 
-      {/* Footer - Updated */}
+      {/* Footer */}
       <footer style={{
         background: 'var(--surface-dark)',
         borderTop: '1px solid var(--border-light)',
@@ -559,7 +906,7 @@ function App() {
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
         <div>
-          DASHBOARD SUITE v2.1 • POWERED BY REACT & GOOGLE SHEETS API
+          DASHBOARD SUITE v2.1 • SECURED WITH GOOGLE OAUTH
         </div>
         <div style={{ marginTop: '5px', fontSize: '0.7rem' }}>
           USE ALT + 1-6 FOR QUICK NAVIGATION BETWEEN DASHBOARDS
@@ -567,6 +914,28 @@ function App() {
       </footer>
     </div>
   );
+};
+
+// Main App Component
+function App() {
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </GoogleOAuthProvider>
+  );
 }
+
+// App Content Component
+const AppContent = () => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <LoadingComponent />;
+  }
+
+  return isAuthenticated ? <ProtectedDashboard /> : <LoginScreen />;
+};
 
 export default App;
