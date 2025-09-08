@@ -73,6 +73,7 @@ const transformDebugResponses = (rawResponses) => {
 
 // Checklist Completion Tracker Component
 // Checklist Completion Tracker Component
+// Checklist Completion Tracker Component
 const ChecklistCompletionTracker = ({ API_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
@@ -303,26 +304,24 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         </div>
       )}
 
-      {/* Summary Cards */}
-      {summaryData && (
+      {/* Time Slot Summary Cards */}
+      {completionData && (
         <div className="completion-summary">
-          <div className="summary-card completed">
-            <div className="summary-number">{summaryData.completedOutlets}</div>
-            <div className="summary-label">Completed</div>
-            <div className="summary-percentage">{summaryData.overallCompletionRate}%</div>
-          </div>
-          <div className="summary-card partial">
-            <div className="summary-number">{summaryData.partialOutlets}</div>
-            <div className="summary-label">Partial</div>
-          </div>
-          <div className="summary-card pending">
-            <div className="summary-number">{summaryData.pendingOutlets}</div>
-            <div className="summary-label">Pending</div>
-          </div>
-          <div className="summary-card total">
-            <div className="summary-number">{summaryData.totalOutlets}</div>
-            <div className="summary-label">Total Outlets</div>
-          </div>
+          {TIME_SLOT_ORDER.map(timeSlot => {
+            const completedCount = completionData.filter(outlet => 
+              outlet.timeSlotStatus.some(ts => ts.timeSlot === timeSlot && ts.status === 'Completed')
+            ).length;
+            const totalCount = completionData.length;
+            const completionRate = totalCount > 0 ? ((completedCount / totalCount) * 100).toFixed(1) : '0.0';
+            
+            return (
+              <div key={timeSlot} className="summary-card">
+                <div className="summary-number">{completedCount}/{totalCount}</div>
+                <div className="summary-label">{timeSlot}</div>
+                <div className="summary-percentage">{completionRate}%</div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -468,7 +467,6 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
     </div>
   );
 };
-
 // Main ChecklistDashboard Component
 const ChecklistDashboard = () => {
   const [submissions, setSubmissions] = useState([]);
