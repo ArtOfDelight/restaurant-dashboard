@@ -2760,9 +2760,10 @@ function processChecklistCompletionData(questionsData, submissionsData, outletDa
 }
 
 // Helper function to extract outlet list
+// Helper function to extract outlet list
 function extractOutletList(outletData, submissionsData) {
   const outlets = [];
-  const outletMap = new Map();
+  const outletMap = new Map(); // Use outlet code as key, not name
 
   // First, try to get outlets from master data
   if (outletData && outletData.length > 1) {
@@ -2776,24 +2777,29 @@ function extractOutletList(outletData, submissionsData) {
 
     for (let i = 1; i < outletData.length; i++) {
       const row = outletData[i];
-      if (!row || !row[nameIndex]) continue;
+      if (!row) continue;
 
+      const outletCode = getCellValue(row, codeIndex, '').trim();
       const outletName = getCellValue(row, nameIndex, '').trim();
-      if (!outletName) continue;
+      
+      if (!outletCode && !outletName) continue;
 
+      // Use outlet code as the key, fallback to name if no code
+      const key = outletCode || outletName;
+      
       const outlet = {
-        code: getCellValue(row, codeIndex, ''),
+        code: outletCode,
         name: outletName,
         type: getCellValue(row, typeIndex, ''),
         location: getCellValue(row, locationIndex, ''),
-        isCloudDays: false // You can add logic to determine this
+        isCloudDays: false
       };
 
-      outletMap.set(outletName.toLowerCase(), outlet);
+      outletMap.set(key, outlet);
     }
   }
 
-  // Also get outlets from submissions data as fallback
+  // Process submissions data and match to existing outlets
   if (submissionsData && submissionsData.length > 1) {
     const headers = submissionsData[0];
     const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
@@ -2803,16 +2809,36 @@ function extractOutletList(outletData, submissionsData) {
         const row = submissionsData[i];
         if (!row || !row[outletIndex]) continue;
 
-        const outletName = getCellValue(row, outletIndex, '').trim();
-        if (!outletName || outletMap.has(outletName.toLowerCase())) continue;
+        const submissionOutlet = getCellValue(row, outletIndex, '').trim();
+        if (!submissionOutlet) continue;
 
-        outletMap.set(outletName.toLowerCase(), {
-          code: '',
-          name: outletName,
-          type: '',
-          location: '',
-          isCloudDays: false
-        });
+        // Try to match submission outlet to existing outlet by code first, then by name
+        let foundOutlet = null;
+        for (const [key, outlet] of outletMap.entries()) {
+          if (outlet.code && outlet.code.toLowerCase() === submissionOutlet.toLowerCase()) {
+            foundOutlet = outlet;
+            break;
+          } else if (outlet.name && outlet.name.toLowerCase() === submissionOutlet.toLowerCase()) {
+            foundOutlet = outlet;
+            break;
+          }
+        }
+
+        // If not found, create new outlet but try to determine if it's a code or name
+        if (!foundOutlet) {
+          // If it's short (2-4 chars), likely a code
+          const isLikelyCode = submissionOutlet.length <= 4;
+          
+          const newOutlet = {
+            code: isLikelyCode ? submissionOutlet : '',
+            name: isLikelyCode ? '' : submissionOutlet,
+            type: '',
+            location: '',
+            isCloudDays: false
+          };
+
+          outletMap.set(submissionOutlet, newOutlet);
+        }
       }
     }
   }

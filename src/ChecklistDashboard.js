@@ -380,7 +380,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
                         className={`time-slot-badge ${slot.status.toLowerCase()}`}
                         title={`${slot.timeSlot}: ${slot.status}${slot.submittedBy ? ` by ${slot.submittedBy}` : ''}`}
                       >
-                        {slot.timeSlot.charAt(0)}{slot.status === 'Completed' ? '✓' : '✗'}
+                        {slot.status === 'Completed' ? '✓' : '✗'}
                       </span>
                     ))}
                   </div>
