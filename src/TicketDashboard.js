@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import './TicketDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 // Predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
 
-// Helper functions (same as before)
+// Status options
+const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved', 'Closed'];
+
+// Helper functions
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
   try {
@@ -69,6 +71,7 @@ const transformTicketData = (rawTickets) => {
       imageHash: safeRow[6] || '',
       status: safeRow[7] || 'Open',
       assignedTo: safeRow[8] || '',
+      actionTaken: safeRow[9] || '', // New field for action taken
       daysPending: calculateDaysPending(safeRow[1] || '')
     };
   }).filter(ticket => {
@@ -86,7 +89,10 @@ const TicketDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [assignmentLoading, setAssignmentLoading] = useState({});
+  const [statusLoading, setStatusLoading] = useState({});
   const [assignmentInputs, setAssignmentInputs] = useState({});
+  const [statusInputs, setStatusInputs] = useState({});
+  const [actionInputs, setActionInputs] = useState({});
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
   const [filters, setFilters] = useState({
@@ -97,11 +103,12 @@ const TicketDashboard = () => {
     search: ''
   });
   const [selectedImage, setSelectedImage] = useState(null);
+  const [imageError, setImageError] = useState(false);
 
   const [filterOptions, setFilterOptions] = useState({
     outlets: [],
     assignees: [],
-    statuses: ['Open', 'In Progress', 'Resolved'],
+    statuses: STATUS_OPTIONS,
   });
 
   const updateFilterOptions = useCallback((ticketsData) => {
@@ -112,7 +119,7 @@ const TicketDashboard = () => {
       ...prev,
       outlets: outlets.sort(),
       assignees: assignees.sort(),
-      statuses: ['Open', 'In Progress', 'Resolved'],
+      statuses: STATUS_OPTIONS,
     }));
   }, []);
 
@@ -140,14 +147,20 @@ const TicketDashboard = () => {
         setTickets(ticketsArray);
         updateFilterOptions(ticketsArray);
         
-        // Initialize assignment inputs for open tickets
-        const inputs = {};
+        // Initialize inputs for tickets
+        const assignInputs = {};
+        const statusInputsInit = {};
+        const actionInputsInit = {};
         ticketsArray.forEach(ticket => {
           if (ticket.status === 'Open') {
-            inputs[ticket.ticketId] = '';
+            assignInputs[ticket.ticketId] = '';
           }
+          statusInputsInit[ticket.ticketId] = ticket.status;
+          actionInputsInit[ticket.ticketId] = ticket.actionTaken || '';
         });
-        setAssignmentInputs(inputs);
+        setAssignmentInputs(assignInputs);
+        setStatusInputs(statusInputsInit);
+        setActionInputs(actionInputsInit);
       } else {
         throw new Error(data.error || 'API returned error');
       }
@@ -197,6 +210,7 @@ const TicketDashboard = () => {
         );
         
         setAssignmentInputs(prev => ({ ...prev, [ticketId]: '' }));
+        setStatusInputs(prev => ({ ...prev, [ticketId]: 'In Progress' }));
         alert(`Ticket ${ticketId} has been assigned to ${assigneeName.trim()}`);
       } else {
         throw new Error(result.error || 'Assignment failed');
@@ -206,6 +220,47 @@ const TicketDashboard = () => {
       alert('Failed to assign ticket. Please try again.');
     } finally {
       setAssignmentLoading(prev => ({ ...prev, [ticketId]: false }));
+    }
+  };
+
+  const updateTicketStatus = async (ticketId, newStatus, actionTaken = '') => {
+    setStatusLoading(prev => ({ ...prev, [ticketId]: true }));
+
+    try {
+      const response = await fetch(`${API_URL}/api/update-ticket-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketId,
+          status: newStatus,
+          actionTaken: actionTaken.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setTickets(prevTickets => 
+          prevTickets.map(ticket => 
+            ticket.ticketId === ticketId 
+              ? { ...ticket, status: newStatus, actionTaken: actionTaken.trim() }
+              : ticket
+          )
+        );
+        
+        setStatusInputs(prev => ({ ...prev, [ticketId]: newStatus }));
+        setActionInputs(prev => ({ ...prev, [ticketId]: actionTaken.trim() }));
+        alert(`Ticket ${ticketId} status updated to ${newStatus}`);
+      } else {
+        throw new Error(result.error || 'Status update failed');
+      }
+    } catch (error) {
+      console.error('Error updating ticket status:', error);
+      alert('Failed to update ticket status. Please try again.');
+    } finally {
+      setStatusLoading(prev => ({ ...prev, [ticketId]: false }));
     }
   };
 
@@ -233,12 +288,10 @@ const TicketDashboard = () => {
       );
     });
 
-    // Sort the filtered results
     filtered.sort((a, b) => {
       let aVal = a[sortField];
       let bVal = b[sortField];
       
-      // Handle special sorting cases
       if (sortField === 'daysPending') {
         aVal = parseInt(aVal) || 0;
         bVal = parseInt(bVal) || 0;
@@ -246,10 +299,9 @@ const TicketDashboard = () => {
         aVal = new Date(aVal);
         bVal = new Date(bVal);
       } else if (sortField === 'status') {
-        // Sort by status priority: Open > In Progress > Resolved
-        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2 };
-        aVal = statusOrder[aVal] || 3;
-        bVal = statusOrder[bVal] || 3;
+        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2, 'Closed': 3 };
+        aVal = statusOrder[aVal] || 4;
+        bVal = statusOrder[bVal] || 4;
       }
       
       if (sortDirection === 'asc') {
@@ -267,6 +319,7 @@ const TicketDashboard = () => {
       case 'Open': return '🔴';
       case 'In Progress': return '🟡';
       case 'Resolved': return '🟢';
+      case 'Closed': return '⚪';
       default: return '❓';
     }
   };
@@ -276,6 +329,7 @@ const TicketDashboard = () => {
       case 'Open': return '#ef4444';
       case 'In Progress': return '#f59e0b';
       case 'Resolved': return '#10b981';
+      case 'Closed': return '#6b7280';
       default: return '#6b7280';
     }
   };
@@ -284,60 +338,196 @@ const TicketDashboard = () => {
     setFilters({ date: '', outlet: '', status: '', assignee: '', search: '' });
   };
 
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
   const filteredTickets = getFilteredAndSortedTickets();
   const stats = {
     total: tickets.length,
     open: tickets.filter(t => t.status === 'Open').length,
     inProgress: tickets.filter(t => t.status === 'In Progress').length,
     resolved: tickets.filter(t => t.status === 'Resolved').length,
+    closed: tickets.filter(t => t.status === 'Closed').length,
     avgDaysPending: tickets.length > 0 ? 
       Math.round(tickets.reduce((sum, t) => sum + t.daysPending, 0) / tickets.length) : 0,
   };
 
   if (loading) {
     return (
-      <div className="ticket-loading">
-        <div className="loading-spinner"></div>
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '400px',
+        gap: '1rem'
+      }}>
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '4px solid #f3f4f6',
+          borderTop: '4px solid #3b82f6',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }}></div>
         <p>Loading ticket data...</p>
       </div>
     );
   }
 
   return (
-    <div className="ticket-dashboard">
-      <div className="ticket-header">
-        <h1>Ticket Management System</h1>
-        <button onClick={loadTicketData} className="refresh-btn">
+    <div style={{ 
+      padding: '2rem', 
+      maxWidth: '1400px', 
+      margin: '0 auto',
+      backgroundColor: '#ffffff',
+      minHeight: '100vh'
+    }}>
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          
+          .ticket-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+          }
+          
+          .ticket-table th,
+          .ticket-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+          }
+          
+          .ticket-table th {
+            background-color: #f9fafb;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+          }
+          
+          .ticket-table th:hover {
+            background-color: #f3f4f6;
+          }
+          
+          .ticket-table tr:hover {
+            background-color: #f9fafb;
+          }
+          
+          .status-open { background-color: #fef2f2; }
+          .status-in-progress { background-color: #fffbeb; }
+          .status-resolved { background-color: #f0fdf4; }
+          .status-closed { background-color: #f9fafb; }
+          
+          .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            text-align: center;
+          }
+          
+          .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #1f2937;
+          }
+          
+          .stat-label {
+            color: #6b7280;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+          }
+        `}
+      </style>
+
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '2rem' 
+      }}>
+        <h1 style={{ margin: 0, color: '#1f2937' }}>Ticket Management System</h1>
+        <button 
+          onClick={loadTicketData}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer'
+          }}
+        >
           🔄 Refresh
         </button>
       </div>
 
       {error && (
-        <div className="ticket-error">
+        <div style={{
+          backgroundColor: '#fee2e2',
+          border: '1px solid #fecaca',
+          color: '#dc2626',
+          padding: '1rem',
+          borderRadius: '6px',
+          marginBottom: '1rem'
+        }}>
           <h3>❌ Error: {error}</h3>
           <p>Please check your server connection or contact support if the issue persists.</p>
-          <button onClick={loadTicketData} className="retry-btn">
+          <button 
+            onClick={loadTicketData}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
             🔄 Retry
           </button>
         </div>
       )}
 
-      <div className="ticket-stats">
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+        gap: '1rem', 
+        marginBottom: '2rem' 
+      }}>
         <div className="stat-card">
           <div className="stat-number">{stats.total}</div>
           <div className="stat-label">Total Tickets</div>
         </div>
-        <div className="stat-card open">
-          <div className="stat-number">{stats.open}</div>
+        <div className="stat-card">
+          <div className="stat-number" style={{ color: '#ef4444' }}>{stats.open}</div>
           <div className="stat-label">Open</div>
         </div>
-        <div className="stat-card in-progress">
-          <div className="stat-number">{stats.inProgress}</div>
+        <div className="stat-card">
+          <div className="stat-number" style={{ color: '#f59e0b' }}>{stats.inProgress}</div>
           <div className="stat-label">In Progress</div>
         </div>
-        <div className="stat-card resolved">
-          <div className="stat-number">{stats.resolved}</div>
+        <div className="stat-card">
+          <div className="stat-number" style={{ color: '#10b981' }}>{stats.resolved}</div>
           <div className="stat-label">Resolved</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-number" style={{ color: '#6b7280' }}>{stats.closed}</div>
+          <div className="stat-label">Closed</div>
         </div>
         <div className="stat-card">
           <div className="stat-number">{stats.avgDaysPending}</div>
@@ -346,29 +536,55 @@ const TicketDashboard = () => {
       </div>
 
       {tickets.length > 0 && (
-        <div className="ticket-filters">
-          <div className="filter-group">
-            <label>Search</label>
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+          gap: '1rem', 
+          marginBottom: '1rem',
+          padding: '1rem',
+          backgroundColor: '#f9fafb',
+          borderRadius: '8px'
+        }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Search</label>
             <input
               type="text"
               placeholder="Search tickets..."
               value={filters.search}
               onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px'
+              }}
             />
           </div>
-          <div className="filter-group">
-            <label>Date</label>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Date</label>
             <input
               type="date"
               value={filters.date}
               onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px'
+              }}
             />
           </div>
-          <div className="filter-group">
-            <label>Outlet</label>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Outlet</label>
             <select
               value={filters.outlet}
               onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px'
+              }}
             >
               <option value="">All Outlets</option>
               {filterOptions.outlets.map(outlet => (
@@ -376,11 +592,17 @@ const TicketDashboard = () => {
               ))}
             </select>
           </div>
-          <div className="filter-group">
-            <label>Status</label>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Status</label>
             <select
               value={filters.status}
               onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px'
+              }}
             >
               <option value="">All Statuses</option>
               {filterOptions.statuses.map(status => (
@@ -388,11 +610,17 @@ const TicketDashboard = () => {
               ))}
             </select>
           </div>
-          <div className="filter-group">
-            <label>Assignee</label>
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Assignee</label>
             <select
               value={filters.assignee}
               onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '4px'
+              }}
             >
               <option value="">All Assignees</option>
               {filterOptions.assignees.map(assignee => (
@@ -404,93 +632,159 @@ const TicketDashboard = () => {
       )}
 
       {Object.values(filters).some(filter => filter !== '') && (
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <button onClick={clearAllFilters} className="clear-filters-btn">
+        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+          <button 
+            onClick={clearAllFilters}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#6b7280',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
             🧹 Clear All Filters
           </button>
         </div>
       )}
 
-      <div className="tickets-table-container">
+      <div style={{ overflowX: 'auto' }}>
         {!error && tickets.length === 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">🎫</div>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px'
+          }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎫</div>
             <h3>No tickets found</h3>
             <p>No ticket data is available in your Google Sheets yet.</p>
-            <button onClick={loadTicketData} className="refresh-btn">
+            <button 
+              onClick={loadTicketData}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
               🔄 Refresh Data
             </button>
           </div>
         ) : filteredTickets.length === 0 && tickets.length > 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">🔍</div>
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px'
+          }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
             <h3>No tickets match your filters</h3>
             <p>Try adjusting or clearing your filters above.</p>
-            <button onClick={clearAllFilters} className="refresh-btn">
+            <button 
+              onClick={clearAllFilters}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: '#6b7280',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
               🧹 Clear Filters
             </button>
           </div>
         ) : (
-          <table className="tickets-table">
+          <table className="ticket-table">
             <thead>
               <tr>
-                <th onClick={() => handleSort('ticketId')} className="sortable">
+                <th onClick={() => handleSort('ticketId')} style={{ cursor: 'pointer' }}>
                   Ticket ID {sortField === 'ticketId' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('date')} className="sortable">
+                <th onClick={() => handleSort('date')} style={{ cursor: 'pointer' }}>
                   Date {sortField === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('outlet')} className="sortable">
+                <th onClick={() => handleSort('outlet')} style={{ cursor: 'pointer' }}>
                   Outlet {sortField === 'outlet' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('submittedBy')} className="sortable">
+                <th onClick={() => handleSort('submittedBy')} style={{ cursor: 'pointer' }}>
                   Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>Issue Description</th>
-                <th onClick={() => handleSort('status')} className="sortable">
+                <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>
                   Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('daysPending')} className="sortable">
+                <th onClick={() => handleSort('daysPending')} style={{ cursor: 'pointer' }}>
                   Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>Assigned To / Action</th>
+                <th>Action Taken</th>
+                <th>Status Management</th>
               </tr>
             </thead>
             <tbody>
               {filteredTickets.map(ticket => (
-                <tr key={ticket.ticketId} className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}>
-                  <td className="ticket-id">#{ticket.ticketId}</td>
-                  <td className="ticket-date">{formatDate(ticket.date)}</td>
-                  <td className="ticket-outlet">{ticket.outlet}</td>
-                  <td className="ticket-submitter">{ticket.submittedBy}</td>
-                  <td className="ticket-description">
-                    <div className="description-text">{ticket.issueDescription}</div>
+                <tr 
+                  key={ticket.ticketId} 
+                  className={`status-${ticket.status.toLowerCase().replace(' ', '-')}`}
+                >
+                  <td style={{ fontWeight: '600' }}>#{ticket.ticketId}</td>
+                  <td>{formatDate(ticket.date)}</td>
+                  <td>{ticket.outlet}</td>
+                  <td>{ticket.submittedBy}</td>
+                  <td style={{ maxWidth: '300px' }}>
+                    <div style={{ marginBottom: '0.5rem' }}>{ticket.issueDescription}</div>
                     {ticket.imageLink && (
                       <button 
-                        className="image-btn" 
-                        onClick={() => setSelectedImage(ticket.imageLink)}
-                        title="View attached image"
+                        onClick={() => {
+                          setSelectedImage(ticket.imageLink);
+                          setImageError(false);
+                        }}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '0.75rem',
+                          cursor: 'pointer'
+                        }}
                       >
-                        Ticket Attachment
+                        📎 View Image
                       </button>
                     )}
                   </td>
-                  <td className="ticket-status">
+                  <td>
                     <span 
-                      className="status-badge"
-                      style={{ backgroundColor: getStatusColor(ticket.status) }}
+                      style={{ 
+                        backgroundColor: getStatusColor(ticket.status),
+                        color: 'white',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '12px',
+                        fontSize: '0.75rem',
+                        fontWeight: '500'
+                      }}
                     >
                       {getStatusIcon(ticket.status)} {ticket.status}
                     </span>
                   </td>
-                  <td className="ticket-pending">
-                    <span className={ticket.daysPending > 7 ? 'high-priority' : ticket.daysPending > 3 ? 'medium-priority' : 'low-priority'}>
+                  <td>
+                    <span 
+                      style={{ 
+                        color: ticket.daysPending > 7 ? '#dc2626' : ticket.daysPending > 3 ? '#f59e0b' : '#10b981',
+                        fontWeight: '500'
+                      }}
+                    >
                       {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
                     </span>
                   </td>
-                  <td className="ticket-assignment">
+                  <td>
                     {ticket.status === 'Open' ? (
-                      <div className="assignment-inline">
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <select
                           value={assignmentInputs[ticket.ticketId] || ''}
                           onChange={(e) => setAssignmentInputs(prev => ({
@@ -498,7 +792,12 @@ const TicketDashboard = () => {
                             [ticket.ticketId]: e.target.value
                           }))}
                           disabled={assignmentLoading[ticket.ticketId]}
-                          className="assign-select-inline"
+                          style={{
+                            padding: '0.25rem',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '4px',
+                            fontSize: '0.875rem'
+                          }}
                         >
                           <option value="">Select assignee...</option>
                           {ASSIGNEE_OPTIONS.map(name => (
@@ -508,14 +807,81 @@ const TicketDashboard = () => {
                         <button
                           onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
                           disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
-                          className="assign-btn-inline"
+                          style={{
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.875rem'
+                          }}
                         >
-                          {assignmentLoading[ticket.ticketId] ? '...' : '→'}
+                          {assignmentLoading[ticket.ticketId] ? '...' : 'Assign'}
                         </button>
                       </div>
                     ) : (
-                      <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                      <div style={{ fontWeight: '500' }}>{ticket.assignedTo || 'Unassigned'}</div>
                     )}
+                  </td>
+                  <td>
+                    <textarea
+                      value={actionInputs[ticket.ticketId] || ''}
+                      onChange={(e) => setActionInputs(prev => ({
+                        ...prev,
+                        [ticket.ticketId]: e.target.value
+                      }))}
+                      placeholder="Describe action taken..."
+                      style={{
+                        width: '100%',
+                        minHeight: '60px',
+                        padding: '0.5rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '4px',
+                        fontSize: '0.875rem',
+                        resize: 'vertical'
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <select
+                        value={statusInputs[ticket.ticketId] || ticket.status}
+                        onChange={(e) => setStatusInputs(prev => ({
+                          ...prev,
+                          [ticket.ticketId]: e.target.value
+                        }))}
+                        style={{
+                          padding: '0.25rem',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '4px',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        {STATUS_OPTIONS.map(status => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => updateTicketStatus(
+                          ticket.ticketId, 
+                          statusInputs[ticket.ticketId], 
+                          actionInputs[ticket.ticketId]
+                        )}
+                        disabled={statusLoading[ticket.ticketId]}
+                        style={{
+                          padding: '0.25rem 0.5rem',
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        {statusLoading[ticket.ticketId] ? '...' : 'Update'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -525,32 +891,87 @@ const TicketDashboard = () => {
       </div>
 
       {selectedImage && (
-        <div className="image-modal" onClick={() => setSelectedImage(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+          onClick={() => setSelectedImage(null)}
+        >
+          <div 
+            style={{
+              position: 'relative',
+              maxWidth: '90%',
+              maxHeight: '90%',
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '1rem'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button 
-              className="close-btn" 
               onClick={() => setSelectedImage(null)}
+              style={{
+                position: 'absolute',
+                top: '-10px',
+                right: '-10px',
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                backgroundColor: '#dc2626',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '1.2rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
             >
               ×
             </button>
             {imageError ? (
-              <div className="image-error-container">
-                <div className="image-error-icon">🖼️</div>
+              <div style={{ 
+                textAlign: 'center', 
+                padding: '2rem',
+                color: '#6b7280'
+              }}>
+                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🖼️</div>
                 <h3>Image Not Available</h3>
                 <p>The image could not be loaded. It may have been moved or deleted.</p>
                 <p><strong>URL:</strong> {selectedImage}</p>
                 <button 
-                  className="retry-image-btn" 
                   onClick={() => setImageError(false)}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
                 >
                   Try Again
                 </button>
               </div>
             ) : (
               <img 
-                src={selectedImage} 
+                src={selectedImage}
                 alt="Ticket Attachment"
                 onError={handleImageError}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  objectFit: 'contain'
+                }}
               />
             )}
           </div>

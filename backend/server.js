@@ -3295,7 +3295,398 @@ app.get('/api/debug-tickets', async (req, res) => {
   }
 });
 
+// Add this new endpoint to your existing server.js file
 
+// Update ticket status and action taken
+app.post('/api/update-ticket-status', async (req, res) => {
+  try {
+    const { ticketId, status, actionTaken } = req.body;
+    
+    if (!ticketId || !status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ticketId or status in request body'
+      });
+    }
+
+    console.log(`🎫 Updating ticket ${ticketId} status to ${status} with action: ${actionTaken || 'none'}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Get all ticket data to find the row
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:J`, // Extended to include column J for Action Taken
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    console.log(`Found ${ticketsData.length} rows in Tickets tab`);
+    
+    // Find the row with matching ticket ID (column A)
+    let targetRow = -1;
+    for (let i = 1; i < ticketsData.length; i++) { // Start from row 1 (skip header)
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1; // Convert to 1-based indexing for Sheets API
+        console.log(`Found ticket ${ticketId} at row ${targetRow}`);
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      console.log(`Ticket ${ticketId} not found in ${ticketsData.length} rows`);
+      return res.status(404).json({
+        success: false,
+        error: `Ticket ${ticketId} not found`,
+        availableTickets: ticketsData.slice(1).map(row => row[0]).filter(Boolean)
+      });
+    }
+
+    // Prepare batch update data
+    const updateData = [
+      {
+        range: `${TICKET_TAB}!H${targetRow}`, // Status column (H)
+        values: [[status]]
+      }
+    ];
+
+    // Add Action Taken update if provided
+    if (actionTaken !== undefined) {
+      updateData.push({
+        range: `${TICKET_TAB}!J${targetRow}`, // Action Taken column (J)
+        values: [[actionTaken]]
+      });
+    }
+
+    console.log(`Updating row ${targetRow}: Status to "${status}"${actionTaken !== undefined ? `, Action Taken to "${actionTaken}"` : ''}`);
+    
+    const batchUpdateResponse = await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      resource: {
+        data: updateData,
+        valueInputOption: 'RAW'
+      }
+    });
+
+    console.log(`✅ Successfully updated ticket ${ticketId}`);
+    console.log(`Batch update response:`, batchUpdateResponse.data);
+
+    res.json({
+      success: true,
+      ticketId,
+      status,
+      actionTaken: actionTaken || '',
+      updatedRow: targetRow,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating ticket status:', error.message);
+    console.error('Full error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Updated transform function for ticket data (replace the existing one)
+function transformTicketData(rawTickets) {
+  if (!rawTickets || rawTickets.length <= 1) return [];
+  
+  const headers = rawTickets[0];
+  const dataRows = rawTickets.slice(1);
+  
+  return dataRows.map((row, index) => {
+    const safeRow = Array.isArray(row) ? row : [];
+    
+    return {
+      ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,
+      date: formatDate(getCellValue(safeRow, 1)),
+      outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',
+      submittedBy: getCellValue(safeRow, 3) || 'Unknown User',
+      issueDescription: getCellValue(safeRow, 4) || '',
+      imageLink: getCellValue(safeRow, 5) || '',
+      imageHash: getCellValue(safeRow, 6) || '',
+      status: getCellValue(safeRow, 7) || 'Open',
+      assignedTo: getCellValue(safeRow, 8) || '',
+      actionTaken: getCellValue(safeRow, 9) || '', // New field for Action Taken (Column J)
+      daysPending: calculateDaysPending(getCellValue(safeRow, 1))
+    };
+  }).filter(ticket => {
+    const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
+                       ticket.submittedBy !== 'Unknown User' || 
+                       ticket.date || 
+                       ticket.ticketId.startsWith('TKT-') === false;
+    return hasAnyData;
+  });
+}
+
+// Updated debug tickets endpoint to show new structure
+app.get('/api/debug-tickets', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    console.log(`🔍 Debug: Checking ticket data from ${TICKET_SPREADSHEET_ID}`);
+    
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:J`, // Extended to include Action Taken column
+    });
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      tab: TICKET_TAB,
+      rawData: ticketsResponse.data.values || [],
+      rowCount: ticketsResponse.data.values ? ticketsResponse.data.values.length : 0,
+      headers: ticketsResponse.data.values && ticketsResponse.data.values[0] ? ticketsResponse.data.values[0] : [],
+      expectedColumns: [
+        'Ticket ID (A)', 'Date (B)', 'Outlet (C)', 'Submitted By (D)', 
+        'Issue Description (E)', 'Image Link (F)', 'Image Hash (G)', 
+        'Status (H)', 'Assigned To (I)', 'Action Taken (J)' // Added new column
+      ],
+      newFeatures: {
+        statusUpdateEndpoint: '/api/update-ticket-status (POST)',
+        supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
+        actionTakenColumn: 'J',
+        statusColumn: 'H'
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Debug tickets error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
+      tab: 'Tickets'
+    });
+  }
+});
+
+// Updated health check endpoint to include new ticket management features
+app.get('/health', async (req, res) => {
+  const sheetsConnected = !!sheets;
+  const driveConnected = !!drive;
+  
+  res.set('Content-Type', 'application/json');
+  res.json({ 
+    status: sheetsConnected && driveConnected ? 'OK' : 'Not Connected',
+    services: {
+      googleSheets: sheetsConnected ? 'Connected' : 'Disconnected',
+      googleDrive: driveConnected ? 'Connected' : 'Disconnected',
+      geminiApi: GEMINI_API_KEY ? 'Configured' : 'Not Configured',
+    },
+    environment: {
+      dashboardSpreadsheetId: DASHBOARD_SPREADSHEET_ID ? 'Set' : 'Missing',
+      dashboardSheetName: DASHBOARD_SHEET_NAME ? 'Set' : 'Missing',
+      checklistSpreadsheetId: CHECKLIST_SPREADSHEET_ID ? 'Set' : 'Missing',
+      geminiApiKey: GEMINI_API_KEY ? 'Set' : 'Missing',
+    },
+    endpoints: {
+      dashboard: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
+      checklist: '/api/checklist-data',
+      checklistStats: '/api/checklist-stats',
+      debugChecklist: '/api/debug-checklist',
+      debugDashboard: '/api/debug-sheet',
+      highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
+      debugHighRated: '/api/debug-high-rated',
+      tickets: '/api/ticket-data',
+      assignTicket: '/api/assign-ticket (POST)',
+      updateTicketStatus: '/api/update-ticket-status (POST)', // New endpoint
+      debugTickets: '/api/debug-tickets',
+      swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
+      employee: '/api/employee-data?period=[7 Days|28 Days]',
+      checklistCompletion: '/api/checklist-completion-status?date=YYYY-MM-DD',
+      aiInsights: '/api/generate-insights (POST)',
+      outletAnalysis: '/api/analyze-outlet (POST)'
+    },
+    ticketManagement: {
+      features: [
+        'Ticket assignment to team members',
+        'Status updates (Open, In Progress, Resolved, Closed)',
+        'Action taken tracking',
+        'Image attachment support',
+        'Days pending calculation',
+        'Filtering and sorting',
+        'Real-time updates'
+      ],
+      supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
+      columnMapping: {
+        'A': 'Ticket ID',
+        'B': 'Date',
+        'C': 'Outlet',
+        'D': 'Submitted By',
+        'E': 'Issue Description',
+        'F': 'Image Link',
+        'G': 'Image Hash',
+        'H': 'Status',
+        'I': 'Assigned To',
+        'J': 'Action Taken'
+      }
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Image proxy endpoint with better error handling for ticket images
+app.get('/api/image-proxy/:fileId', async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    console.log(`📷 Proxying image for fileId: ${fileId}`);
+    
+    // Add CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (!drive) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Drive');
+      }
+    }
+    
+    const response = await drive.files.get(
+      { fileId, alt: 'media' },
+      { responseType: 'stream' }
+    );
+    
+    // Set content type and cache headers
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=3600',
+      'Access-Control-Allow-Origin': '*'
+    });
+    
+    response.data.pipe(res);
+    
+  } catch (error) {
+    console.error(`❌ Image proxy error for file ${req.params.fileId}: ${error.message}`);
+    
+    // Set CORS headers even for errors
+    res.header('Access-Control-Allow-Origin', '*');
+    
+    if (error.code === 404) {
+      res.status(404).json({
+        error: 'Image not found',
+        fileId: req.params.fileId,
+        message: 'The requested image file was not found or is not accessible.',
+        suggestion: 'Check if the Google Drive file exists and is shared properly'
+      });
+    } else if (error.code === 403) {
+      res.status(403).json({
+        error: 'Access denied',
+        fileId: req.params.fileId,
+        message: 'Permission denied. Make sure the file is shared with the service account.',
+        serviceAccount: authClient?.email || 'unknown'
+      });
+    } else {
+      res.status(500).json({
+        error: 'Internal server error',
+        fileId: req.params.fileId,
+        message: error.message,
+        suggestion: 'Contact support if this issue persists'
+      });
+    }
+  }
+});
+
+// Add OPTIONS handler for CORS preflight
+app.options('/api/image-proxy/:fileId', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(200);
+});
+
+// Updated root endpoint to include ticket management info
+app.get('/', (req, res) => {
+  res.set('Content-Type', 'application/json');
+  res.json({
+    message: 'AOD Dashboard & Ticket Management API Server',
+    version: '2.3.0',
+    status: 'Running',
+    features: [
+      'Multi-period dashboard data (1/7/28 days)',
+      'Enhanced ticket management with status updates',
+      'Action taken tracking for tickets',
+      'Image proxy with improved error handling',
+      'Checklist management with completion tracking',
+      'Employee performance dashboard',
+      'Swiggy-specific analytics',
+      'High-rated order tracking',
+      'AI-powered insights with Gemini',
+      'Comprehensive debugging endpoints'
+    ],
+    endpoints: {
+      tickets: {
+        data: '/api/ticket-data',
+        assign: '/api/assign-ticket (POST)',
+        updateStatus: '/api/update-ticket-status (POST)',
+        debug: '/api/debug-tickets',
+        description: 'Complete ticket management system with status tracking and action logging'
+      },
+      dashboard: {
+        data: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
+        debug: '/api/debug-sheet',
+        description: 'Restaurant performance analytics'
+      },
+      checklist: {
+        data: '/api/checklist-data',
+        stats: '/api/checklist-stats',
+        completion: '/api/checklist-completion-status?date=YYYY-MM-DD',
+        filter: '/api/checklist-filter (POST)',
+        debug: '/api/debug-checklist',
+        description: 'Checklist management and completion tracking'
+      },
+      utilities: {
+        imageProxy: '/api/image-proxy/:fileId',
+        health: '/health',
+        description: 'Utility endpoints for system monitoring and file access'
+      }
+    },
+    ticketUpdates: {
+      newFeatures: [
+        'Status management (Open, In Progress, Resolved, Closed)',
+        'Action taken documentation',
+        'Enhanced image handling',
+        'Better error messages',
+        'Improved UI/UX'
+      ],
+      columnStructure: {
+        'A': 'Ticket ID',
+        'B': 'Date', 
+        'C': 'Outlet',
+        'D': 'Submitted By',
+        'E': 'Issue Description',
+        'F': 'Image Link',
+        'G': 'Image Hash',
+        'H': 'Status',
+        'I': 'Assigned To',
+        'J': 'Action Taken'
+      }
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
