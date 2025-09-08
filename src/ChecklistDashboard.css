@@ -1,4 +1,4 @@
-/* frontend/src/ChecklistDashboard.css - Futuristic Theme */
+/* frontend/src/ChecklistDashboard.css - Futuristic Theme with Completion Tracking */
 
 /* Custom Properties for Checklist */
 :root {
@@ -13,9 +13,16 @@
   --border-light: #444444; /* Light gray border */
   --primary-gradient: linear-gradient(90deg, #ffffff, #aaaaaa); /* Gradient for headers */
   --accent-gradient: linear-gradient(90deg, #666666, #999999); /* Gradient for accents */
+  --secondary-gradient: linear-gradient(135deg, #2a2a2a, #1a1a1a); /* Secondary gradient */
   --shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.3); /* Subtle shadow */
   --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.2); /* Glow effect */
   --transition: all 0.3s ease; /* Smooth transitions */
+  
+  /* Completion Status Colors */
+  --color-completed: #10b981;
+  --color-partial: #f59e0b;
+  --color-pending: #ef4444;
+  --color-total: #6366f1;
 }
 
 .checklist-dashboard {
@@ -103,6 +110,534 @@
 
 .refresh-btn:hover::before {
   left: 100%;
+}
+
+/* Tab Navigation Styles - Updated for Dark Theme */
+.tab-navigation {
+  display: flex;
+  background: var(--surface-dark);
+  border-bottom: 2px solid var(--border-light);
+  margin-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  overflow: hidden;
+  backdrop-filter: blur(15px);
+}
+
+.tab-button {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  border-bottom: 3px solid transparent;
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.tab-button.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--checklist-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-gradient);
+}
+
+.tab-content {
+  background: var(--surface-dark);
+  border-radius: 0 0 20px 20px;
+  border: 1px solid var(--border-light);
+  border-top: none;
+  backdrop-filter: blur(15px);
+  min-height: 400px;
+  overflow: hidden;
+}
+
+/* Checklist Completion Tracker Styles - Dark Theme */
+.checklist-completion-tracker {
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.completion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2rem;
+  background: var(--secondary-gradient);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+  position: relative;
+}
+
+.completion-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-gradient);
+  opacity: 0.8;
+}
+
+.completion-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.completion-tracker-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+  background: var(--surface-dark);
+}
+
+.completion-error {
+  padding: 2rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 4px solid #ef4444;
+  margin: 1rem 2rem;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.completion-error h3 {
+  color: #ff6b6b;
+  margin: 0 0 0.5rem 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Summary Cards - Dark Theme */
+.completion-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem;
+  background: rgba(20, 20, 20, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.summary-card {
+  background: var(--surface-dark);
+  padding: 2rem;
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: var(--shadow-dark);
+  border: 1px solid var(--border-light);
+  border-top: 4px solid;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+  position: relative;
+  overflow: hidden;
+}
+
+.summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--primary-gradient);
+  opacity: 0.3;
+}
+
+.summary-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-glow);
+}
+
+.summary-card.completed {
+  border-top-color: var(--color-completed);
+}
+
+.summary-card.partial {
+  border-top-color: var(--color-partial);
+}
+
+.summary-card.pending {
+  border-top-color: var(--color-pending);
+}
+
+.summary-card.total {
+  border-top-color: var(--color-total);
+}
+
+.summary-number {
+  font-size: 2.5rem;
+  font-weight: 800;
+  margin-bottom: 0.8rem;
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.summary-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.summary-percentage {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-completed);
+  margin-top: 0.5rem;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Filters - Dark Theme */
+.completion-filters {
+  display: flex;
+  gap: 1.5rem;
+  padding: 2rem;
+  background: rgba(30, 30, 30, 0.6);
+  border-bottom: 1px solid var(--border-light);
+  flex-wrap: wrap;
+  backdrop-filter: blur(10px);
+}
+
+.completion-filters .filter-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+}
+
+.completion-filters label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.completion-filters input,
+.completion-filters select {
+  padding: 12px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: var(--surface-light);
+  color: var(--text-primary);
+  transition: var(--transition);
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.completion-filters select option {
+  color: var(--text-primary);
+  background: var(--surface-dark);
+}
+
+.completion-filters input:focus,
+.completion-filters select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Time Slot Summary - Dark Theme */
+.time-slot-summary {
+  padding: 2rem;
+  background: rgba(25, 25, 25, 0.7);
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(10px);
+}
+
+.time-slot-summary h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.time-slot-cards {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.time-slot-card {
+  background: var(--surface-dark);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  min-width: 140px;
+  text-align: center;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+}
+
+.time-slot-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-glow);
+}
+
+.time-slot-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.8rem;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.time-slot-stats .completed {
+  font-weight: bold;
+  color: var(--color-completed);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.time-slot-stats .percentage {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Main Table - Dark Theme */
+.completion-table-container {
+  padding: 2rem;
+  overflow-x: auto;
+  background: rgba(20, 20, 20, 0.3);
+  backdrop-filter: blur(5px);
+}
+
+.completion-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-dark);
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow: var(--shadow-dark);
+  border: 1px solid var(--border-light);
+}
+
+.completion-table th {
+  background: var(--secondary-gradient);
+  padding: 1.5rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.completion-table td {
+  padding: 1.5rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: top;
+  color: var(--text-primary);
+}
+
+.completion-table tbody tr {
+  transition: var(--transition);
+}
+
+.completion-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Row styling based on status */
+.completion-table tbody tr.status-pending {
+  border-left: 4px solid var(--color-pending);
+}
+
+.completion-table tbody tr.status-partial {
+  border-left: 4px solid var(--color-partial);
+}
+
+.completion-table tbody tr.status-completed {
+  border-left: 4px solid var(--color-completed);
+}
+
+/* Outlet Info - Dark Theme */
+.outlet-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.outlet-info strong {
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  font-weight: 600;
+}
+
+.outlet-info small {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.cloud-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  padding: 0.3rem 0.6rem;
+  border-radius: 15px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: inline-block;
+  margin-top: 0.3rem;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Status Badge - Dark Theme */
+.status-badge {
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 25px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Time Slots - Dark Theme */
+.time-slots {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.time-slot-badge {
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 45px;
+  justify-content: center;
+  border: 1px solid;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.time-slot-badge.completed {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--color-completed);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.time-slot-badge.pending {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-pending);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Completion Percentage - Dark Theme */
+.completion-percentage {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  overflow: hidden;
+  min-width: 80px;
+  border: 1px solid var(--border-light);
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 5px;
+  background: var(--primary-gradient);
+}
+
+.completion-percentage span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Last Submission - Dark Theme */
+.last-submission {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* No Data State - Dark Theme */
+.no-completion-data {
+  text-align: center;
+  padding: 4rem;
+  color: var(--text-secondary);
+  background: var(--surface-dark);
+  border-radius: 15px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+}
+
+.no-completion-data .no-data-icon {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+  opacity: 0.4;
+  filter: grayscale(100%);
+}
+
+.no-completion-data h3 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
 }
 
 /* Stats */
@@ -700,6 +1235,35 @@
     padding: 25px;
   }
 
+  .completion-filters {
+    flex-direction: column;
+  }
+  
+  .completion-filters .filter-group {
+    min-width: auto;
+  }
+  
+  .completion-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .time-slot-cards {
+    justify-content: center;
+  }
+  
+  .completion-table-container {
+    padding: 1rem;
+  }
+  
+  .completion-table {
+    font-size: 0.85rem;
+  }
+  
+  .completion-table th,
+  .completion-table td {
+    padding: 0.75rem 0.5rem;
+  }
+
   .checklist-stats {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -750,6 +1314,30 @@
     grid-template-columns: 1fr;
   }
 
+  .completion-summary {
+    grid-template-columns: 1fr;
+  }
+  
+  .completion-header {
+    padding: 1rem;
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+  
+  .time-slots {
+    justify-content: center;
+  }
+  
+  .completion-percentage {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  
+  .progress-bar {
+    min-width: 80px;
+  }
+
   .response-image,
   .image-error,
   .image-loading {
@@ -791,14 +1379,17 @@
   
   .submission-card,
   .stat-card,
-  .checklist-filters {
+  .checklist-filters,
+  .completion-table,
+  .summary-card {
     border: 1px solid #ccc !important;
     background: white !important;
     color: black !important;
     box-shadow: none !important;
   }
   
-  .submission-header {
+  .submission-header,
+  .completion-header {
     background: #f5f5f5 !important;
     color: black !important;
   }
@@ -808,475 +1399,17 @@
   }
   
   .filter-group select,
-  .filter-group input {
+  .filter-group input,
+  .completion-filters select,
+  .completion-filters input {
     color: black !important;
     background: white !important;
     border: 1px solid #ccc !important;
   }
   
-  .filter-group select option {
+  .filter-group select option,
+  .completion-filters select option {
     color: black !important;
     background: white !important;
-  }
-}
-/* Add these styles to your existing ChecklistDashboard.css file */
-
-/* Tab Navigation Styles */
-.tab-navigation {
-  display: flex;
-  background: white;
-  border-bottom: 2px solid #e5e7eb;
-  margin-bottom: 0;
-}
-
-.tab-button {
-  flex: 1;
-  padding: 1rem 2rem;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #6b7280;
-  transition: all 0.3s ease;
-  border-bottom: 3px solid transparent;
-  position: relative;
-}
-
-.tab-button:hover {
-  background: #f9fafb;
-  color: #374151;
-}
-
-.tab-button.active {
-  color: #6366f1;
-  border-bottom-color: #6366f1;
-  background: #f8fafc;
-}
-
-.tab-button.active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #6366f1;
-}
-
-.tab-content {
-  background: white;
-  min-height: 400px;
-}
-
-/* Checklist Completion Tracker Styles */
-.checklist-completion-tracker {
-  margin: 0;
-  background: white;
-  border-radius: 0;
-  box-shadow: none;
-  overflow: hidden;
-}
-
-.completion-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.5rem 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.completion-header h2 {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.completion-tracker-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 3rem;
-  color: #6b7280;
-}
-
-.completion-error {
-  padding: 2rem;
-  background: #fef2f2;
-  border-left: 4px solid #ef4444;
-  margin: 1rem 2rem;
-  border-radius: 8px;
-}
-
-.completion-error h3 {
-  color: #dc2626;
-  margin: 0 0 0.5rem 0;
-}
-
-/* Summary Cards */
-.completion-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  padding: 2rem;
-  background: #f8fafc;
-}
-
-.summary-card {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  text-align: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-top: 4px solid;
-}
-
-.summary-card.completed {
-  border-top-color: #10b981;
-}
-
-.summary-card.partial {
-  border-top-color: #f59e0b;
-}
-
-.summary-card.pending {
-  border-top-color: #ef4444;
-}
-
-.summary-card.total {
-  border-top-color: #6366f1;
-}
-
-.summary-number {
-  font-size: 2rem;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
-.summary-label {
-  color: #6b7280;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.summary-percentage {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #059669;
-  margin-top: 0.25rem;
-}
-
-/* Filters */
-.completion-filters {
-  display: flex;
-  gap: 1rem;
-  padding: 1.5rem 2rem;
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
-  flex-wrap: wrap;
-}
-
-.completion-filters .filter-group {
-  display: flex;
-  flex-direction: column;
-  min-width: 150px;
-}
-
-.completion-filters label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 0.5rem;
-}
-
-.completion-filters input,
-.completion-filters select {
-  padding: 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: white;
-}
-
-.completion-filters input:focus,
-.completion-filters select:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-/* Time Slot Summary */
-.time-slot-summary {
-  padding: 1.5rem 2rem;
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.time-slot-summary h3 {
-  margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  color: #374151;
-}
-
-.time-slot-cards {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.time-slot-card {
-  background: #f9fafb;
-  padding: 1rem;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  min-width: 120px;
-  text-align: center;
-}
-
-.time-slot-name {
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.time-slot-stats .completed {
-  font-weight: bold;
-  color: #059669;
-}
-
-.time-slot-stats .percentage {
-  color: #6b7280;
-  font-size: 0.85rem;
-}
-
-/* Main Table */
-.completion-table-container {
-  padding: 2rem;
-  overflow-x: auto;
-}
-
-.completion-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.completion-table th {
-  background: #f9fafb;
-  padding: 1rem;
-  text-align: left;
-  font-weight: 600;
-  color: #374151;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.completion-table td {
-  padding: 1rem;
-  border-bottom: 1px solid #f3f4f6;
-  vertical-align: top;
-}
-
-.completion-table tbody tr:hover {
-  background: #f9fafb;
-}
-
-/* Row styling based on status */
-.completion-table tbody tr.status-pending {
-  border-left: 4px solid #ef4444;
-}
-
-.completion-table tbody tr.status-partial {
-  border-left: 4px solid #f59e0b;
-}
-
-.completion-table tbody tr.status-completed {
-  border-left: 4px solid #10b981;
-}
-
-/* Outlet Info */
-.outlet-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.outlet-info strong {
-  color: #111827;
-}
-
-.outlet-info small {
-  color: #6b7280;
-  font-size: 0.8rem;
-}
-
-.cloud-badge {
-  background: #dbeafe;
-  color: #1d4ed8;
-  padding: 0.25rem 0.5rem;
-  border-radius: 12px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  display: inline-block;
-  margin-top: 0.25rem;
-}
-
-/* Status Badge */
-.status-badge {
-  color: white;
-  padding: 0.375rem 0.75rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-/* Time Slots */
-.time-slots {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.time-slot-badge {
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-width: 40px;
-  justify-content: center;
-}
-
-.time-slot-badge.completed {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.time-slot-badge.pending {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-/* Completion Percentage */
-.completion-percentage {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 8px;
-  background: #e5e7eb;
-  border-radius: 4px;
-  overflow: hidden;
-  min-width: 60px;
-}
-
-.progress-fill {
-  height: 100%;
-  transition: width 0.3s ease;
-  border-radius: 4px;
-}
-
-.completion-percentage span {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #374151;
-  white-space: nowrap;
-}
-
-/* Last Submission */
-.last-submission {
-  font-size: 0.85rem;
-  color: #6b7280;
-}
-
-/* No Data State */
-.no-completion-data {
-  text-align: center;
-  padding: 3rem;
-  color: #6b7280;
-}
-
-.no-completion-data .no-data-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
-.no-completion-data h3 {
-  margin: 0 0 0.5rem 0;
-  color: #374151;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .completion-filters {
-    flex-direction: column;
-  }
-  
-  .completion-filters .filter-group {
-    min-width: auto;
-  }
-  
-  .completion-summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .time-slot-cards {
-    justify-content: center;
-  }
-  
-  .completion-table-container {
-    padding: 1rem;
-  }
-  
-  .completion-table {
-    font-size: 0.85rem;
-  }
-  
-  .completion-table th,
-  .completion-table td {
-    padding: 0.75rem 0.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .completion-summary {
-    grid-template-columns: 1fr;
-  }
-  
-  .completion-header {
-    padding: 1rem;
-    flex-direction: column;
-    gap: 1rem;
-    text-align: center;
-  }
-  
-  .time-slots {
-    justify-content: center;
-  }
-  
-  .completion-percentage {
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  
-  .progress-bar {
-    min-width: 80px;
   }
 }
