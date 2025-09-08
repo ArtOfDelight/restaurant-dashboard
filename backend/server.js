@@ -3058,30 +3058,231 @@ app.get('/api/debug-checklist-completion', async (req, res) => {
     });
   }
 });
+// === TICKET MANAGEMENT ENDPOINTS ===
+
+// Transform function for ticket data
+function transformTicketData(rawTickets) {
+  if (!rawTickets || rawTickets.length <= 1) return [];
+  
+  const headers = rawTickets[0];
+  const dataRows = rawTickets.slice(1);
+  
+  return dataRows.map((row, index) => {
+    const safeRow = Array.isArray(row) ? row : [];
+    
+    return {
+      ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,
+      date: formatDate(getCellValue(safeRow, 1)),
+      outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',
+      submittedBy: getCellValue(safeRow, 3) || 'Unknown User',
+      issueDescription: getCellValue(safeRow, 4) || '',
+      imageLink: getCellValue(safeRow, 5) || '',
+      imageHash: getCellValue(safeRow, 6) || '',
+      status: getCellValue(safeRow, 7) || 'Open',
+      assignedTo: getCellValue(safeRow, 8) || '',
+      daysPending: calculateDaysPending(getCellValue(safeRow, 1))
+    };
+  }).filter(ticket => {
+    const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
+                       ticket.submittedBy !== 'Unknown User' || 
+                       ticket.date || 
+                       ticket.ticketId.startsWith('TKT-') === false;
+    return hasAnyData;
+  });
+}
+
+// Helper function to calculate days pending
+function calculateDaysPending(dateString) {
+  if (!dateString) return 0;
+  
+  try {
+    const ticketDate = new Date(dateString);
+    const today = new Date();
+    const diffTime = Math.abs(today - ticketDate);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  } catch (error) {
+    return 0;
+  }
+}
+
 // Fetch tickets from Google Sheets Tickets tab
 app.get('/api/ticket-data', async (req, res) => {
   try {
-    const sheet = client.open_by_key('1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE').worksheet('Tickets');
-    const rows = await sheet.get_all_values();
-    
-    const tickets = transformTicketData(rows); // Transform to expected format
-    res.json({ success: true, tickets });
+    console.log('🎫 Fetching ticket data...');
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    console.log(`Fetching ${TICKET_TAB} from ${TICKET_SPREADSHEET_ID}...`);
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:Z`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    console.log(`Found ${ticketsData.length} ticket rows`);
+
+    const tickets = transformTicketData(ticketsData);
+    console.log(`✅ Processed ${tickets.length} tickets`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      tickets,
+      metadata: {
+        spreadsheetId: TICKET_SPREADSHEET_ID,
+        ticketTab: TICKET_TAB,
+        ticketCount: tickets.length,
+        originalRows: ticketsData.length - 1,
+      },
+      timestamp: new Date().toISOString(),
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Error fetching ticket data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 });
+
 // Update ticket assignment and status in Google Sheets
 app.post('/api/assign-ticket', async (req, res) => {
   try {
     const { ticketId, assignedTo } = req.body;
-    const sheet = client.open_by_key('1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE').worksheet('Tickets');
     
-    // Find and update the ticket row
-    // Update assigned_to column and status to "In Progress"
+    if (!ticketId || !assignedTo) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ticketId or assignedTo in request body'
+      });
+    }
+
+    console.log(`🎫 Assigning ticket ${ticketId} to ${assignedTo}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Get all ticket data to find the row
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:Z`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
     
-    res.json({ success: true });
+    // Find the row with matching ticket ID
+    let targetRow = -1;
+    for (let i = 1; i < ticketsData.length; i++) {
+      if (ticketsData[i][0] === ticketId) {
+        targetRow = i + 1; // Sheets are 1-indexed
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      return res.status(404).json({
+        success: false,
+        error: `Ticket ${ticketId} not found`
+      });
+    }
+
+    // Update the assigned to column (column I, index 8) and status (column H, index 7)
+    const updates = [
+      {
+        range: `${TICKET_TAB}!H${targetRow}`, // Status column
+        values: [['In Progress']]
+      },
+      {
+        range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column
+        values: [[assignedTo]]
+      }
+    ];
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      resource: {
+        data: updates,
+        valueInputOption: 'RAW'
+      }
+    });
+
+    console.log(`✅ Successfully assigned ticket ${ticketId} to ${assignedTo}`);
+
+    res.json({
+      success: true,
+      ticketId,
+      assignedTo,
+      status: 'In Progress',
+      timestamp: new Date().toISOString()
+    });
+
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Error assigning ticket:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Debug tickets endpoint
+app.get('/api/debug-tickets', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    console.log(`🔍 Debug: Checking ticket data from ${TICKET_SPREADSHEET_ID}`);
+    
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:Z`,
+    });
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      tab: TICKET_TAB,
+      rawData: ticketsResponse.data.values || [],
+      rowCount: ticketsResponse.data.values ? ticketsResponse.data.values.length : 0,
+      headers: ticketsResponse.data.values && ticketsResponse.data.values[0] ? ticketsResponse.data.values[0] : [],
+      expectedColumns: [
+        'Ticket ID (A)', 'Date (B)', 'Outlet (C)', 'Submitted By (D)', 
+        'Issue Description (E)', 'Image Link (F)', 'Image Hash (G)', 
+        'Status (H)', 'Assigned To (I)'
+      ],
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Debug tickets error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
+      tab: 'Tickets'
+    });
   }
 });
 
