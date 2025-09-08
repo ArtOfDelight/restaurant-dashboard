@@ -471,7 +471,7 @@ const TicketDashboard = () => {
                         onClick={() => setSelectedImage(ticket.imageLink)}
                         title="View attached image"
                       >
-                        📷 Image
+                        Ticket Attachment
                       </button>
                     )}
                   </td>
@@ -533,7 +533,26 @@ const TicketDashboard = () => {
             >
               ×
             </button>
-            <img src={selectedImage} alt="Ticket Attachment" />
+            {imageError ? (
+              <div className="image-error-container">
+                <div className="image-error-icon">🖼️</div>
+                <h3>Image Not Available</h3>
+                <p>The image could not be loaded. It may have been moved or deleted.</p>
+                <p><strong>URL:</strong> {selectedImage}</p>
+                <button 
+                  className="retry-image-btn" 
+                  onClick={() => setImageError(false)}
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : (
+              <img 
+                src={selectedImage} 
+                alt="Ticket Attachment"
+                onError={handleImageError}
+              />
+            )}
           </div>
         </div>
       )}
