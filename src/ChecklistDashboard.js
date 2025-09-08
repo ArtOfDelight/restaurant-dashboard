@@ -72,6 +72,7 @@ const transformDebugResponses = (rawResponses) => {
 };
 
 // Checklist Completion Tracker Component
+// Checklist Completion Tracker Component
 const ChecklistCompletionTracker = ({ API_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
@@ -83,6 +84,9 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
 
   // Define standard time slot order
   const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+  
+  // WHITELIST: Only these outlet codes are allowed
+  const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
   const loadCompletionData = useCallback(async () => {
     setLoading(true);
@@ -117,10 +121,49 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         timeSlotStatus: sortTimeSlotsByOrder(outlet.timeSlotStatus, TIME_SLOT_ORDER)
       }));
 
-      setCompletionData(sortedCompletionData);
-      setSummaryData(summaryResult.summary);
+      // FILTER OUTLETS: Only include whitelisted outlet codes
+      const filteredCompletionData = sortedCompletionData.filter(outlet => {
+        // Must have outlet code
+        if (!outlet.outletCode || !outlet.outletCode.trim()) {
+          console.log(`Excluding outlet without code: ${outlet.outletName}`);
+          return false;
+        }
+        
+        // Must be in whitelist
+        const outletCode = outlet.outletCode.trim().toUpperCase();
+        if (!ALLOWED_OUTLET_CODES.includes(outletCode)) {
+          console.log(`Excluding outlet not in whitelist: ${outletCode}`);
+          return false;
+        }
+        
+        console.log(`✅ Including whitelisted outlet: ${outletCode}`);
+        return true;
+      });
 
-      console.log(`✅ Loaded completion data for ${completionResult.data.length} outlets`);
+      // Sort by outlet code order in whitelist for consistent ordering
+      filteredCompletionData.sort((a, b) => {
+        const indexA = ALLOWED_OUTLET_CODES.indexOf(a.outletCode.toUpperCase());
+        const indexB = ALLOWED_OUTLET_CODES.indexOf(b.outletCode.toUpperCase());
+        return indexA - indexB;
+      });
+
+      setCompletionData(filteredCompletionData);
+
+      // Update summary to reflect filtered count
+      const updatedSummary = {
+        ...summaryResult.summary,
+        totalOutlets: filteredCompletionData.length,
+        completedOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Completed').length,
+        partialOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Partial').length,
+        pendingOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Pending').length,
+        overallCompletionRate: filteredCompletionData.length > 0 ? 
+          ((filteredCompletionData.filter(o => o.overallStatus === 'Completed').length / filteredCompletionData.length) * 100).toFixed(1) : '0.0'
+      };
+
+      setSummaryData(updatedSummary);
+
+      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets (filtered from ${completionResult.data.length})`);
+      console.log(`Whitelisted outlets found: ${filteredCompletionData.map(o => o.outletCode).join(', ')}`);
 
     } catch (err) {
       setError(`Failed to load completion data: ${err.message}`);
@@ -196,12 +239,12 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
     }
   };
 
-  // Helper function to display outlet name (prioritize code)
+  // Helper function to display outlet name (ONLY show outlet codes)
   const getOutletDisplayName = (outlet) => {
     if (outlet.outletCode && outlet.outletCode.trim()) {
-      return outlet.outletCode.trim();
+      return outlet.outletCode.trim().toUpperCase();
     }
-    return outlet.outletName || 'Unknown';
+    return 'No Code'; // Fallback for outlets without codes
   };
 
   // Helper function to get completion status text for each time slot
@@ -342,7 +385,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         <table className="completion-table">
           <thead>
             <tr>
-              <th>Outlet</th>
+              <th>Outlet Code</th>
               <th>Type</th>
               <th>Location</th>
               <th>Overall Status</th>
@@ -380,7 +423,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
                         className={`time-slot-badge ${slot.status.toLowerCase()}`}
                         title={`${slot.timeSlot}: ${slot.status}${slot.submittedBy ? ` by ${slot.submittedBy}` : ''}`}
                       >
-                        {slot.status === 'Completed' ? '✓' : '✗'}
+                        {slot.timeSlot} {slot.status === 'Completed' ? '✓' : '✗'}
                       </span>
                     ))}
                   </div>
@@ -412,6 +455,15 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
             <p>Try adjusting your filters or selecting a different date.</p>
           </div>
         )}
+      </div>
+
+      {/* Debug Info for Whitelisted Outlets */}
+      <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '5px', fontSize: '12px', color: '#666' }}>
+        <strong>Whitelisted Outlets:</strong> {ALLOWED_OUTLET_CODES.join(', ')} ({ALLOWED_OUTLET_CODES.length} total)
+        <br />
+        <strong>Currently Displayed:</strong> {filteredData.map(o => o.outletCode).join(', ')} ({filteredData.length} found)
+        <br />
+        <strong>Missing Outlets:</strong> {ALLOWED_OUTLET_CODES.filter(code => !filteredData.some(o => o.outletCode.toUpperCase() === code)).join(', ') || 'None'}
       </div>
     </div>
   );

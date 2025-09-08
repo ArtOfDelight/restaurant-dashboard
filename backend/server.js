@@ -2686,24 +2686,40 @@ app.get('/api/checklist-completion-status', async (req, res) => {
 // Function to process checklist completion data
 function processChecklistCompletionData(questionsData, submissionsData, outletData, filterDate) {
   console.log(`Processing checklist completion data for date: ${filterDate}`);
+  
+  // WHITELIST: Only these outlet codes are allowed
+  const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
   // Extract outlets from master data or submissions
-  const outlets = extractOutletList(outletData, submissionsData);
-  console.log(`Found ${outlets.length} unique outlets`);
+  const allOutlets = extractOutletList(outletData, submissionsData);
+  
+  // Filter to only whitelisted outlets
+  const outlets = allOutlets.filter(outlet => {
+    if (!outlet.code || !outlet.code.trim()) return false;
+    const outletCode = outlet.code.trim().toUpperCase();
+    return ALLOWED_OUTLET_CODES.includes(outletCode);
+  });
+  
+  console.log(`Found ${outlets.length} whitelisted outlets out of ${allOutlets.length} total`);
+  console.log(`Whitelisted outlets: ${outlets.map(o => o.code).join(', ')}`);
 
-  // Extract time slots from questions or use default
+  // Rest of the function remains the same...
   const timeSlots = extractTimeSlots(questionsData);
   console.log(`Time slots: ${timeSlots.join(', ')}`);
 
-  // Process submissions for the specific date
   const submissionsForDate = filterSubmissionsByDate(submissionsData, filterDate);
   console.log(`Found ${submissionsForDate.length} submissions for ${filterDate}`);
 
   // Build completion status for each outlet
   const completionStatus = outlets.map(outlet => {
-    const outletSubmissions = submissionsForDate.filter(sub => 
-      sub.outlet && sub.outlet.toLowerCase().trim() === outlet.name.toLowerCase().trim()
-    );
+    const outletSubmissions = submissionsForDate.filter(sub => {
+      if (!sub.outlet) return false;
+      const submissionOutlet = sub.outlet.toLowerCase().trim();
+      const outletCode = (outlet.code || '').toLowerCase().trim();
+      const outletName = (outlet.name || '').toLowerCase().trim();
+      
+      return submissionOutlet === outletCode || submissionOutlet === outletName;
+    });
 
     const timeSlotStatus = timeSlots.map(timeSlot => {
       const slotSubmission = outletSubmissions.find(sub => 
@@ -2745,15 +2761,11 @@ function processChecklistCompletionData(questionsData, submissionsData, outletDa
     };
   });
 
-  // Sort by completion status and outlet name
+  // Sort by whitelist order
   completionStatus.sort((a, b) => {
-    // First by status: Pending first (needs attention), then Partial, then Completed
-    const statusOrder = { 'Pending': 0, 'Partial': 1, 'Completed': 2 };
-    if (statusOrder[a.overallStatus] !== statusOrder[b.overallStatus]) {
-      return statusOrder[a.overallStatus] - statusOrder[b.overallStatus];
-    }
-    // Then by outlet name
-    return a.outletName.localeCompare(b.outletName);
+    const indexA = ALLOWED_OUTLET_CODES.indexOf(a.outletCode.toUpperCase());
+    const indexB = ALLOWED_OUTLET_CODES.indexOf(b.outletCode.toUpperCase());
+    return indexA - indexB;
   });
 
   return completionStatus;
@@ -2761,9 +2773,13 @@ function processChecklistCompletionData(questionsData, submissionsData, outletDa
 
 // Helper function to extract outlet list
 // Helper function to extract outlet list
+// Helper function to extract outlet list
 function extractOutletList(outletData, submissionsData) {
   const outlets = [];
-  const outletMap = new Map(); // Use outlet code as key, not name
+  const outletMap = new Map();
+  
+  // WHITELIST: Only these outlet codes are allowed
+  const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
   // First, try to get outlets from master data
   if (outletData && outletData.length > 1) {
@@ -2779,14 +2795,17 @@ function extractOutletList(outletData, submissionsData) {
       const row = outletData[i];
       if (!row) continue;
 
-      const outletCode = getCellValue(row, codeIndex, '').trim();
+      const outletCode = getCellValue(row, codeIndex, '').trim().toUpperCase();
       const outletName = getCellValue(row, nameIndex, '').trim();
       
-      if (!outletCode && !outletName) continue;
+      // Only include if outlet code is in the whitelist
+      if (!outletCode || !ALLOWED_OUTLET_CODES.includes(outletCode)) {
+        if (outletCode) {
+          console.log(`Excluding outlet code not in whitelist: ${outletCode}`);
+        }
+        continue;
+      }
 
-      // Use outlet code as the key, fallback to name if no code
-      const key = outletCode || outletName;
-      
       const outlet = {
         code: outletCode,
         name: outletName,
@@ -2795,11 +2814,12 @@ function extractOutletList(outletData, submissionsData) {
         isCloudDays: false
       };
 
-      outletMap.set(key, outlet);
+      outletMap.set(outletCode, outlet);
+      console.log(`✅ Added whitelisted outlet: ${outletCode}`);
     }
   }
 
-  // Process submissions data and match to existing outlets
+  // Process submissions data and match to whitelisted outlets only
   if (submissionsData && submissionsData.length > 1) {
     const headers = submissionsData[0];
     const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
@@ -2809,41 +2829,35 @@ function extractOutletList(outletData, submissionsData) {
         const row = submissionsData[i];
         if (!row || !row[outletIndex]) continue;
 
-        const submissionOutlet = getCellValue(row, outletIndex, '').trim();
+        const submissionOutlet = getCellValue(row, outletIndex, '').trim().toUpperCase();
         if (!submissionOutlet) continue;
 
-        // Try to match submission outlet to existing outlet by code first, then by name
-        let foundOutlet = null;
-        for (const [key, outlet] of outletMap.entries()) {
-          if (outlet.code && outlet.code.toLowerCase() === submissionOutlet.toLowerCase()) {
-            foundOutlet = outlet;
-            break;
-          } else if (outlet.name && outlet.name.toLowerCase() === submissionOutlet.toLowerCase()) {
-            foundOutlet = outlet;
-            break;
+        // Only process if it's in the whitelist
+        if (ALLOWED_OUTLET_CODES.includes(submissionOutlet)) {
+          // Check if already exists
+          if (!outletMap.has(submissionOutlet)) {
+            const newOutlet = {
+              code: submissionOutlet,
+              name: '',
+              type: '',
+              location: '',
+              isCloudDays: false
+            };
+            outletMap.set(submissionOutlet, newOutlet);
+            console.log(`✅ Added whitelisted outlet from submissions: ${submissionOutlet}`);
           }
-        }
-
-        // If not found, create new outlet but try to determine if it's a code or name
-        if (!foundOutlet) {
-          // If it's short (2-4 chars), likely a code
-          const isLikelyCode = submissionOutlet.length <= 4;
-          
-          const newOutlet = {
-            code: isLikelyCode ? submissionOutlet : '',
-            name: isLikelyCode ? '' : submissionOutlet,
-            type: '',
-            location: '',
-            isCloudDays: false
-          };
-
-          outletMap.set(submissionOutlet, newOutlet);
+        } else {
+          console.log(`Excluding submission outlet not in whitelist: ${submissionOutlet}`);
         }
       }
     }
   }
 
-  return Array.from(outletMap.values());
+  const finalOutlets = Array.from(outletMap.values());
+  console.log(`Final whitelisted outlets: ${finalOutlets.map(o => o.code).join(', ')}`);
+  console.log(`Total whitelisted outlets: ${finalOutlets.length} out of ${ALLOWED_OUTLET_CODES.length} possible`);
+  
+  return finalOutlets;
 }
 
 // Helper function to extract time slots
