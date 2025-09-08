@@ -3156,6 +3156,7 @@ app.get('/api/ticket-data', async (req, res) => {
 });
 
 // Update ticket assignment and status in Google Sheets
+// Update ticket assignment and status in Google Sheets - FIXED VERSION
 app.post('/api/assign-ticket', async (req, res) => {
   try {
     const { ticketId, assignedTo } = req.body;
@@ -3182,62 +3183,70 @@ app.post('/api/assign-ticket', async (req, res) => {
     // Get all ticket data to find the row
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:Z`,
+      range: `${TICKET_TAB}!A:I`, // Only get columns A through I
     });
 
     const ticketsData = ticketsResponse.data.values || [];
+    console.log(`Found ${ticketsData.length} rows in Tickets tab`);
     
-    // Find the row with matching ticket ID
+    // Find the row with matching ticket ID (column A)
     let targetRow = -1;
-    for (let i = 1; i < ticketsData.length; i++) {
-      if (ticketsData[i][0] === ticketId) {
-        targetRow = i + 1; // Sheets are 1-indexed
+    for (let i = 1; i < ticketsData.length; i++) { // Start from row 1 (skip header)
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1; // Convert to 1-based indexing for Sheets API
+        console.log(`Found ticket ${ticketId} at row ${targetRow}`);
         break;
       }
     }
 
     if (targetRow === -1) {
+      console.log(`Ticket ${ticketId} not found in ${ticketsData.length} rows`);
       return res.status(404).json({
         success: false,
-        error: `Ticket ${ticketId} not found`
+        error: `Ticket ${ticketId} not found`,
+        availableTickets: ticketsData.slice(1).map(row => row[0]).filter(Boolean)
       });
     }
 
-    // Update the assigned to column (column I, index 8) and status (column H, index 7)
-    const updates = [
-      {
-        range: `${TICKET_TAB}!H${targetRow}`, // Status column
-        values: [['In Progress']]
-      },
-      {
-        range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column
-        values: [[assignedTo]]
-      }
-    ];
-
-    await sheets.spreadsheets.values.batchUpdate({
+    // Update both Status (column H) and Assigned To (column I) in a single batch
+    console.log(`Updating row ${targetRow}: Status to "In Progress", Assigned To to "${assignedTo}"`);
+    
+    const batchUpdateResponse = await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: TICKET_SPREADSHEET_ID,
       resource: {
-        data: updates,
+        data: [
+          {
+            range: `${TICKET_TAB}!H${targetRow}`, // Status column (H)
+            values: [['In Progress']]
+          },
+          {
+            range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column (I)
+            values: [[assignedTo]]
+          }
+        ],
         valueInputOption: 'RAW'
       }
     });
 
-    console.log(`✅ Successfully assigned ticket ${ticketId} to ${assignedTo}`);
+    console.log(`✅ Successfully updated ticket ${ticketId}`);
+    console.log(`Batch update response:`, batchUpdateResponse.data);
 
     res.json({
       success: true,
       ticketId,
       assignedTo,
       status: 'In Progress',
+      updatedRow: targetRow,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
     console.error('❌ Error assigning ticket:', error.message);
+    console.error('Full error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
+      details: error.response?.data || 'No additional details',
       timestamp: new Date().toISOString()
     });
   }

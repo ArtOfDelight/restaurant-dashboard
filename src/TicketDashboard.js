@@ -66,26 +66,29 @@ const formatTime = (timestampStr) => {
 };
 
 // Transform function for ticket data
-const transformTicketData = (rawTickets) => {
+// Transform function for ticket data - UPDATED
+function transformTicketData(rawTickets) {
   if (!rawTickets || rawTickets.length <= 1) return [];
   
   const headers = rawTickets[0];
   const dataRows = rawTickets.slice(1);
   
+  console.log(`Transforming ${dataRows.length} ticket rows with headers:`, headers);
+  
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
     
     return {
-      ticketId: safeRow[0] || `TKT-${index + 1}`,
-      date: formatDateForDisplay(safeRow[1] || ''),
-      outlet: safeRow[2] || 'Unknown Outlet',
-      submittedBy: safeRow[3] || 'Unknown User',
-      issueDescription: safeRow[4] || '',
-      imageLink: safeRow[5] || '',
-      imageHash: safeRow[6] || '',
-      status: safeRow[7] || 'Open',
-      assignedTo: safeRow[8] || '',
-      daysPending: calculateDaysPending(safeRow[1] || '')
+      ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,           // Column A
+      date: formatDate(getCellValue(safeRow, 1)),                         // Column B
+      outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',              // Column C
+      submittedBy: getCellValue(safeRow, 3) || 'Unknown User',           // Column D
+      issueDescription: getCellValue(safeRow, 4) || '',                  // Column E
+      imageLink: getCellValue(safeRow, 5) || '',                         // Column F
+      imageHash: getCellValue(safeRow, 6) || '',                         // Column G
+      status: getCellValue(safeRow, 7) || 'Open',                        // Column H
+      assignedTo: getCellValue(safeRow, 8) || '',                        // Column I - NEW
+      daysPending: calculateDaysPending(getCellValue(safeRow, 1))
     };
   }).filter(ticket => {
     const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
@@ -94,7 +97,7 @@ const transformTicketData = (rawTickets) => {
                        ticket.ticketId.startsWith('TKT-') === false;
     return hasAnyData;
   });
-};
+}
 
 // Main Ticket Dashboard Component
 const TicketDashboard = () => {
