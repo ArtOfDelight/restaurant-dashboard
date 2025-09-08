@@ -81,6 +81,9 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterOutletType, setFilterOutletType] = useState('All');
 
+  // Define standard time slot order
+  const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+
   const loadCompletionData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -108,7 +111,13 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         throw new Error(summaryResult.error || 'Failed to fetch summary data');
       }
 
-      setCompletionData(completionResult.data);
+      // Sort completion data time slots according to standard order
+      const sortedCompletionData = completionResult.data.map(outlet => ({
+        ...outlet,
+        timeSlotStatus: sortTimeSlotsByOrder(outlet.timeSlotStatus, TIME_SLOT_ORDER)
+      }));
+
+      setCompletionData(sortedCompletionData);
       setSummaryData(summaryResult.summary);
 
       console.log(`✅ Loaded completion data for ${completionResult.data.length} outlets`);
@@ -120,6 +129,30 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
       setLoading(false);
     }
   }, [selectedDate, API_URL]);
+
+  // Helper function to sort time slots by standard order
+  const sortTimeSlotsByOrder = (timeSlots, order) => {
+    return timeSlots.sort((a, b) => {
+      const indexA = order.indexOf(a.timeSlot);
+      const indexB = order.indexOf(b.timeSlot);
+      
+      // If slot not found in order, put it at the end
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      
+      return indexA - indexB;
+    });
+  };
+
+  // Helper function to get sorted time slot breakdown
+  const getSortedTimeSlotBreakdown = (timeSlotBreakdown) => {
+    if (!timeSlotBreakdown) return [];
+    
+    return TIME_SLOT_ORDER.map(slot => ({
+      timeSlot: slot,
+      data: timeSlotBreakdown[slot] || { total: 0, completed: 0, pending: 0, completionRate: '0.0' }
+    })).filter(item => item.data.total > 0);
+  };
 
   useEffect(() => {
     loadCompletionData();
@@ -160,6 +193,39 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
       });
     } catch (e) {
       return 'Invalid time';
+    }
+  };
+
+  // Helper function to display outlet name (prioritize code)
+  const getOutletDisplayName = (outlet) => {
+    if (outlet.outletCode && outlet.outletCode.trim()) {
+      return outlet.outletCode.trim();
+    }
+    return outlet.outletName || 'Unknown';
+  };
+
+  // Helper function to get completion status text for each time slot
+  const getTimeSlotCompletionText = (timeSlotStatus) => {
+    const completedSlots = [];
+    const pendingSlots = [];
+    
+    // Sort by our standard order
+    const sortedSlots = sortTimeSlotsByOrder(timeSlotStatus, TIME_SLOT_ORDER);
+    
+    sortedSlots.forEach(slot => {
+      if (slot.status === 'Completed') {
+        completedSlots.push(slot.timeSlot);
+      } else {
+        pendingSlots.push(slot.timeSlot);
+      }
+    });
+    
+    if (completedSlots.length === 0) {
+      return 'None Completed';
+    } else if (pendingSlots.length === 0) {
+      return 'All Completed';
+    } else {
+      return `${completedSlots.join(', ')} ✓`;
     }
   };
 
@@ -258,7 +324,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         <div className="time-slot-summary">
           <h3>Time Slot Completion</h3>
           <div className="time-slot-cards">
-            {Object.entries(summaryData.timeSlotBreakdown).map(([timeSlot, data]) => (
+            {getSortedTimeSlotBreakdown(summaryData.timeSlotBreakdown).map(({ timeSlot, data }) => (
               <div key={timeSlot} className="time-slot-card">
                 <div className="time-slot-name">{timeSlot}</div>
                 <div className="time-slot-stats">
@@ -281,7 +347,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
               <th>Location</th>
               <th>Overall Status</th>
               <th>Time Slots</th>
-              <th>Completion %</th>
+              <th>Completed Slots</th>
               <th>Last Submission</th>
             </tr>
           </thead>
@@ -290,8 +356,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
               <tr key={index} className={`status-${outlet.overallStatus.toLowerCase()}`}>
                 <td>
                   <div className="outlet-info">
-                    <strong>{outlet.outletName}</strong>
-                    {outlet.outletCode && <small>({outlet.outletCode})</small>}
+                    <strong>{getOutletDisplayName(outlet)}</strong>
                     {outlet.isCloudDays && <span className="cloud-badge">☁️ Cloud</span>}
                   </div>
                 </td>
@@ -321,17 +386,13 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
                   </div>
                 </td>
                 <td>
-                  <div className="completion-percentage">
-                    <div className="progress-bar">
-                      <div 
-                        className="progress-fill"
-                        style={{ 
-                          width: `${outlet.completionPercentage}%`,
-                          backgroundColor: getStatusColor(outlet.overallStatus)
-                        }}
-                      ></div>
-                    </div>
-                    <span>{outlet.completionPercentage}%</span>
+                  <div className="completion-text">
+                    <span className="completion-status-text">
+                      {getTimeSlotCompletionText(outlet.timeSlotStatus)}
+                    </span>
+                    <small className="completion-percentage-small">
+                      ({outlet.completionPercentage}%)
+                    </small>
                   </div>
                 </td>
                 <td>
@@ -375,7 +436,7 @@ const ChecklistDashboard = () => {
   const [filterOptions, setFilterOptions] = useState({
     outlets: [],
     employees: [],
-    timeSlots: ['Morning', 'Mid Day', 'Closing'],
+    timeSlots: ['Morning', 'Mid Day', 'Closing'], // Fixed order
   });
 
   const updateFilterOptions = useCallback((submissionsData) => {
@@ -386,6 +447,7 @@ const ChecklistDashboard = () => {
       ...prev,
       outlets: outlets.sort(),
       employees: employees.sort(),
+      timeSlots: ['Morning', 'Mid Day', 'Closing'], // Always maintain this order
     }));
   }, []);
 
