@@ -403,10 +403,7 @@ const TicketDashboard = () => {
           <div className="stat-number">{stats.closed}</div>
           <div className="stat-label">Closed</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.avgDaysPending}</div>
-          <div className="stat-label">Avg Days Pending</div>
-        </div>
+        
       </div>
 
       {tickets.length > 0 && (
