@@ -3,22 +3,20 @@ import './TicketDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
-// Helper functions
+// Predefined assignee names
+const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
+
+// Helper functions (same as before)
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
-  
   try {
-    if (dateStr.includes('-')) {
-      return dateStr;
-    }
-    
+    if (dateStr.includes('-')) return dateStr;
     const date = new Date(dateStr);
     if (!isNaN(date.getTime())) {
       return date.getFullYear() + '-' + 
              String(date.getMonth() + 1).padStart(2, '0') + '-' + 
              String(date.getDate()).padStart(2, '0');
     }
-    
     return dateStr;
   } catch (error) {
     return dateStr;
@@ -27,7 +25,6 @@ const formatDateForDisplay = (dateStr) => {
 
 const calculateDaysPending = (dateString) => {
   if (!dateString) return 0;
-  
   try {
     const ticketDate = new Date(dateString);
     const today = new Date();
@@ -43,52 +40,36 @@ const formatDate = (dateStr) => {
   if (!dateStr) return 'N/A';
   try {
     return new Date(dateStr).toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
       month: 'short',
       day: 'numeric',
+      year: '2-digit',
     });
   } catch (e) {
     return dateStr;
   }
 };
 
-const formatTime = (timestampStr) => {
-  if (!timestampStr) return 'N/A';
-  try {
-    return new Date(timestampStr).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch (e) {
-    return timestampStr;
-  }
-};
-
 // Transform function for ticket data
-// Transform function for ticket data - UPDATED
-function transformTicketData(rawTickets) {
+const transformTicketData = (rawTickets) => {
   if (!rawTickets || rawTickets.length <= 1) return [];
   
   const headers = rawTickets[0];
   const dataRows = rawTickets.slice(1);
   
-  console.log(`Transforming ${dataRows.length} ticket rows with headers:`, headers);
-  
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
     
     return {
-      ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,           // Column A
-      date: formatDate(getCellValue(safeRow, 1)),                         // Column B
-      outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',              // Column C
-      submittedBy: getCellValue(safeRow, 3) || 'Unknown User',           // Column D
-      issueDescription: getCellValue(safeRow, 4) || '',                  // Column E
-      imageLink: getCellValue(safeRow, 5) || '',                         // Column F
-      imageHash: getCellValue(safeRow, 6) || '',                         // Column G
-      status: getCellValue(safeRow, 7) || 'Open',                        // Column H
-      assignedTo: getCellValue(safeRow, 8) || '',                        // Column I - NEW
-      daysPending: calculateDaysPending(getCellValue(safeRow, 1))
+      ticketId: safeRow[0] || `TKT-${index + 1}`,
+      date: formatDateForDisplay(safeRow[1] || ''),
+      outlet: safeRow[2] || 'Unknown Outlet',
+      submittedBy: safeRow[3] || 'Unknown User',
+      issueDescription: safeRow[4] || '',
+      imageLink: safeRow[5] || '',
+      imageHash: safeRow[6] || '',
+      status: safeRow[7] || 'Open',
+      assignedTo: safeRow[8] || '',
+      daysPending: calculateDaysPending(safeRow[1] || '')
     };
   }).filter(ticket => {
     const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
@@ -97,7 +78,7 @@ function transformTicketData(rawTickets) {
                        ticket.ticketId.startsWith('TKT-') === false;
     return hasAnyData;
   });
-}
+};
 
 // Main Ticket Dashboard Component
 const TicketDashboard = () => {
@@ -105,11 +86,15 @@ const TicketDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [assignmentLoading, setAssignmentLoading] = useState({});
+  const [assignmentInputs, setAssignmentInputs] = useState({});
+  const [sortField, setSortField] = useState('date');
+  const [sortDirection, setSortDirection] = useState('desc');
   const [filters, setFilters] = useState({
     date: '',
     outlet: '',
     status: '',
     assignee: '',
+    search: ''
   });
   const [selectedImage, setSelectedImage] = useState(null);
 
@@ -135,155 +120,54 @@ const TicketDashboard = () => {
     setLoading(true);
     setError(null);
 
-    const fetchWithValidation = async (url) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
-      try {
-        const response = await fetch(url, { 
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          throw new Error(`Server returned non-JSON response: ${text.slice(0, 500)}`);
-        }
-        
-        return response.json();
-      } catch (err) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-          throw new Error('Request timed out');
-        }
-        throw err;
-      }
-    };
-
-    const fetchWithRetry = async (url, retries = 3, delay = 1000) => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          return await fetchWithValidation(url);
-        } catch (err) {
-          if (i < retries - 1) {
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          }
-          throw err;
-        }
-      }
-    };
-
     try {
-      const baseUrl = API_URL;
-      const ticketEndpoint = `${baseUrl}/api/ticket-data`;
-
-      let data;
-      try {
-        data = await fetchWithRetry(ticketEndpoint);
-      } catch (mainError) {
-        // Fallback to debug endpoint if main endpoint fails
-        const debugEndpoint = `${baseUrl}/api/debug-tickets`;
-        const debugData = await fetchWithRetry(debugEndpoint);
-        if (debugData.success) {
-          data = {
-            success: true,
-            tickets: transformTicketData(debugData.ticketsData),
-          };
-        } else {
-          throw new Error(`Debug endpoint error: ${debugData.error || 'Unknown error'}`);
+      const response = await fetch(`${API_URL}/api/ticket-data`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
+      
+      const data = await response.json();
 
       if (data.success) {
         const ticketsArray = Array.isArray(data.tickets) ? data.tickets : [];
-        
-        try {
-          localStorage.setItem('cachedTickets', JSON.stringify(ticketsArray));
-          localStorage.setItem('ticketCacheTimestamp', new Date().toISOString());
-        } catch (cacheErr) {
-          console.warn('Failed to cache ticket data:', cacheErr.message);
-        }
-
         setTickets(ticketsArray);
         updateFilterOptions(ticketsArray);
+        
+        // Initialize assignment inputs for open tickets
+        const inputs = {};
+        ticketsArray.forEach(ticket => {
+          if (ticket.status === 'Open') {
+            inputs[ticket.ticketId] = '';
+          }
+        });
+        setAssignmentInputs(inputs);
       } else {
         throw new Error(data.error || 'API returned error');
       }
     } catch (err) {
-      setError(`Failed to load tickets: ${err.message}. Please check the server or try again.`);
-      
-      try {
-        const cachedTickets = localStorage.getItem('cachedTickets');
-        const cacheTimestamp = localStorage.getItem('ticketCacheTimestamp');
-        
-        if (cachedTickets) {
-          const parsedTickets = JSON.parse(cachedTickets);
-          
-          if (Array.isArray(parsedTickets)) {
-            setTickets(parsedTickets);
-            updateFilterOptions(parsedTickets);
-            setError(`Using cached data from ${cacheTimestamp ? new Date(cacheTimestamp).toLocaleString() : 'unknown time'}. ${err.message}`);
-          }
-        }
-      } catch (cacheErr) {
-        console.warn('Failed to load cached ticket data:', cacheErr.message);
-        setTickets([]);
-      }
-      
-      setFilterOptions({
-        outlets: [],
-        assignees: [],
-        statuses: ['Open', 'In Progress', 'Resolved'],
-      });
+      setError(`Failed to load tickets: ${err.message}`);
+      setTickets([]);
     } finally {
       setLoading(false);
     }
   }, [updateFilterOptions]);
 
   useEffect(() => {
-    try {
-      const cachedTickets = localStorage.getItem('cachedTickets');
-      if (cachedTickets) {
-        const parsedTickets = JSON.parse(cachedTickets);
-        if (Array.isArray(parsedTickets)) {
-          setTickets(parsedTickets);
-          updateFilterOptions(parsedTickets);
-        }
-      }
-    } catch (cacheErr) {
-      console.warn('Failed to load cached ticket data:', cacheErr.message);
-    }
     loadTicketData();
     const interval = setInterval(loadTicketData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [loadTicketData]);
 
-  const getFilteredTickets = () => {
-    return tickets.filter(ticket => {
-      return (
-        (!filters.date || ticket.date === filters.date) &&
-        (!filters.outlet || ticket.outlet === filters.outlet) &&
-        (!filters.status || ticket.status === filters.status) &&
-        (!filters.assignee || ticket.assignedTo === filters.assignee)
-      );
-    });
-  };
-
   const assignTicket = async (ticketId, assigneeName) => {
     if (!assigneeName.trim()) {
-      alert('Please enter an assignee name');
+      alert('Please select an assignee');
       return;
     }
 
@@ -304,7 +188,6 @@ const TicketDashboard = () => {
       const result = await response.json();
 
       if (result.success) {
-        // Update local state
         setTickets(prevTickets => 
           prevTickets.map(ticket => 
             ticket.ticketId === ticketId 
@@ -313,6 +196,7 @@ const TicketDashboard = () => {
           )
         );
         
+        setAssignmentInputs(prev => ({ ...prev, [ticketId]: '' }));
         alert(`Ticket ${ticketId} has been assigned to ${assigneeName.trim()}`);
       } else {
         throw new Error(result.error || 'Assignment failed');
@@ -325,8 +209,57 @@ const TicketDashboard = () => {
     }
   };
 
-  const clearAllFilters = () => {
-    setFilters({ date: '', outlet: '', status: '', assignee: '' });
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getFilteredAndSortedTickets = () => {
+    let filtered = tickets.filter(ticket => {
+      return (
+        (!filters.date || ticket.date === filters.date) &&
+        (!filters.outlet || ticket.outlet === filters.outlet) &&
+        (!filters.status || ticket.status === filters.status) &&
+        (!filters.assignee || ticket.assignedTo === filters.assignee) &&
+        (!filters.search || 
+          ticket.ticketId.toLowerCase().includes(filters.search.toLowerCase()) ||
+          ticket.issueDescription.toLowerCase().includes(filters.search.toLowerCase()) ||
+          ticket.submittedBy.toLowerCase().includes(filters.search.toLowerCase())
+        )
+      );
+    });
+
+    // Sort the filtered results
+    filtered.sort((a, b) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+      
+      // Handle special sorting cases
+      if (sortField === 'daysPending') {
+        aVal = parseInt(aVal) || 0;
+        bVal = parseInt(bVal) || 0;
+      } else if (sortField === 'date') {
+        aVal = new Date(aVal);
+        bVal = new Date(bVal);
+      } else if (sortField === 'status') {
+        // Sort by status priority: Open > In Progress > Resolved
+        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2 };
+        aVal = statusOrder[aVal] || 3;
+        bVal = statusOrder[bVal] || 3;
+      }
+      
+      if (sortDirection === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+
+    return filtered;
   };
 
   const getStatusIcon = (status) => {
@@ -347,34 +280,11 @@ const TicketDashboard = () => {
     }
   };
 
-  const getImageUrl = (imageLink) => {
-    if (!imageLink || !imageLink.trim()) return null;
-    
-    const baseUrl = API_URL;
-    
-    if (imageLink.startsWith('/api/image-proxy/')) {
-      return `${baseUrl}${imageLink}`;
-    }
-    
-    if (imageLink.startsWith('http') && imageLink.includes('/api/image-proxy/')) {
-      return imageLink;
-    }
-    
-    if (imageLink.startsWith('http')) {
-      const fileIdMatch = imageLink.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
-      if (fileIdMatch) {
-        return `${baseUrl}/api/image-proxy/${fileIdMatch[1]}`;
-      }
-    }
-    
-    if (imageLink.match(/^[a-zA-Z0-9-_]+$/)) {
-      return `${baseUrl}/api/image-proxy/${imageLink}`;
-    }
-    
-    return null;
+  const clearAllFilters = () => {
+    setFilters({ date: '', outlet: '', status: '', assignee: '', search: '' });
   };
 
-  const filteredTickets = getFilteredTickets();
+  const filteredTickets = getFilteredAndSortedTickets();
   const stats = {
     total: tickets.length,
     open: tickets.filter(t => t.status === 'Open').length,
@@ -438,6 +348,15 @@ const TicketDashboard = () => {
       {tickets.length > 0 && (
         <div className="ticket-filters">
           <div className="filter-group">
+            <label>Search</label>
+            <input
+              type="text"
+              placeholder="Search tickets..."
+              value={filters.search}
+              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+            />
+          </div>
+          <div className="filter-group">
             <label>Date</label>
             <input
               type="date"
@@ -484,26 +403,15 @@ const TicketDashboard = () => {
         </div>
       )}
 
-      {tickets.length > 0 && (filters.date || filters.outlet || filters.status || filters.assignee) && (
+      {Object.values(filters).some(filter => filter !== '') && (
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <button 
-            onClick={clearAllFilters}
-            style={{
-              background: '#6b7280',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-            }}
-          >
+          <button onClick={clearAllFilters} className="clear-filters-btn">
             🧹 Clear All Filters
           </button>
         </div>
       )}
 
-      <div className="tickets-list">
+      <div className="tickets-table-container">
         {!error && tickets.length === 0 ? (
           <div className="no-data">
             <div className="no-data-icon">🎫</div>
@@ -523,33 +431,96 @@ const TicketDashboard = () => {
             </button>
           </div>
         ) : (
-          filteredTickets
-            .sort((a, b) => {
-              // Sort by status priority (Open > In Progress > Resolved), then by date
-              const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2 };
-              const statusA = statusOrder[a.status] || 3;
-              const statusB = statusOrder[b.status] || 3;
-              
-              if (statusA !== statusB) {
-                return statusA - statusB;
-              }
-              
-              return new Date(b.date) - new Date(a.date);
-            })
-            .map(ticket => (
-              <TicketCard
-                key={ticket.ticketId}
-                ticket={ticket}
-                onAssign={assignTicket}
-                assignmentLoading={assignmentLoading[ticket.ticketId] || false}
-                onImageClick={setSelectedImage}
-                formatDate={formatDate}
-                formatTime={formatTime}
-                getStatusIcon={getStatusIcon}
-                getStatusColor={getStatusColor}
-                getImageUrl={getImageUrl}
-              />
-            ))
+          <table className="tickets-table">
+            <thead>
+              <tr>
+                <th onClick={() => handleSort('ticketId')} className="sortable">
+                  Ticket ID {sortField === 'ticketId' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('date')} className="sortable">
+                  Date {sortField === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('outlet')} className="sortable">
+                  Outlet {sortField === 'outlet' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('submittedBy')} className="sortable">
+                  Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th>Issue Description</th>
+                <th onClick={() => handleSort('status')} className="sortable">
+                  Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th onClick={() => handleSort('daysPending')} className="sortable">
+                  Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
+                <th>Assigned To / Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTickets.map(ticket => (
+                <tr key={ticket.ticketId} className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}>
+                  <td className="ticket-id">#{ticket.ticketId}</td>
+                  <td className="ticket-date">{formatDate(ticket.date)}</td>
+                  <td className="ticket-outlet">{ticket.outlet}</td>
+                  <td className="ticket-submitter">{ticket.submittedBy}</td>
+                  <td className="ticket-description">
+                    <div className="description-text">{ticket.issueDescription}</div>
+                    {ticket.imageLink && (
+                      <button 
+                        className="image-btn" 
+                        onClick={() => setSelectedImage(ticket.imageLink)}
+                        title="View attached image"
+                      >
+                        📷 Image
+                      </button>
+                    )}
+                  </td>
+                  <td className="ticket-status">
+                    <span 
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(ticket.status) }}
+                    >
+                      {getStatusIcon(ticket.status)} {ticket.status}
+                    </span>
+                  </td>
+                  <td className="ticket-pending">
+                    <span className={ticket.daysPending > 7 ? 'high-priority' : ticket.daysPending > 3 ? 'medium-priority' : 'low-priority'}>
+                      {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
+                    </span>
+                  </td>
+                  <td className="ticket-assignment">
+                    {ticket.status === 'Open' ? (
+                      <div className="assignment-inline">
+                        <select
+                          value={assignmentInputs[ticket.ticketId] || ''}
+                          onChange={(e) => setAssignmentInputs(prev => ({
+                            ...prev,
+                            [ticket.ticketId]: e.target.value
+                          }))}
+                          disabled={assignmentLoading[ticket.ticketId]}
+                          className="assign-select-inline"
+                        >
+                          <option value="">Select assignee...</option>
+                          {ASSIGNEE_OPTIONS.map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
+                          disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
+                          className="assign-btn-inline"
+                        >
+                          {assignmentLoading[ticket.ticketId] ? '...' : '→'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -563,118 +534,6 @@ const TicketDashboard = () => {
               ×
             </button>
             <img src={selectedImage} alt="Ticket Attachment" />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Ticket Card Component
-const TicketCard = ({ 
-  ticket, 
-  onAssign,
-  assignmentLoading,
-  onImageClick,
-  formatDate,
-  formatTime,
-  getStatusIcon,
-  getStatusColor,
-  getImageUrl,
-}) => {
-  const [assigneeName, setAssigneeName] = useState('');
-  const [imageError, setImageError] = useState(false);
-  
-  const handleAssign = () => {
-    if (assigneeName.trim()) {
-      onAssign(ticket.ticketId, assigneeName.trim());
-      setAssigneeName('');
-    }
-  };
-
-  const imageUrl = getImageUrl(ticket.imageLink);
-
-  const handleImageError = () => {
-    setImageError(true);
-  };
-
-  return (
-    <div className="ticket-card">
-      <div className="ticket-card-header">
-        <div className="ticket-info">
-          <h3>Ticket #{ticket.ticketId}</h3>
-          <div className="ticket-meta">
-            <span className="ticket-date">{formatDate(ticket.date)}</span>
-            <span className="ticket-outlet">{ticket.outlet}</span>
-            <span className="ticket-submitter">{ticket.submittedBy}</span>
-          </div>
-        </div>
-        <div className="ticket-status-section">
-          <div 
-            className="status-badge"
-            style={{ backgroundColor: getStatusColor(ticket.status) }}
-          >
-            {getStatusIcon(ticket.status)} {ticket.status}
-          </div>
-          <div className="days-pending">
-            {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''} pending
-          </div>
-        </div>
-      </div>
-
-      <div className="ticket-details">
-        <div className="detail-row">
-          <span className="detail-label">Issue Description:</span>
-          <span className="detail-value">{ticket.issueDescription || 'No description provided'}</span>
-        </div>
-        
-        {ticket.assignedTo && (
-          <div className="detail-row">
-            <span className="detail-label">Assigned To:</span>
-            <span className="detail-value assigned-user">{ticket.assignedTo}</span>
-          </div>
-        )}
-
-        {imageUrl && (
-          <div className="detail-row">
-            <span className="detail-label">Attachment:</span>
-            <div className="image-attachment">
-              {!imageError ? (
-                <img
-                  src={imageUrl}
-                  alt="Ticket Attachment"
-                  className="ticket-image"
-                  onClick={() => onImageClick(imageUrl)}
-                  onError={handleImageError}
-                />
-              ) : (
-                <div className="image-error">
-                  🖼️ Image unavailable
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {ticket.status === 'Open' && (
-        <div className="assignment-section">
-          <div className="assignment-form">
-            <input
-              type="text"
-              value={assigneeName}
-              onChange={(e) => setAssigneeName(e.target.value)}
-              placeholder="Enter assignee name..."
-              className="assign-input"
-              disabled={assignmentLoading}
-            />
-            <button
-              onClick={handleAssign}
-              disabled={!assigneeName.trim() || assignmentLoading}
-              className="assign-btn"
-            >
-              {assignmentLoading ? 'Assigning...' : 'Assign Ticket'}
-            </button>
           </div>
         </div>
       )}
