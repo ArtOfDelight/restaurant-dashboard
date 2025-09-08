@@ -72,8 +72,6 @@ const transformDebugResponses = (rawResponses) => {
 };
 
 // Checklist Completion Tracker Component
-// Checklist Completion Tracker Component
-// Checklist Completion Tracker Component
 const ChecklistCompletionTracker = ({ API_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
@@ -186,16 +184,6 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
       
       return indexA - indexB;
     });
-  };
-
-  // Helper function to get sorted time slot breakdown
-  const getSortedTimeSlotBreakdown = (timeSlotBreakdown) => {
-    if (!timeSlotBreakdown) return [];
-    
-    return TIME_SLOT_ORDER.map(slot => ({
-      timeSlot: slot,
-      data: timeSlotBreakdown[slot] || { total: 0, completed: 0, pending: 0, completionRate: '0.0' }
-    })).filter(item => item.data.total > 0);
   };
 
   useEffect(() => {
@@ -361,24 +349,6 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         </div>
       </div>
 
-      {/* Time Slot Summary */}
-      {summaryData && summaryData.timeSlotBreakdown && (
-        <div className="time-slot-summary">
-          <h3>Time Slot Completion</h3>
-          <div className="time-slot-cards">
-            {getSortedTimeSlotBreakdown(summaryData.timeSlotBreakdown).map(({ timeSlot, data }) => (
-              <div key={timeSlot} className="time-slot-card">
-                <div className="time-slot-name">{timeSlot}</div>
-                <div className="time-slot-stats">
-                  <span className="completed">{data.completed}/{data.total}</span>
-                  <span className="percentage">({data.completionRate}%)</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Main Completion Table */}
       <div className="completion-table-container">
         <table className="completion-table">
@@ -467,6 +437,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
     </div>
   );
 };
+
 // Main ChecklistDashboard Component
 const ChecklistDashboard = () => {
   const [submissions, setSubmissions] = useState([]);
