@@ -41,10 +41,11 @@ const SwiggyDashboard = lazy(() =>
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID";
 
 // Authorized email domains (you can modify this list)
-const AUTHORIZED_DOMAINS = ['gmail.com', 'yourdomain.com']; // Add your organization domain
+const AUTHORIZED_DOMAINS = ['gmail.com', 'zaanrestaurants.com']; // Add your organization domain
 const AUTHORIZED_EMAILS = [
-  'your-email@gmail.com', // Add specific authorized emails
-  'admin@yourdomain.com'
+  'farjatincry@gmail.com', // Add specific authorized emails
+  'ajay@zaanrestaurants.com',
+  'ayaaz@zaanrestaurants.com'
 ];
 
 // Authentication Context
