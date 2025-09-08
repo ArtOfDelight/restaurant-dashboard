@@ -141,7 +141,7 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
 
       // Sort by outlet code order in whitelist for consistent ordering
       filteredCompletionData.sort((a, b) => {
-        const statusOrder = { 'Pending': 0, 'Partial': 1, 'Completed': 2 };
+        const statusOrder = { 'Pending': 2, 'Partial': 1, 'Completed': 0 };
         const statusA = statusOrder[a.overallStatus] || 3;
         const statusB = statusOrder[b.overallStatus] || 3;
 
