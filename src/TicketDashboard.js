@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import './TicketDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -355,178 +356,51 @@ const TicketDashboard = () => {
 
   if (loading) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        height: '400px',
-        gap: '1rem'
-      }}>
-        <div style={{
-          width: '40px',
-          height: '40px',
-          border: '4px solid #f3f4f6',
-          borderTop: '4px solid #3b82f6',
-          borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
-        }}></div>
+      <div className="ticket-loading">
+        <div className="loading-spinner"></div>
         <p>Loading ticket data...</p>
       </div>
     );
   }
 
   return (
-    <div style={{ 
-      padding: '2rem', 
-      maxWidth: '1400px', 
-      margin: '0 auto',
-      backgroundColor: '#ffffff',
-      minHeight: '100vh'
-    }}>
-      <style>
-        {`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          
-          .ticket-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-          }
-          
-          .ticket-table th,
-          .ticket-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-            vertical-align: top;
-          }
-          
-          .ticket-table th {
-            background-color: #f9fafb;
-            font-weight: 600;
-            color: #374151;
-            cursor: pointer;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-          }
-          
-          .ticket-table th:hover {
-            background-color: #f3f4f6;
-          }
-          
-          .ticket-table tr:hover {
-            background-color: #f9fafb;
-          }
-          
-          .status-open { background-color: #fef2f2; }
-          .status-in-progress { background-color: #fffbeb; }
-          .status-resolved { background-color: #f0fdf4; }
-          .status-closed { background-color: #f9fafb; }
-          
-          .stat-card {
-            background: white;
-            border-radius: 8px;
-            padding: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            text-align: center;
-          }
-          
-          .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #1f2937;
-          }
-          
-          .stat-label {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-          }
-        `}
-      </style>
-
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '2rem' 
-      }}>
-        <h1 style={{ margin: 0, color: '#1f2937' }}>Ticket Management System</h1>
-        <button 
-          onClick={loadTicketData}
-          style={{
-            padding: '0.5rem 1rem',
-            backgroundColor: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer'
-          }}
-        >
+    <div className="ticket-dashboard">
+      <div className="ticket-header">
+        <h1>Ticket Management System</h1>
+        <button onClick={loadTicketData} className="refresh-btn">
           🔄 Refresh
         </button>
       </div>
 
       {error && (
-        <div style={{
-          backgroundColor: '#fee2e2',
-          border: '1px solid #fecaca',
-          color: '#dc2626',
-          padding: '1rem',
-          borderRadius: '6px',
-          marginBottom: '1rem'
-        }}>
+        <div className="ticket-error">
           <h3>❌ Error: {error}</h3>
           <p>Please check your server connection or contact support if the issue persists.</p>
-          <button 
-            onClick={loadTicketData}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#dc2626',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
+          <button onClick={loadTicketData} className="retry-btn">
             🔄 Retry
           </button>
         </div>
       )}
 
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-        gap: '1rem', 
-        marginBottom: '2rem' 
-      }}>
+      <div className="ticket-stats">
         <div className="stat-card">
           <div className="stat-number">{stats.total}</div>
           <div className="stat-label">Total Tickets</div>
         </div>
         <div className="stat-card">
-          <div className="stat-number" style={{ color: '#ef4444' }}>{stats.open}</div>
+          <div className="stat-number">{stats.open}</div>
           <div className="stat-label">Open</div>
         </div>
         <div className="stat-card">
-          <div className="stat-number" style={{ color: '#f59e0b' }}>{stats.inProgress}</div>
+          <div className="stat-number">{stats.inProgress}</div>
           <div className="stat-label">In Progress</div>
         </div>
         <div className="stat-card">
-          <div className="stat-number" style={{ color: '#10b981' }}>{stats.resolved}</div>
+          <div className="stat-number">{stats.resolved}</div>
           <div className="stat-label">Resolved</div>
         </div>
         <div className="stat-card">
-          <div className="stat-number" style={{ color: '#6b7280' }}>{stats.closed}</div>
+          <div className="stat-number">{stats.closed}</div>
           <div className="stat-label">Closed</div>
         </div>
         <div className="stat-card">
@@ -536,55 +410,29 @@ const TicketDashboard = () => {
       </div>
 
       {tickets.length > 0 && (
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: '1rem', 
-          marginBottom: '1rem',
-          padding: '1rem',
-          backgroundColor: '#f9fafb',
-          borderRadius: '8px'
-        }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Search</label>
+        <div className="ticket-filters">
+          <div className="filter-group">
+            <label>Search</label>
             <input
               type="text"
               placeholder="Search tickets..."
               value={filters.search}
               onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px'
-              }}
             />
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Date</label>
+          <div className="filter-group">
+            <label>Date</label>
             <input
               type="date"
               value={filters.date}
               onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px'
-              }}
             />
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Outlet</label>
+          <div className="filter-group">
+            <label>Outlet</label>
             <select
               value={filters.outlet}
               onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px'
-              }}
             >
               <option value="">All Outlets</option>
               {filterOptions.outlets.map(outlet => (
@@ -592,17 +440,11 @@ const TicketDashboard = () => {
               ))}
             </select>
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Status</label>
+          <div className="filter-group">
+            <label>Status</label>
             <select
               value={filters.status}
               onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px'
-              }}
             >
               <option value="">All Statuses</option>
               {filterOptions.statuses.map(status => (
@@ -610,17 +452,11 @@ const TicketDashboard = () => {
               ))}
             </select>
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Assignee</label>
+          <div className="filter-group">
+            <label>Assignee</label>
             <select
               value={filters.assignee}
               onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.5rem',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px'
-              }}
             >
               <option value="">All Assignees</option>
               {filterOptions.assignees.map(assignee => (
@@ -632,93 +468,53 @@ const TicketDashboard = () => {
       )}
 
       {Object.values(filters).some(filter => filter !== '') && (
-        <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-          <button 
-            onClick={clearAllFilters}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#6b7280',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <button onClick={clearAllFilters} className="clear-filters-btn">
             🧹 Clear All Filters
           </button>
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
+      <div className="tickets-table-container">
         {!error && tickets.length === 0 ? (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '3rem',
-            backgroundColor: '#f9fafb',
-            borderRadius: '8px'
-          }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎫</div>
+          <div className="no-data">
+            <div className="no-data-icon">🎫</div>
             <h3>No tickets found</h3>
             <p>No ticket data is available in your Google Sheets yet.</p>
-            <button 
-              onClick={loadTicketData}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
+            <button onClick={loadTicketData} className="refresh-btn">
               🔄 Refresh Data
             </button>
           </div>
         ) : filteredTickets.length === 0 && tickets.length > 0 ? (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '3rem',
-            backgroundColor: '#f9fafb',
-            borderRadius: '8px'
-          }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
+          <div className="no-data">
+            <div className="no-data-icon">🔍</div>
             <h3>No tickets match your filters</h3>
             <p>Try adjusting or clearing your filters above.</p>
-            <button 
-              onClick={clearAllFilters}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: '#6b7280',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
+            <button onClick={clearAllFilters} className="clear-filters-btn">
               🧹 Clear Filters
             </button>
           </div>
         ) : (
-          <table className="ticket-table">
+          <table className="tickets-table">
             <thead>
               <tr>
-                <th onClick={() => handleSort('ticketId')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('ticketId')} className="sortable">
                   Ticket ID {sortField === 'ticketId' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('date')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('date')} className="sortable">
                   Date {sortField === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('outlet')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('outlet')} className="sortable">
                   Outlet {sortField === 'outlet' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('submittedBy')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('submittedBy')} className="sortable">
                   Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>Issue Description</th>
-                <th onClick={() => handleSort('status')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('status')} className="sortable">
                   Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('daysPending')} style={{ cursor: 'pointer' }}>
+                <th onClick={() => handleSort('daysPending')} className="sortable">
                   Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>Assigned To / Action</th>
@@ -730,61 +526,43 @@ const TicketDashboard = () => {
               {filteredTickets.map(ticket => (
                 <tr 
                   key={ticket.ticketId} 
-                  className={`status-${ticket.status.toLowerCase().replace(' ', '-')}`}
+                  className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}
                 >
-                  <td style={{ fontWeight: '600' }}>#{ticket.ticketId}</td>
-                  <td>{formatDate(ticket.date)}</td>
-                  <td>{ticket.outlet}</td>
-                  <td>{ticket.submittedBy}</td>
-                  <td style={{ maxWidth: '300px' }}>
-                    <div style={{ marginBottom: '0.5rem' }}>{ticket.issueDescription}</div>
+                  <td className="ticket-id">#{ticket.ticketId}</td>
+                  <td className="ticket-date">{formatDate(ticket.date)}</td>
+                  <td className="ticket-outlet">{ticket.outlet}</td>
+                  <td className="ticket-submitter">{ticket.submittedBy}</td>
+                  <td className="ticket-description">
+                    <div className="description-text">{ticket.issueDescription}</div>
                     {ticket.imageLink && (
                       <button 
+                        className="image-btn" 
                         onClick={() => {
                           setSelectedImage(ticket.imageLink);
                           setImageError(false);
                         }}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          backgroundColor: '#3b82f6',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          cursor: 'pointer'
-                        }}
+                        title="View attached image"
                       >
                         📎 View Image
                       </button>
                     )}
                   </td>
-                  <td>
+                  <td className="ticket-status">
                     <span 
-                      style={{ 
-                        backgroundColor: getStatusColor(ticket.status),
-                        color: 'white',
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '12px',
-                        fontSize: '0.75rem',
-                        fontWeight: '500'
-                      }}
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(ticket.status) }}
                     >
                       {getStatusIcon(ticket.status)} {ticket.status}
                     </span>
                   </td>
-                  <td>
-                    <span 
-                      style={{ 
-                        color: ticket.daysPending > 7 ? '#dc2626' : ticket.daysPending > 3 ? '#f59e0b' : '#10b981',
-                        fontWeight: '500'
-                      }}
-                    >
+                  <td className="ticket-pending">
+                    <span className={ticket.daysPending > 7 ? 'high-priority' : ticket.daysPending > 3 ? 'medium-priority' : 'low-priority'}>
                       {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
                     </span>
                   </td>
-                  <td>
+                  <td className="ticket-assignment">
                     {ticket.status === 'Open' ? (
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <div className="assignment-inline">
                         <select
                           value={assignmentInputs[ticket.ticketId] || ''}
                           onChange={(e) => setAssignmentInputs(prev => ({
@@ -792,12 +570,7 @@ const TicketDashboard = () => {
                             [ticket.ticketId]: e.target.value
                           }))}
                           disabled={assignmentLoading[ticket.ticketId]}
-                          style={{
-                            padding: '0.25rem',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '4px',
-                            fontSize: '0.875rem'
-                          }}
+                          className="assign-select-inline"
                         >
                           <option value="">Select assignee...</option>
                           {ASSIGNEE_OPTIONS.map(name => (
@@ -807,24 +580,16 @@ const TicketDashboard = () => {
                         <button
                           onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
                           disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: '#10b981',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '0.875rem'
-                          }}
+                          className="assign-btn-inline"
                         >
                           {assignmentLoading[ticket.ticketId] ? '...' : 'Assign'}
                         </button>
                       </div>
                     ) : (
-                      <div style={{ fontWeight: '500' }}>{ticket.assignedTo || 'Unassigned'}</div>
+                      <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
                     )}
                   </td>
-                  <td>
+                  <td className="ticket-action-taken">
                     <textarea
                       value={actionInputs[ticket.ticketId] || ''}
                       onChange={(e) => setActionInputs(prev => ({
@@ -832,31 +597,18 @@ const TicketDashboard = () => {
                         [ticket.ticketId]: e.target.value
                       }))}
                       placeholder="Describe action taken..."
-                      style={{
-                        width: '100%',
-                        minHeight: '60px',
-                        padding: '0.5rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '4px',
-                        fontSize: '0.875rem',
-                        resize: 'vertical'
-                      }}
+                      className="action-taken-textarea"
                     />
                   </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <td className="ticket-status-management">
+                    <div className="status-management-inline">
                       <select
                         value={statusInputs[ticket.ticketId] || ticket.status}
                         onChange={(e) => setStatusInputs(prev => ({
                           ...prev,
                           [ticket.ticketId]: e.target.value
                         }))}
-                        style={{
-                          padding: '0.25rem',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '4px',
-                          fontSize: '0.875rem'
-                        }}
+                        className="status-select"
                       >
                         {STATUS_OPTIONS.map(status => (
                           <option key={status} value={status}>{status}</option>
@@ -869,15 +621,7 @@ const TicketDashboard = () => {
                           actionInputs[ticket.ticketId]
                         )}
                         disabled={statusLoading[ticket.ticketId]}
-                        style={{
-                          padding: '0.25rem 0.5rem',
-                          backgroundColor: '#3b82f6',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '0.875rem'
-                        }}
+                        className="status-update-btn"
                       >
                         {statusLoading[ticket.ticketId] ? '...' : 'Update'}
                       </button>
@@ -891,87 +635,32 @@ const TicketDashboard = () => {
       </div>
 
       {selectedImage && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
-          onClick={() => setSelectedImage(null)}
-        >
-          <div 
-            style={{
-              position: 'relative',
-              maxWidth: '90%',
-              maxHeight: '90%',
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              padding: '1rem'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="image-modal" onClick={() => setSelectedImage(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button 
+              className="close-btn" 
               onClick={() => setSelectedImage(null)}
-              style={{
-                position: 'absolute',
-                top: '-10px',
-                right: '-10px',
-                width: '30px',
-                height: '30px',
-                borderRadius: '50%',
-                backgroundColor: '#dc2626',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '1.2rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
             >
               ×
             </button>
             {imageError ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '2rem',
-                color: '#6b7280'
-              }}>
-                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🖼️</div>
+              <div className="image-error-container">
+                <div className="image-error-icon">🖼️</div>
                 <h3>Image Not Available</h3>
                 <p>The image could not be loaded. It may have been moved or deleted.</p>
                 <p><strong>URL:</strong> {selectedImage}</p>
                 <button 
+                  className="retry-image-btn" 
                   onClick={() => setImageError(false)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
                 >
                   Try Again
                 </button>
               </div>
             ) : (
               <img 
-                src={selectedImage}
+                src={selectedImage} 
                 alt="Ticket Attachment"
                 onError={handleImageError}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  objectFit: 'contain'
-                }}
               />
             )}
           </div>
