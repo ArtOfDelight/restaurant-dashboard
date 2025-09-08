@@ -340,6 +340,26 @@ body {
 .filter-group select option {
   background: var(--surface-dark);
   color: var(--text-primary);
+  padding: 8px;
+}
+
+/* Fix dropdown visibility with proper contrast */
+.assign-select-inline option,
+.status-select option {
+  background: #2a2a2a !important;
+  color: #ffffff !important;
+  padding: 8px;
+}
+
+/* Ensure select elements have proper styling */
+.assign-select-inline,
+.status-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 16px 12px;
+  padding-right: 32px;
 }
 
 /* Clear Filters Button */

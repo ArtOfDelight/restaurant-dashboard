@@ -538,7 +538,13 @@ const TicketDashboard = () => {
                       <button 
                         className="image-btn" 
                         onClick={() => {
-                          setSelectedImage(ticket.imageLink);
+                          // Convert Google Drive link to proxy URL
+                          let imageUrl = ticket.imageLink;
+                          const driveMatch = ticket.imageLink.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+                          if (driveMatch) {
+                            imageUrl = `${API_URL}/api/image-proxy/${driveMatch[1]}`;
+                          }
+                          setSelectedImage(imageUrl);
                           setImageError(false);
                         }}
                         title="View attached image"
