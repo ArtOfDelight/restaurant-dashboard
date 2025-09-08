@@ -2590,6 +2590,434 @@ app.get('/api/debug-employee', async (req, res) => {
     });
   }
 });
+// Add these new endpoints to your existing server.js file
+
+// Checklist completion status endpoint
+app.get('/api/checklist-completion-status', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0]; // Default to today
+    console.log(`📊 Fetching checklist completion status for date: ${date}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const CHECKLIST_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+
+    // Fetch all required tabs
+    console.log('Fetching ChecklistQuestions tab...');
+    const questionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: 'ChecklistQuestions!A:Z',
+    });
+
+    console.log('Fetching ChecklistSubmissions tab...');
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: 'ChecklistSubmissions!A:Z',
+    });
+
+    console.log('Fetching Outlet master data tab...');
+    // Try common outlet tab names
+    let outletResponse;
+    const possibleOutletTabs = ['Outlets', 'Outlet', 'OutletMaster', 'Outlet Master', 'OutletData'];
+    
+    for (const tabName of possibleOutletTabs) {
+      try {
+        outletResponse = await sheets.spreadsheets.values.get({
+          spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+          range: `${tabName}!A:Z`,
+        });
+        console.log(`✅ Found outlet data in tab: ${tabName}`);
+        break;
+      } catch (error) {
+        console.log(`Tab "${tabName}" not found, trying next...`);
+      }
+    }
+
+    if (!outletResponse) {
+      console.warn('⚠️ Could not find outlet master data tab, using submissions data only');
+    }
+
+    const questionsData = questionsResponse.data.values || [];
+    const submissionsData = submissionsResponse.data.values || [];
+    const outletData = outletResponse ? outletResponse.data.values || [] : [];
+
+    console.log(`Found ${questionsData.length} question rows, ${submissionsData.length} submission rows, ${outletData.length} outlet rows`);
+
+    // Process the data
+    const completionStatus = processChecklistCompletionData(
+      questionsData, 
+      submissionsData, 
+      outletData, 
+      date
+    );
+
+    console.log(`✅ Processed completion status for ${completionStatus.length} outlets`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: completionStatus,
+      metadata: {
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        date: date,
+        totalOutlets: completionStatus.length,
+        completedOutlets: completionStatus.filter(o => o.overallStatus === 'Completed').length,
+        partialOutlets: completionStatus.filter(o => o.overallStatus === 'Partial').length,
+        pendingOutlets: completionStatus.filter(o => o.overallStatus === 'Pending').length,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching checklist completion status:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Function to process checklist completion data
+function processChecklistCompletionData(questionsData, submissionsData, outletData, filterDate) {
+  console.log(`Processing checklist completion data for date: ${filterDate}`);
+
+  // Extract outlets from master data or submissions
+  const outlets = extractOutletList(outletData, submissionsData);
+  console.log(`Found ${outlets.length} unique outlets`);
+
+  // Extract time slots from questions or use default
+  const timeSlots = extractTimeSlots(questionsData);
+  console.log(`Time slots: ${timeSlots.join(', ')}`);
+
+  // Process submissions for the specific date
+  const submissionsForDate = filterSubmissionsByDate(submissionsData, filterDate);
+  console.log(`Found ${submissionsForDate.length} submissions for ${filterDate}`);
+
+  // Build completion status for each outlet
+  const completionStatus = outlets.map(outlet => {
+    const outletSubmissions = submissionsForDate.filter(sub => 
+      sub.outlet && sub.outlet.toLowerCase().trim() === outlet.name.toLowerCase().trim()
+    );
+
+    const timeSlotStatus = timeSlots.map(timeSlot => {
+      const slotSubmission = outletSubmissions.find(sub => 
+        sub.timeSlot && sub.timeSlot.toLowerCase().includes(timeSlot.toLowerCase())
+      );
+
+      return {
+        timeSlot: timeSlot,
+        status: slotSubmission ? 'Completed' : 'Pending',
+        submissionId: slotSubmission ? slotSubmission.submissionId : null,
+        submittedBy: slotSubmission ? slotSubmission.submittedBy : null,
+        timestamp: slotSubmission ? slotSubmission.timestamp : null
+      };
+    });
+
+    const completedSlots = timeSlotStatus.filter(ts => ts.status === 'Completed').length;
+    const totalSlots = timeSlotStatus.length;
+
+    let overallStatus = 'Pending';
+    if (completedSlots === totalSlots) {
+      overallStatus = 'Completed';
+    } else if (completedSlots > 0) {
+      overallStatus = 'Partial';
+    }
+
+    return {
+      outletCode: outlet.code,
+      outletName: outlet.name,
+      outletType: outlet.type,
+      outletLocation: outlet.location,
+      isCloudDays: outlet.isCloudDays,
+      timeSlotStatus: timeSlotStatus,
+      overallStatus: overallStatus,
+      completedSlots: completedSlots,
+      totalSlots: totalSlots,
+      completionPercentage: totalSlots > 0 ? ((completedSlots / totalSlots) * 100).toFixed(1) : '0.0',
+      lastSubmissionTime: outletSubmissions.length > 0 ? 
+        Math.max(...outletSubmissions.map(s => new Date(s.timestamp || 0).getTime())) : null
+    };
+  });
+
+  // Sort by completion status and outlet name
+  completionStatus.sort((a, b) => {
+    // First by status: Pending first (needs attention), then Partial, then Completed
+    const statusOrder = { 'Pending': 0, 'Partial': 1, 'Completed': 2 };
+    if (statusOrder[a.overallStatus] !== statusOrder[b.overallStatus]) {
+      return statusOrder[a.overallStatus] - statusOrder[b.overallStatus];
+    }
+    // Then by outlet name
+    return a.outletName.localeCompare(b.outletName);
+  });
+
+  return completionStatus;
+}
+
+// Helper function to extract outlet list
+function extractOutletList(outletData, submissionsData) {
+  const outlets = [];
+  const outletMap = new Map();
+
+  // First, try to get outlets from master data
+  if (outletData && outletData.length > 1) {
+    const headers = outletData[0];
+    const codeIndex = headers.findIndex(h => h && h.toLowerCase().includes('code'));
+    const nameIndex = headers.findIndex(h => h && h.toLowerCase().includes('name'));
+    const typeIndex = headers.findIndex(h => h && h.toLowerCase().includes('type'));
+    const locationIndex = headers.findIndex(h => h && h.toLowerCase().includes('location'));
+
+    console.log(`Outlet data column mapping: code=${codeIndex}, name=${nameIndex}, type=${typeIndex}, location=${locationIndex}`);
+
+    for (let i = 1; i < outletData.length; i++) {
+      const row = outletData[i];
+      if (!row || !row[nameIndex]) continue;
+
+      const outletName = getCellValue(row, nameIndex, '').trim();
+      if (!outletName) continue;
+
+      const outlet = {
+        code: getCellValue(row, codeIndex, ''),
+        name: outletName,
+        type: getCellValue(row, typeIndex, ''),
+        location: getCellValue(row, locationIndex, ''),
+        isCloudDays: false // You can add logic to determine this
+      };
+
+      outletMap.set(outletName.toLowerCase(), outlet);
+    }
+  }
+
+  // Also get outlets from submissions data as fallback
+  if (submissionsData && submissionsData.length > 1) {
+    const headers = submissionsData[0];
+    const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
+
+    if (outletIndex !== -1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || !row[outletIndex]) continue;
+
+        const outletName = getCellValue(row, outletIndex, '').trim();
+        if (!outletName || outletMap.has(outletName.toLowerCase())) continue;
+
+        outletMap.set(outletName.toLowerCase(), {
+          code: '',
+          name: outletName,
+          type: '',
+          location: '',
+          isCloudDays: false
+        });
+      }
+    }
+  }
+
+  return Array.from(outletMap.values());
+}
+
+// Helper function to extract time slots
+function extractTimeSlots(questionsData) {
+  const timeSlots = new Set();
+  
+  if (questionsData && questionsData.length > 1) {
+    const headers = questionsData[0];
+    const timeSlotIndex = headers.findIndex(h => h && h.toLowerCase().includes('time') && h.toLowerCase().includes('slot'));
+    
+    if (timeSlotIndex !== -1) {
+      for (let i = 1; i < questionsData.length; i++) {
+        const row = questionsData[i];
+        if (row && row[timeSlotIndex]) {
+          const timeSlot = getCellValue(row, timeSlotIndex, '').trim();
+          if (timeSlot) {
+            timeSlots.add(timeSlot);
+          }
+        }
+      }
+    }
+  }
+
+  // Use extracted time slots or default ones
+  const slotsArray = Array.from(timeSlots);
+  return slotsArray.length > 0 ? slotsArray : ['Morning', 'Mid Day', 'Closing'];
+}
+
+// Helper function to filter submissions by date
+function filterSubmissionsByDate(submissionsData, filterDate) {
+  const submissions = [];
+  
+  if (!submissionsData || submissionsData.length <= 1) return submissions;
+
+  const headers = submissionsData[0];
+  const submissionIdIndex = headers.findIndex(h => h && h.toLowerCase().includes('submission') && h.toLowerCase().includes('id'));
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const timeSlotIndex = headers.findIndex(h => h && h.toLowerCase().includes('time') && h.toLowerCase().includes('slot'));
+  const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
+  const submittedByIndex = headers.findIndex(h => h && h.toLowerCase().includes('submitted') && h.toLowerCase().includes('by'));
+  const timestampIndex = headers.findIndex(h => h && h.toLowerCase().includes('timestamp'));
+
+  console.log(`Submission data column mapping: submissionId=${submissionIdIndex}, date=${dateIndex}, timeSlot=${timeSlotIndex}, outlet=${outletIndex}`);
+
+  for (let i = 1; i < submissionsData.length; i++) {
+    const row = submissionsData[i];
+    if (!row) continue;
+
+    const submissionDate = formatDate(getCellValue(row, dateIndex, ''));
+    
+    // Filter by date
+    if (submissionDate === filterDate) {
+      submissions.push({
+        submissionId: getCellValue(row, submissionIdIndex, ''),
+        date: submissionDate,
+        timeSlot: getCellValue(row, timeSlotIndex, ''),
+        outlet: getCellValue(row, outletIndex, ''),
+        submittedBy: getCellValue(row, submittedByIndex, ''),
+        timestamp: getCellValue(row, timestampIndex, '')
+      });
+    }
+  }
+
+  return submissions;
+}
+
+// Checklist completion summary endpoint
+app.get('/api/checklist-completion-summary', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    console.log(`📈 Fetching checklist completion summary for date: ${date}`);
+
+    // Reuse the completion status endpoint logic
+    const completionResponse = await fetch(`http://localhost:${PORT}/api/checklist-completion-status?date=${date}`);
+    const completionData = await completionResponse.json();
+
+    if (!completionData.success) {
+      throw new Error('Failed to fetch completion data');
+    }
+
+    const data = completionData.data;
+    
+    // Calculate summary statistics
+    const summary = {
+      totalOutlets: data.length,
+      completedOutlets: data.filter(o => o.overallStatus === 'Completed').length,
+      partialOutlets: data.filter(o => o.overallStatus === 'Partial').length,
+      pendingOutlets: data.filter(o => o.overallStatus === 'Pending').length,
+      overallCompletionRate: data.length > 0 ? 
+        ((data.filter(o => o.overallStatus === 'Completed').length / data.length) * 100).toFixed(1) : '0.0',
+      timeSlotBreakdown: {},
+      outletTypeBreakdown: {},
+      cloudDaysBreakdown: {
+        cloudDaysOutlets: data.filter(o => o.isCloudDays).length,
+        regularOutlets: data.filter(o => !o.isCloudDays).length
+      }
+    };
+
+    // Time slot breakdown
+    if (data.length > 0) {
+      const allTimeSlots = [...new Set(data.flatMap(o => o.timeSlotStatus.map(ts => ts.timeSlot)))];
+      allTimeSlots.forEach(timeSlot => {
+        const slotData = data.map(o => o.timeSlotStatus.find(ts => ts.timeSlot === timeSlot)).filter(Boolean);
+        summary.timeSlotBreakdown[timeSlot] = {
+          total: slotData.length,
+          completed: slotData.filter(ts => ts.status === 'Completed').length,
+          pending: slotData.filter(ts => ts.status === 'Pending').length,
+          completionRate: slotData.length > 0 ? 
+            ((slotData.filter(ts => ts.status === 'Completed').length / slotData.length) * 100).toFixed(1) : '0.0'
+        };
+      });
+    }
+
+    // Outlet type breakdown
+    const outletTypes = [...new Set(data.map(o => o.outletType).filter(Boolean))];
+    outletTypes.forEach(type => {
+      const typeOutlets = data.filter(o => o.outletType === type);
+      summary.outletTypeBreakdown[type] = {
+        total: typeOutlets.length,
+        completed: typeOutlets.filter(o => o.overallStatus === 'Completed').length,
+        partial: typeOutlets.filter(o => o.overallStatus === 'Partial').length,
+        pending: typeOutlets.filter(o => o.overallStatus === 'Pending').length,
+        completionRate: typeOutlets.length > 0 ? 
+          ((typeOutlets.filter(o => o.overallStatus === 'Completed').length / typeOutlets.length) * 100).toFixed(1) : '0.0'
+      };
+    });
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      summary,
+      date,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching checklist completion summary:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Debug checklist completion endpoint
+app.get('/api/debug-checklist-completion', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const CHECKLIST_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+
+    console.log('🔍 Debug: Fetching all checklist completion tabs...');
+
+    const responses = {};
+    const tabs = ['ChecklistQuestions', 'ChecklistSubmissions', 'Outlets', 'Outlet', 'OutletMaster'];
+
+    for (const tab of tabs) {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+          range: `${tab}!A1:Z10`, // First 10 rows for debugging
+        });
+        responses[tab] = {
+          found: true,
+          data: response.data.values || [],
+          headers: response.data.values && response.data.values[0] ? response.data.values[0] : []
+        };
+        console.log(`✅ Found tab: ${tab} with ${responses[tab].data.length} rows`);
+      } catch (error) {
+        responses[tab] = {
+          found: false,
+          error: error.message
+        };
+        console.log(`❌ Tab not found: ${tab}`);
+      }
+    }
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      tabs: responses,
+      recommendations: {
+        questionsTab: responses.ChecklistQuestions.found ? 'Found' : 'Not found - check tab name',
+        submissionsTab: responses.ChecklistSubmissions.found ? 'Found' : 'Not found - check tab name',
+        outletTab: Object.keys(responses).find(tab => tab.includes('Outlet') && responses[tab].found) || 'Not found - provide correct tab name'
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error in debug checklist completion:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
 
 
 // === AI API ENDPOINTS ===

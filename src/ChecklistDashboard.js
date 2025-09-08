@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './ChecklistDashboard.css';
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
@@ -70,6 +71,292 @@ const transformDebugResponses = (rawResponses) => {
   });
 };
 
+// Checklist Completion Tracker Component
+const ChecklistCompletionTracker = ({ API_URL }) => {
+  const [completionData, setCompletionData] = useState([]);
+  const [summaryData, setSummaryData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterOutletType, setFilterOutletType] = useState('All');
+
+  const loadCompletionData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const baseUrl = API_URL;
+
+      // Fetch completion status
+      const completionResponse = await fetch(
+        `${baseUrl}/api/checklist-completion-status?date=${selectedDate}`
+      );
+      const completionResult = await completionResponse.json();
+
+      if (!completionResult.success) {
+        throw new Error(completionResult.error || 'Failed to fetch completion data');
+      }
+
+      // Fetch summary
+      const summaryResponse = await fetch(
+        `${baseUrl}/api/checklist-completion-summary?date=${selectedDate}`
+      );
+      const summaryResult = await summaryResponse.json();
+
+      if (!summaryResult.success) {
+        throw new Error(summaryResult.error || 'Failed to fetch summary data');
+      }
+
+      setCompletionData(completionResult.data);
+      setSummaryData(summaryResult.summary);
+
+      console.log(`✅ Loaded completion data for ${completionResult.data.length} outlets`);
+
+    } catch (err) {
+      setError(`Failed to load completion data: ${err.message}`);
+      console.error('Error loading completion data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedDate, API_URL]);
+
+  useEffect(() => {
+    loadCompletionData();
+  }, [loadCompletionData]);
+
+  const getFilteredData = () => {
+    return completionData.filter(outlet => {
+      const statusMatch = filterStatus === 'All' || outlet.overallStatus === filterStatus;
+      const typeMatch = filterOutletType === 'All' || outlet.outletType === filterOutletType;
+      return statusMatch && typeMatch;
+    });
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'Completed': return '✅';
+      case 'Partial': return '⚠️';
+      case 'Pending': return '❌';
+      default: return '❓';
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'Completed': return '#10b981';
+      case 'Partial': return '#f59e0b';
+      case 'Pending': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const formatLastSubmission = (timestamp) => {
+    if (!timestamp) return 'No submissions';
+    try {
+      return new Date(timestamp).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (e) {
+      return 'Invalid time';
+    }
+  };
+
+  const filteredData = getFilteredData();
+  const uniqueOutletTypes = [...new Set(completionData.map(o => o.outletType).filter(Boolean))];
+
+  if (loading) {
+    return (
+      <div className="completion-tracker-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading checklist completion status...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="checklist-completion-tracker">
+      <div className="completion-header">
+        <h2>📋 Checklist Completion Status</h2>
+        <button onClick={loadCompletionData} className="refresh-btn">
+          🔄 Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="completion-error">
+          <h3>❌ Error: {error}</h3>
+          <p>Please check your server connection or contact support.</p>
+          <button onClick={loadCompletionData} className="retry-btn">
+            🔄 Retry
+          </button>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      {summaryData && (
+        <div className="completion-summary">
+          <div className="summary-card completed">
+            <div className="summary-number">{summaryData.completedOutlets}</div>
+            <div className="summary-label">Completed</div>
+            <div className="summary-percentage">{summaryData.overallCompletionRate}%</div>
+          </div>
+          <div className="summary-card partial">
+            <div className="summary-number">{summaryData.partialOutlets}</div>
+            <div className="summary-label">Partial</div>
+          </div>
+          <div className="summary-card pending">
+            <div className="summary-number">{summaryData.pendingOutlets}</div>
+            <div className="summary-label">Pending</div>
+          </div>
+          <div className="summary-card total">
+            <div className="summary-number">{summaryData.totalOutlets}</div>
+            <div className="summary-label">Total Outlets</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="completion-filters">
+        <div className="filter-group">
+          <label>Date</label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+          />
+        </div>
+        <div className="filter-group">
+          <label>Status</label>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="All">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Partial">Partial</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+        <div className="filter-group">
+          <label>Outlet Type</label>
+          <select
+            value={filterOutletType}
+            onChange={(e) => setFilterOutletType(e.target.value)}
+          >
+            <option value="All">All Types</option>
+            {uniqueOutletTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Time Slot Summary */}
+      {summaryData && summaryData.timeSlotBreakdown && (
+        <div className="time-slot-summary">
+          <h3>Time Slot Completion</h3>
+          <div className="time-slot-cards">
+            {Object.entries(summaryData.timeSlotBreakdown).map(([timeSlot, data]) => (
+              <div key={timeSlot} className="time-slot-card">
+                <div className="time-slot-name">{timeSlot}</div>
+                <div className="time-slot-stats">
+                  <span className="completed">{data.completed}/{data.total}</span>
+                  <span className="percentage">({data.completionRate}%)</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Completion Table */}
+      <div className="completion-table-container">
+        <table className="completion-table">
+          <thead>
+            <tr>
+              <th>Outlet</th>
+              <th>Type</th>
+              <th>Location</th>
+              <th>Overall Status</th>
+              <th>Time Slots</th>
+              <th>Completion %</th>
+              <th>Last Submission</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredData.map((outlet, index) => (
+              <tr key={index} className={`status-${outlet.overallStatus.toLowerCase()}`}>
+                <td>
+                  <div className="outlet-info">
+                    <strong>{outlet.outletName}</strong>
+                    {outlet.outletCode && <small>({outlet.outletCode})</small>}
+                    {outlet.isCloudDays && <span className="cloud-badge">☁️ Cloud</span>}
+                  </div>
+                </td>
+                <td>{outlet.outletType || 'N/A'}</td>
+                <td>{outlet.outletLocation || 'N/A'}</td>
+                <td>
+                  <div className="status-cell">
+                    <span 
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(outlet.overallStatus) }}
+                    >
+                      {getStatusIcon(outlet.overallStatus)} {outlet.overallStatus}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div className="time-slots">
+                    {outlet.timeSlotStatus.map((slot, idx) => (
+                      <span
+                        key={idx}
+                        className={`time-slot-badge ${slot.status.toLowerCase()}`}
+                        title={`${slot.timeSlot}: ${slot.status}${slot.submittedBy ? ` by ${slot.submittedBy}` : ''}`}
+                      >
+                        {slot.timeSlot.charAt(0)}{slot.status === 'Completed' ? '✓' : '✗'}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  <div className="completion-percentage">
+                    <div className="progress-bar">
+                      <div 
+                        className="progress-fill"
+                        style={{ 
+                          width: `${outlet.completionPercentage}%`,
+                          backgroundColor: getStatusColor(outlet.overallStatus)
+                        }}
+                      ></div>
+                    </div>
+                    <span>{outlet.completionPercentage}%</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="last-submission">
+                    {formatLastSubmission(outlet.lastSubmissionTime)}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {filteredData.length === 0 && (
+          <div className="no-completion-data">
+            <div className="no-data-icon">📋</div>
+            <h3>No outlets match your filters</h3>
+            <p>Try adjusting your filters or selecting a different date.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Main ChecklistDashboard Component
 const ChecklistDashboard = () => {
   const [submissions, setSubmissions] = useState([]);
   const [responses, setResponses] = useState([]);
@@ -83,6 +370,7 @@ const ChecklistDashboard = () => {
   });
   const [expandedSubmission, setExpandedSubmission] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [activeTab, setActiveTab] = useState('submissions'); // New state for tab management
 
   const [filterOptions, setFilterOptions] = useState({
     outlets: [],
@@ -357,7 +645,7 @@ const ChecklistDashboard = () => {
   return (
     <div className="checklist-dashboard">
       <div className="checklist-header">
-        <h1>Checklist Submissions</h1>
+        <h1>Checklist Management System</h1>
         <button onClick={loadChecklistData} className="refresh-btn">
           🔄 Refresh
         </button>
@@ -373,131 +661,158 @@ const ChecklistDashboard = () => {
         </div>
       )}
 
-      <div className="checklist-stats">
-        <div className="stat-card">
-          <div className="stat-number">{stats.total}</div>
-          <div className="stat-label">Total Submissions</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.today}</div>
-          <div className="stat-label">Today's Submissions</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.outlets}</div>
-          <div className="stat-label">Active Outlets</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.images}</div>
-          <div className="stat-label">Images</div>
-        </div>
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
+        <button 
+          className={`tab-button ${activeTab === 'submissions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('submissions')}
+        >
+          📝 Submissions & Responses
+        </button>
+        <button 
+          className={`tab-button ${activeTab === 'completion' ? 'active' : ''}`}
+          onClick={() => setActiveTab('completion')}
+        >
+          📊 Completion Status
+        </button>
       </div>
 
-      {submissions.length > 0 && (
-        <div className="checklist-filters">
-          <div className="filter-group">
-            <label>Date</label>
-            <input
-              type="date"
-              value={filters.date}
-              onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
-            />
+      {/* Tab Content */}
+      {activeTab === 'submissions' && (
+        <div className="tab-content">
+          <div className="checklist-stats">
+            <div className="stat-card">
+              <div className="stat-number">{stats.total}</div>
+              <div className="stat-label">Total Submissions</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.today}</div>
+              <div className="stat-label">Today's Submissions</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.outlets}</div>
+              <div className="stat-label">Active Outlets</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{stats.images}</div>
+              <div className="stat-label">Images</div>
+            </div>
           </div>
-          <div className="filter-group">
-            <label>Outlet</label>
-            <select
-              value={filters.outlet}
-              onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
-            >
-              <option value="">All Outlets</option>
-              {filterOptions.outlets.map(outlet => (
-                <option key={outlet} value={outlet}>{outlet}</option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <label>Time Slot</label>
-            <select
-              value={filters.timeSlot}
-              onChange={(e) => setFilters(prev => ({ ...prev, timeSlot: e.target.value }))}
-            >
-              <option value="">All Slots</option>
-              {filterOptions.timeSlots.map(slot => (
-                <option key={slot} value={slot}>{slot}</option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <label>Employee</label>
-            <select
-              value={filters.employee}
-              onChange={(e) => setFilters(prev => ({ ...prev, employee: e.target.value }))}
-            >
-              <option value="">All Employees</option>
-              {filterOptions.employees.map(employee => (
-                <option key={employee} value={employee}>{employee}</option>
-              ))}
-            </select>
+
+          {submissions.length > 0 && (
+            <div className="checklist-filters">
+              <div className="filter-group">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={filters.date}
+                  onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Outlet</label>
+                <select
+                  value={filters.outlet}
+                  onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
+                >
+                  <option value="">All Outlets</option>
+                  {filterOptions.outlets.map(outlet => (
+                    <option key={outlet} value={outlet}>{outlet}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Time Slot</label>
+                <select
+                  value={filters.timeSlot}
+                  onChange={(e) => setFilters(prev => ({ ...prev, timeSlot: e.target.value }))}
+                >
+                  <option value="">All Slots</option>
+                  {filterOptions.timeSlots.map(slot => (
+                    <option key={slot} value={slot}>{slot}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Employee</label>
+                <select
+                  value={filters.employee}
+                  onChange={(e) => setFilters(prev => ({ ...prev, employee: e.target.value }))}
+                >
+                  <option value="">All Employees</option>
+                  {filterOptions.employees.map(employee => (
+                    <option key={employee} value={employee}>{employee}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {submissions.length > 0 && (filters.date || filters.outlet || filters.timeSlot || filters.employee) && (
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <button 
+                onClick={clearAllFilters}
+                style={{
+                  background: '#6b7280',
+                  color: 'white',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '20px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                }}
+              >
+                🧹 Clear All Filters
+              </button>
+            </div>
+          )}
+
+          <div className="submissions-list">
+            {!error && submissions.length === 0 ? (
+              <div className="no-data">
+                <div className="no-data-icon">📭</div>
+                <h3>No checklist submissions found</h3>
+                <p>No checklist data is available in your Google Sheets yet.</p>
+                <button onClick={loadChecklistData} className="refresh-btn">
+                  🔄 Refresh Data
+                </button>
+              </div>
+            ) : filteredSubmissions.length === 0 && submissions.length > 0 ? (
+              <div className="no-data">
+                <div className="no-data-icon">🔍</div>
+                <h3>No submissions match your filters</h3>
+                <p>Try adjusting or clearing your filters above.</p>
+                <button onClick={clearAllFilters} className="refresh-btn">
+                  🧹 Clear Filters
+                </button>
+              </div>
+            ) : (
+              filteredSubmissions
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .map(submission => (
+                  <SubmissionCard
+                    key={submission.submissionId}
+                    submission={submission}
+                    responses={getSubmissionResponses(submission.submissionId)}
+                    isExpanded={expandedSubmission === submission.submissionId}
+                    onToggle={() => toggleSubmissionDetails(submission.submissionId)}
+                    onImageClick={setSelectedImage}
+                    formatDate={formatDate}
+                    formatTime={formatTime}
+                    getTimeSlotEmoji={getTimeSlotEmoji}
+                    getImageUrl={getImageUrl}
+                  />
+                ))
+            )}
           </div>
         </div>
       )}
 
-      {submissions.length > 0 && (filters.date || filters.outlet || filters.timeSlot || filters.employee) && (
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <button 
-            onClick={clearAllFilters}
-            style={{
-              background: '#6b7280',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: '20px',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-            }}
-          >
-            🧹 Clear All Filters
-          </button>
+      {activeTab === 'completion' && (
+        <div className="tab-content">
+          <ChecklistCompletionTracker API_URL={API_URL} />
         </div>
       )}
-
-      <div className="submissions-list">
-        {!error && submissions.length === 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">📭</div>
-            <h3>No checklist submissions found</h3>
-            <p>No checklist data is available in your Google Sheets yet.</p>
-            <button onClick={loadChecklistData} className="refresh-btn">
-              🔄 Refresh Data
-            </button>
-          </div>
-        ) : filteredSubmissions.length === 0 && submissions.length > 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">🔍</div>
-            <h3>No submissions match your filters</h3>
-            <p>Try adjusting or clearing your filters above.</p>
-            <button onClick={clearAllFilters} className="refresh-btn">
-              🧹 Clear Filters
-            </button>
-          </div>
-        ) : (
-          filteredSubmissions
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .map(submission => (
-              <SubmissionCard
-                key={submission.submissionId}
-                submission={submission}
-                responses={getSubmissionResponses(submission.submissionId)}
-                isExpanded={expandedSubmission === submission.submissionId}
-                onToggle={() => toggleSubmissionDetails(submission.submissionId)}
-                onImageClick={setSelectedImage}
-                formatDate={formatDate}
-                formatTime={formatTime}
-                getTimeSlotEmoji={getTimeSlotEmoji}
-                getImageUrl={getImageUrl}
-              />
-            ))
-        )}
-      </div>
 
       {selectedImage && (
         <div className="image-modal" onClick={() => setSelectedImage(null)}>
