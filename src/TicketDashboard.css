@@ -1,0 +1,830 @@
+/* TicketDashboard.css - Futuristic Dark Theme */
+
+/* Custom Properties for Ticket Dashboard */
+:root {
+  --ticket-primary: #ffffff;
+  --ticket-secondary: #cccccc;
+  --ticket-muted: #888888;
+  --ticket-accent: #666666;
+  --text-primary: #ffffff; /* White text for high contrast */
+  --text-secondary: #cccccc; /* Light gray for secondary text */
+  --surface-dark: #1a1a1a; /* Dark background for containers */
+  --surface-light: #2a2a2a; /* Slightly lighter background for inputs */
+  --border-light: #444444; /* Light gray border */
+  --primary-gradient: linear-gradient(90deg, #ffffff, #aaaaaa); /* Gradient for headers */
+  --accent-gradient: linear-gradient(90deg, #666666, #999999); /* Gradient for accents */
+  --secondary-gradient: linear-gradient(135deg, #2a2a2a, #1a1a1a); /* Secondary gradient */
+  --shadow-dark: 0 10px 30px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+  --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.2); /* Glow effect */
+  --transition: all 0.3s ease; /* Smooth transitions */
+  
+  /* Status Colors */
+  --color-open: #ef4444;
+  --color-in-progress: #f59e0b;
+  --color-resolved: #10b981;
+  --color-total: #6366f1;
+}
+
+.ticket-dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+/* Header */
+.ticket-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  background: var(--surface-dark);
+  padding: 30px 35px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  position: relative;
+  overflow: hidden;
+}
+
+.ticket-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary-gradient);
+  opacity: 0.8;
+}
+
+.ticket-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.refresh-btn {
+  background: var(--surface-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 12px 24px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.refresh-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s;
+}
+
+.refresh-btn:hover {
+  background: var(--border-light);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
+}
+
+.refresh-btn:hover::before {
+  left: 100%;
+}
+
+/* Stats */
+.ticket-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 25px;
+  margin-bottom: 35px;
+}
+
+.stat-card {
+  background: var(--surface-dark);
+  border: 1px solid var(--border-light);
+  padding: 30px;
+  border-radius: 20px;
+  text-align: center;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-dark);
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--primary-gradient);
+  opacity: 0.5;
+}
+
+.stat-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-glow);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.stat-card.open {
+  border-top: 4px solid var(--color-open);
+}
+
+.stat-card.in-progress {
+  border-top: 4px solid var(--color-in-progress);
+}
+
+.stat-card.resolved {
+  border-top: 4px solid var(--color-resolved);
+}
+
+.stat-number {
+  font-size: 2.8rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Filters */
+.ticket-filters {
+  background: var(--surface-dark);
+  padding: 30px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  margin-bottom: 35px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 25px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ticket-filters::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-gradient);
+  opacity: 0.6;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-group label {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.filter-group input,
+.filter-group select {
+  padding: 14px 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  font-size: 15px;
+  transition: var(--transition);
+  background: var(--surface-light);
+  color: var(--text-primary);
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  appearance: auto;
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
+}
+
+.filter-group select option {
+  color: var(--text-primary);
+  background: var(--surface-dark);
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Tickets List */
+.tickets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+.ticket-card {
+  background: var(--surface-dark);
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  transition: var(--transition);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  position: relative;
+}
+
+.ticket-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--primary-gradient);
+  opacity: 0.3;
+}
+
+.ticket-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4), var(--shadow-glow);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Ticket Card Header */
+.ticket-card-header {
+  background: var(--secondary-gradient);
+  color: var(--text-primary);
+  padding: 25px 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border-light);
+  position: relative;
+}
+
+.ticket-card-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent-gradient);
+  opacity: 0.5;
+}
+
+.ticket-info h3 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.ticket-meta {
+  display: flex;
+  gap: 15px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.ticket-meta span {
+  background: var(--surface-light);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-weight: 500;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(5px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.ticket-status-section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.status-badge {
+  color: white;
+  padding: 8px 16px;
+  border-radius: 25px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  min-width: 120px;
+  justify-content: center;
+}
+
+.days-pending {
+  font-size: 0.75rem;
+  color: var(--color-open);
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 4px 12px;
+  border-radius: 15px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Ticket Details */
+.ticket-details {
+  padding: 25px 30px;
+  background: rgba(40, 40, 40, 0.3);
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(5px);
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.detail-row:last-child {
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.detail-value {
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.6;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.assigned-user {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-resolved);
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: inline-block;
+  font-weight: 600;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Image Attachment */
+.image-attachment {
+  margin-top: 10px;
+}
+
+.ticket-image {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  border: 2px solid var(--border-light);
+  filter: grayscale(20%);
+  backdrop-filter: blur(1px);
+}
+
+.ticket-image:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 30px rgba(255, 255, 255, 0.2);
+  filter: grayscale(0%);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.image-error {
+  width: 120px;
+  height: 120px;
+  background: var(--surface-light);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  border: 2px dashed var(--border-light);
+  backdrop-filter: blur(10px);
+  text-align: center;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Assignment Section */
+.assignment-section {
+  background: rgba(60, 60, 60, 0.3);
+  padding: 25px 30px;
+  border-top: 1px solid var(--border-light);
+  backdrop-filter: blur(10px);
+}
+
+.assignment-form {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.assign-input {
+  flex: 1;
+  min-width: 250px;
+  padding: 12px 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  font-size: 14px;
+  background: var(--surface-light);
+  color: var(--text-primary);
+  transition: var(--transition);
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.assign-input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.assign-input::placeholder {
+  color: var(--text-muted);
+}
+
+.assign-btn {
+  background: var(--surface-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 12px 24px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  white-space: nowrap;
+}
+
+.assign-btn:hover:not(:disabled) {
+  background: var(--border-light);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
+}
+
+.assign-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Image Modal */
+.image-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.4s ease;
+  backdrop-filter: blur(20px);
+}
+
+.modal-content {
+  position: relative;
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.modal-content img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 15px;
+  filter: contrast(1.1) brightness(1.05);
+}
+
+.close-btn {
+  position: absolute;
+  top: -50px;
+  right: 0;
+  background: var(--surface-dark);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 10px;
+  transition: var(--transition);
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.close-btn:hover {
+  background: var(--border-light);
+  transform: scale(1.1);
+}
+
+/* Loading and Error States */
+.ticket-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px;
+  background: var(--surface-dark);
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid var(--border-light);
+  border-top: 3px solid var(--text-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 25px;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+}
+
+.ticket-error {
+  text-align: center;
+  padding: 50px;
+  background: var(--surface-dark);
+  border-radius: 20px;
+  border: 1px solid rgba(150, 150, 150, 0.3);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  color: var(--text-secondary);
+  margin-bottom: 25px;
+}
+
+.retry-btn {
+  background: var(--surface-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+  padding: 14px 28px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 20px;
+  transition: var(--transition);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  backdrop-filter: blur(10px);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.retry-btn:hover {
+  background: var(--border-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+}
+
+.no-data {
+  text-align: center;
+  padding: 80px;
+  background: var(--surface-dark);
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  backdrop-filter: blur(15px);
+  box-shadow: var(--shadow-dark);
+  color: var(--text-secondary);
+}
+
+.no-data-icon {
+  font-size: 5rem;
+  margin-bottom: 25px;
+  opacity: 0.4;
+  filter: grayscale(100%);
+}
+
+.no-data h3 {
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(20px);
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .ticket-dashboard {
+    padding: 15px;
+  }
+
+  .ticket-header {
+    flex-direction: column;
+    gap: 20px;
+    text-align: center;
+    padding: 25px;
+  }
+
+  .ticket-header h1 {
+    font-size: 2rem;
+  }
+
+  .ticket-filters {
+    grid-template-columns: 1fr;
+    padding: 25px;
+  }
+
+  .ticket-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ticket-card-header {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+
+  .ticket-status-section {
+    align-items: center;
+  }
+
+  .ticket-meta {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .assignment-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .assign-input {
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .stat-number {
+    font-size: 2.2rem;
+  }
+
+  .ticket-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-image,
+  .image-error {
+    width: 100px;
+    height: 100px;
+  }
+
+  .image-error {
+    font-size: 0.75rem;
+  }
+
+  .ticket-meta {
+    gap: 8px;
+  }
+
+  .ticket-meta span {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+  }
+
+  .ticket-header h1 {
+    font-size: 1.6rem;
+  }
+
+  .filter-group input,
+  .filter-group select {
+    padding: 12px 15px;
+    font-size: 14px;
+  }
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .filter-group select {
+    color: var(--text-primary);
+    background: var(--surface-light);
+  }
+  .filter-group select option {
+    color: var(--text-primary);
+    background: var(--surface-dark);
+  }
+}
+
+/* Print Styles */
+@media print {
+  .ticket-dashboard {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .ticket-card,
+  .stat-card,
+  .ticket-filters {
+    border: 1px solid #ccc !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+  
+  .ticket-card-header {
+    background: #f5f5f5 !important;
+    color: black !important;
+  }
+  
+  .image-modal {
+    display: none !important;
+  }
+  
+  .filter-group select,
+  .filter-group input {
+    color: black !important;
+    background: white !important;
+    border: 1px solid #ccc !important;
+  }
+  
+  .filter-group select option {
+    color: black !important;
+    background: white !important;
+  }
+}

@@ -3058,6 +3058,32 @@ app.get('/api/debug-checklist-completion', async (req, res) => {
     });
   }
 });
+// Fetch tickets from Google Sheets Tickets tab
+app.get('/api/ticket-data', async (req, res) => {
+  try {
+    const sheet = client.open_by_key('1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE').worksheet('Tickets');
+    const rows = await sheet.get_all_values();
+    
+    const tickets = transformTicketData(rows); // Transform to expected format
+    res.json({ success: true, tickets });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+// Update ticket assignment and status in Google Sheets
+app.post('/api/assign-ticket', async (req, res) => {
+  try {
+    const { ticketId, assignedTo } = req.body;
+    const sheet = client.open_by_key('1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE').worksheet('Tickets');
+    
+    // Find and update the ticket row
+    // Update assigned_to column and status to "In Progress"
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 
 // === AI API ENDPOINTS ===

@@ -145,8 +145,8 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
         const statusA = statusOrder[a.overallStatus] || 3;
         const statusB = statusOrder[b.overallStatus] || 3;
 
-        if (statusB !== statusA) {
-              return statusB - statusA;
+        if (statusA !== statusB) {
+              return statusA - statusB;
         }
 
 
