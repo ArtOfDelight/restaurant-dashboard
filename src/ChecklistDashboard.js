@@ -356,7 +356,6 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
             <tr>
               <th>Outlet Code</th>
               <th>Type</th>
-              <th>Location</th>
               <th>Overall Status</th>
               <th>Time Slots</th>
               <th>Completed Slots</th>
@@ -373,7 +372,6 @@ const ChecklistCompletionTracker = ({ API_URL }) => {
                   </div>
                 </td>
                 <td>{outlet.outletType || 'N/A'}</td>
-                <td>{outlet.outletLocation || 'N/A'}</td>
                 <td>
                   <div className="status-cell">
                     <span 
