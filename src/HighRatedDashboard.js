@@ -6,8 +6,11 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const HighRatedDashboard = () => {
   const [data, setData] = useState([]);
+  const [performanceData, setPerformanceData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [performanceLoading, setPerformanceLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [performanceError, setPerformanceError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('7 Days');
   const [filters, setFilters] = useState({
@@ -16,16 +19,15 @@ const HighRatedDashboard = () => {
   const [expandedOutlet, setExpandedOutlet] = useState(null);
   const [minimized, setMinimized] = useState(false);
 
-  // Fetch data with robust error handling
+  // Fetch HighRatedDashboard data
   const fetchData = async (period) => {
     try {
       setLoading(true);
       setError(null);
       
       const periodParam = period === '7 Days' ? '7 Days' : '28 Day';
-      console.log(`Fetching data for period: ${periodParam}`);
+      console.log(`Fetching high-rated data for period: ${periodParam}`);
       
-      // Try multiple possible endpoints
       const possibleUrls = [
         `${API_URL}/api/high-rated-data-gemini`,
         `/api/high-rated-data-gemini`,
@@ -70,15 +72,13 @@ const HighRatedDashboard = () => {
         }
       }
       
-      // All URLs failed, throw the last error
       throw lastError || new Error('All API endpoints failed');
       
     } catch (err) {
-      console.error('Load data error:', err);
-      setError(err.message || 'Failed to load data');
+      console.error('Load high-rated data error:', err);
+      setError(err.message || 'Failed to load high-rated data');
       
-      // Load sample data as fallback
-      console.log('Loading sample data as fallback...');
+      console.log('Loading sample high-rated data as fallback...');
       const sampleData = [
         {
           outlet_code: "BLN",
@@ -142,9 +142,74 @@ const HighRatedDashboard = () => {
     }
   };
 
+  // Fetch SwiggyDashboard performance metrics data
+  const fetchPerformanceData = async () => {
+    try {
+      setPerformanceLoading(true);
+      setPerformanceError(null);
+      
+      const possibleUrls = [
+        `${API_URL}/api/performance-metrics`,
+        `/api/performance-metrics`,
+        `http://localhost:5000/api/performance-metrics`,
+        `http://localhost:3001/api/performance-metrics`
+      ];
+
+      let lastError = null;
+      
+      for (const baseUrl of possibleUrls) {
+        try {
+          console.log(`Trying performance metrics URL: ${baseUrl}`);
+          
+          const response = await axios.get(baseUrl, {
+            timeout: 10000
+          });
+          
+          console.log(`Performance metrics response status: ${response.status}`);
+          
+          if (response.data && Array.isArray(response.data)) {
+            console.log(`Success! API returned ${response.data.length} performance metrics`);
+            setPerformanceData(response.data);
+            setLastUpdate(new Date().toLocaleString());
+            setPerformanceError(null);
+            return;
+          } else {
+            lastError = new Error(`Unexpected response format from ${baseUrl}`);
+            continue;
+          }
+          
+        } catch (fetchError) {
+          lastError = fetchError;
+          console.log(`Failed to fetch performance metrics from ${baseUrl}:`, fetchError.message);
+          continue;
+        }
+      }
+      
+      throw lastError || new Error('All performance metrics API endpoints failed');
+      
+    } catch (err) {
+      console.error('Load performance metrics error:', err);
+      setPerformanceError(err.message || 'Failed to load performance metrics');
+      
+      console.log('Loading sample performance metrics as fallback...');
+      const samplePerformanceData = [
+        { name: "Bellandur", online: 95.5, foodAccuracy: 88.2, delayedOrders: 3.1 },
+        { name: "Indiranagar", online: 97.8, foodAccuracy: 90.1, delayedOrders: 2.5 },
+        { name: "Residency Road", online: 96.2, foodAccuracy: 87.4, delayedOrders: 4.0 }
+      ];
+      setPerformanceData(samplePerformanceData);
+    } finally {
+      setPerformanceLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchData(selectedPeriod);
-    const interval = setInterval(() => fetchData(selectedPeriod), 5 * 60 * 1000);
+    fetchPerformanceData();
+    const interval = setInterval(() => {
+      fetchData(selectedPeriod);
+      fetchPerformanceData();
+    }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [selectedPeriod]);
 
@@ -154,6 +219,7 @@ const HighRatedDashboard = () => {
     setExpandedOutlet(null);
     setMinimized(false);
     fetchData(period);
+    // Note: Performance metrics API does not use period, so no need to refetch
   };
 
   // Filter options
@@ -163,6 +229,10 @@ const HighRatedDashboard = () => {
 
   const getFilteredData = () => {
     return data.filter(d => (!filters.outlet || d.outlet_name === filters.outlet));
+  };
+
+  const getFilteredPerformanceData = () => {
+    return performanceData.filter(d => (!filters.outlet || d.name === filters.outlet));
   };
 
   const getTotalStats = () => {
@@ -190,7 +260,7 @@ const HighRatedDashboard = () => {
   };
 
   const getBottom3Outlets = () => {
-    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate); // Sort by highest error rate first
+    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate);
     return sorted.slice(0, 3).map(outlet => ({
       name: outlet.outlet_name,
       error_rate: outlet.error_rate,
@@ -204,6 +274,7 @@ const HighRatedDashboard = () => {
   };
 
   const filteredData = getFilteredData();
+  const filteredPerformanceData = getFilteredPerformanceData();
   const stats = getTotalStats();
   const bottom3 = getBottom3Outlets();
 
@@ -225,7 +296,7 @@ const HighRatedDashboard = () => {
   };
 
   // Loading screen
-  if (loading) {
+  if (loading || performanceLoading) {
     return (
       <div className="checklist-loading">
         <div className="loading-spinner"></div>
@@ -244,7 +315,7 @@ const HighRatedDashboard = () => {
   }
 
   // Error screen with data fallback
-  if (error && data.length === 0) {
+  if ((error && data.length === 0) || (performanceError && performanceData.length === 0)) {
     return (
       <div className="checklist-error">
         <h3 style={{
@@ -255,10 +326,10 @@ const HighRatedDashboard = () => {
           letterSpacing: '1px',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
         }}>
-          SYSTEM ERROR: {error}
+          SYSTEM ERROR: {error || performanceError}
         </h3>
         <p>Please check your server connection or contact support if the issue persists.</p>
-        <button onClick={() => fetchData(selectedPeriod)} className="retry-btn">
+        <button onClick={() => { fetchData(selectedPeriod); fetchPerformanceData(); }} className="retry-btn">
           RETRY CONNECTION
         </button>
       </div>
@@ -283,7 +354,8 @@ const HighRatedDashboard = () => {
             letterSpacing: '1px'
           }}>
             LIVE DATA FROM GOOGLE SHEETS • {data.length} OUTLETS • {selectedPeriod.toUpperCase()} DATA
-            {error && ' • SHOWING SAMPLE DATA DUE TO CONNECTION ISSUE'}
+            {error && ' • SHOWING SAMPLE HIGH-RATED DATA'}
+            {performanceError && ' • SHOWING SAMPLE PERFORMANCE DATA'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -315,7 +387,7 @@ const HighRatedDashboard = () => {
               {minimized ? `RESTORE ${data[expandedOutlet]?.outlet_name?.toUpperCase()}` : 'CLEAR SELECTION'}
             </button>
           )}
-          <button onClick={() => fetchData(selectedPeriod)} className="refresh-btn">
+          <button onClick={() => { fetchData(selectedPeriod); fetchPerformanceData(); }} className="refresh-btn">
             REFRESH DATA
           </button>
         </div>
@@ -549,18 +621,18 @@ const HighRatedDashboard = () => {
           </div>
         </div>
 
-        {/* Performance Metrics Chart */}
+        {/* Performance Metrics Chart from SwiggyDashboard */}
         <div className="submission-card">
           <div className="submission-header">
             <div className="submission-info">
               <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                PERFORMANCE METRICS BY OUTLET
+                PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
               </h3>
             </div>
           </div>
           <div className="responses-section">
             <ResponsiveContainer width="100%" height={350}>
-              <LineChart data={getGraphData()}>
+              <LineChart data={filteredPerformanceData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
                 <XAxis 
                   dataKey="name" 
@@ -570,7 +642,7 @@ const HighRatedDashboard = () => {
                   tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
                 />
                 <YAxis 
-                  domain={[0, 'auto']} 
+                  domain={[0, 100]} 
                   tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
                 />
                 <Tooltip 
@@ -583,11 +655,11 @@ const HighRatedDashboard = () => {
                   formatter={(value, name) => [`${value}%`, name]}
                 />
                 <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
-                <Line type="monotone" dataKey="High Rated %" stroke="#3b82f6" strokeWidth={2} name="High Rated %" />
-                <Line type="monotone" dataKey="Low Rated %" stroke="#f59e0b" strokeWidth={2} name="Low Rated %" />
-                <Line type="monotone" dataKey="Error Rate" stroke="#ef4444" strokeWidth={2} name="Error Rate %" />
-                <ReferenceLine y={10} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "High Rated Target: 10%", position: "topLeft" }} />
-                <ReferenceLine y={2} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Error Rate Max: 2%", position: "topLeft" }} />
+                <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
+                <Line type="monotone" dataKey="foodAccuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy" />
+                <Line type="monotone" dataKey="delayedOrders" stroke="#ef4444" strokeWidth={2} name="Delayed Orders" />
+                <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
+                <ReferenceLine y={85} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Food Accuracy Target: 85%", position: "topLeft" }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -692,7 +764,7 @@ const HighRatedDashboard = () => {
               </thead>
               <tbody>
                 {filteredData.map((outlet, i) => {
-                  const hasNeedsWork = outlet.high_minus_error <= 5; // "NEEDS WORK" threshold
+                  const hasNeedsWork = outlet.high_minus_error <= 5;
                   return (
                     <tr 
                       key={outlet.outlet_code} 
@@ -934,7 +1006,8 @@ const HighRatedDashboard = () => {
             letterSpacing: '0.5px'
           }}>
             LAST UPDATED: {lastUpdate.toUpperCase()}
-            {error && ' • USING SAMPLE DATA DUE TO CONNECTION ISSUE'}
+            {error && ' • USING SAMPLE HIGH-RATED DATA'}
+            {performanceError && ' • USING SAMPLE PERFORMANCE DATA'}
           </p>
         </div>
       )}
