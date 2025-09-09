@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const HighRatedDashboard = () => {
   const [data, setData] = useState([]);
-  const [swiggyData, setSwiggyData] = useState(null); // New state for Swiggy data
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -17,15 +16,16 @@ const HighRatedDashboard = () => {
   const [expandedOutlet, setExpandedOutlet] = useState(null);
   const [minimized, setMinimized] = useState(false);
 
-  // Fetch data for High Rated Dashboard
-  const fetchHighRatedData = async (period) => {
+  // Fetch data with robust error handling
+  const fetchData = async (period) => {
     try {
       setLoading(true);
       setError(null);
       
       const periodParam = period === '7 Days' ? '7 Days' : '28 Day';
-      console.log(`Fetching high-rated data for period: ${periodParam}`);
+      console.log(`Fetching data for period: ${periodParam}`);
       
+      // Try multiple possible endpoints
       const possibleUrls = [
         `${API_URL}/api/high-rated-data-gemini`,
         `/api/high-rated-data-gemini`,
@@ -74,8 +74,8 @@ const HighRatedDashboard = () => {
       throw lastError || new Error('All API endpoints failed');
       
     } catch (err) {
-      console.error('Load high-rated data error:', err);
-      setError(err.message || 'Failed to load high-rated data');
+      console.error('Load data error:', err);
+      setError(err.message || 'Failed to load data');
       
       // Load sample data as fallback
       console.log('Loading sample data as fallback...');
@@ -137,45 +137,9 @@ const HighRatedDashboard = () => {
       ];
       setData(sampleData);
       setLastUpdate(new Date().toLocaleString());
+    } finally {
+      setLoading(false);
     }
-  };
-
-  // Fetch Swiggy performance metrics data
-  const fetchSwiggyData = async (period) => {
-    try {
-      const periodParam = period === '7 Days' ? '7 Day' : '28 Day';
-      console.log(`Fetching Swiggy data for period: ${periodParam}`);
-      
-      const response = await axios.get(`${API_URL}/api/swiggy-dashboard-data`, {
-        params: { period: periodParam },
-        timeout: 10000
-      });
-      
-      if (response.data.success) {
-        const apiData = response.data.data;
-        setSwiggyData({
-          outlets: apiData.outlets,
-          currentData: {
-            onlinePercent: apiData.onlinePercent,
-            foodAccuracy: apiData.foodAccuracy,
-            delayedOrders: apiData.delayedOrders
-          }
-        });
-        console.log(`Success! Swiggy API returned ${apiData.outlets.length} outlets`);
-      } else {
-        throw new Error(response.data.error || 'Failed to fetch Swiggy data');
-      }
-      
-    } catch (err) {
-      console.error('Load Swiggy data error:', err);
-      setError(prev => prev || 'Failed to load Swiggy performance metrics');
-    }
-  };
-
-  // Combined fetch function
-  const fetchData = async (period) => {
-    await Promise.all([fetchHighRatedData(period), fetchSwiggyData(period)]);
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -225,34 +189,8 @@ const HighRatedDashboard = () => {
     }));
   };
 
-  // New function to get performance metrics graph data
-  const getPerformanceMetricsData = () => {
-    if (!swiggyData) return [];
-    
-    const filteredOutlet = filters.outlet;
-    if (filteredOutlet) {
-      const outletIndex = swiggyData.outlets.findIndex(outlet => outlet.toLowerCase() === filteredOutlet.toLowerCase());
-      if (outletIndex !== -1) {
-        return [{
-          outlet: swiggyData.outlets[outletIndex],
-          online: swiggyData.currentData.onlinePercent[outletIndex],
-          accuracy: swiggyData.currentData.foodAccuracy[outletIndex],
-          delayed: swiggyData.currentData.delayedOrders[outletIndex]
-        }];
-      }
-      return [];
-    }
-    
-    return swiggyData.outlets.map((outlet, i) => ({
-      outlet,
-      online: swiggyData.currentData.onlinePercent[i],
-      accuracy: swiggyData.currentData.foodAccuracy[i],
-      delayed: swiggyData.currentData.delayedOrders[i]
-    }));
-  };
-
   const getBottom3Outlets = () => {
-    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate);
+    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate); // Sort by highest error rate first
     return sorted.slice(0, 3).map(outlet => ({
       name: outlet.outlet_name,
       error_rate: outlet.error_rate,
@@ -306,7 +244,7 @@ const HighRatedDashboard = () => {
   }
 
   // Error screen with data fallback
-  if (error && data.length === 0 && !swiggyData) {
+  if (error && data.length === 0) {
     return (
       <div className="checklist-error">
         <h3 style={{
@@ -346,7 +284,6 @@ const HighRatedDashboard = () => {
           }}>
             LIVE DATA FROM GOOGLE SHEETS • {data.length} OUTLETS • {selectedPeriod.toUpperCase()} DATA
             {error && ' • SHOWING SAMPLE DATA DUE TO CONNECTION ISSUE'}
-            {filters.outlet && ` • VIEWING: ${filters.outlet.toUpperCase()}`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -507,48 +444,6 @@ const HighRatedDashboard = () => {
 
       {/* Charts Grid */}
       <div className="submissions-list">
-        {/* Performance Metrics Chart */}
-        {swiggyData && (
-          <div className="submission-card">
-            <div className="submission-header">
-              <div className="submission-info">
-                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                  PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
-                </h3>
-              </div>
-            </div>
-            <div className="responses-section">
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={getPerformanceMetricsData()}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
-                  <XAxis 
-                    dataKey="outlet" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={80} 
-                    tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
-                  />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'var(--surface-dark)',
-                      border: '1px solid var(--border-light)',
-                      borderRadius: '10px',
-                      color: 'var(--text-primary)'
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
-                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
-                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
-                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
-                  <ReferenceLine y={85} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 85%", position: "topLeft" }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
         {/* Error Rate Chart */}
         <div className="submission-card">
           <div className="submission-header">
@@ -653,6 +548,59 @@ const HighRatedDashboard = () => {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {/* Bottom 3 Outlets - Moved after stats */}
+        {bottom3.length > 0 && (
+          <div className="submission-card">
+            <div className="submission-header">
+              <div className="submission-info">
+                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                  BOTTOM 3 OUTLETS - NEEDS ATTENTION
+                </h3>
+              </div>
+            </div>
+            <div className="responses-section">
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: '20px'
+              }}>
+                {bottom3.map((outlet, index) => (
+                  <div 
+                    key={index} 
+                    style={{
+                      padding: '20px',
+                      borderRadius: '15px',
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid var(--border-light)',
+                      borderLeft: '4px solid #ef4444'
+                    }}
+                  >
+                    <h4 style={{
+                      margin: '0 0 12px 0',
+                      color: 'var(--text-primary)',
+                      fontSize: '1.1rem',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      #{index + 1} {outlet.name.toUpperCase()} ({outlet.high_minus_error}% SCORE)
+                    </h4>
+                    <ul style={{ 
+                      margin: 0, 
+                      paddingLeft: '20px', 
+                      color: 'var(--text-secondary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.9rem'
+                    }}>
+                      {outlet.reasons.map((reason, rIndex) => (
+                        <li key={rIndex} style={{ marginBottom: '5px' }}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Outlet Details Table */}
@@ -942,8 +890,7 @@ const HighRatedDashboard = () => {
             letterSpacing: '0.5px'
           }}>
             LAST UPDATED: {lastUpdate.toUpperCase()}
-            {error && ' • USING SAMPLE DATA FOR HIGH RATED METRICS'}
-            {!swiggyData && error && ' • PERFORMANCE METRICS UNAVAILABLE'}
+            {error && ' • USING SAMPLE DATA DUE TO CONNECTION ISSUE'}
           </p>
         </div>
       )}
