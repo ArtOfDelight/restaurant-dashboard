@@ -77,66 +77,7 @@ const HighRatedDashboard = () => {
     } catch (err) {
       console.error('Load high-rated data error:', err);
       setError(err.message || 'Failed to load high-rated data');
-      
-      console.log('Loading sample high-rated data as fallback...');
-      const sampleData = [
-        {
-          outlet_code: "BLN",
-          outlet_name: "Bellandur",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 537,
-          low_rated: 10,
-          igcc: 2,
-          errors: 12,
-          error_rate: 2.23,
-          high_rated: 53,
-          high_rated_percent: 9.87,
-          high_minus_error: 7.64,
-          incentive: 0,
-          deduction: -360,
-          incentives: -360,
-          per_day: -51.43
-        },
-        {
-          outlet_code: "IND",
-          outlet_name: "Indiranagar",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 388,
-          low_rated: 5,
-          igcc: 2,
-          errors: 7,
-          error_rate: 1.8,
-          high_rated: 43,
-          high_rated_percent: 11.08,
-          high_minus_error: 9.28,
-          incentive: 860,
-          deduction: -210,
-          incentives: 650,
-          per_day: 92.86
-        },
-        {
-          outlet_code: "RR",
-          outlet_name: "Residency Road",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 328,
-          low_rated: 6,
-          igcc: 1,
-          errors: 7,
-          error_rate: 2.13,
-          high_rated: 37,
-          high_rated_percent: 11.28,
-          high_minus_error: 9.15,
-          incentive: 0,
-          deduction: -210,
-          incentives: -210,
-          per_day: -30
-        }
-      ];
-      setData(sampleData);
-      setLastUpdate(new Date().toLocaleString());
+      setData([]);
     } finally {
       setLoading(false);
     }
@@ -190,14 +131,7 @@ const HighRatedDashboard = () => {
     } catch (err) {
       console.error('Load performance metrics error:', err);
       setPerformanceError(err.message || 'Failed to load performance metrics');
-      
-      console.log('Loading sample performance metrics as fallback...');
-      const samplePerformanceData = [
-        { name: "Bellandur", online: 95.5, foodAccuracy: 88.2, delayedOrders: 3.1 },
-        { name: "Indiranagar", online: 97.8, foodAccuracy: 90.1, delayedOrders: 2.5 },
-        { name: "Residency Road", online: 96.2, foodAccuracy: 87.4, delayedOrders: 4.0 }
-      ];
-      setPerformanceData(samplePerformanceData);
+      setPerformanceData([]);
     } finally {
       setPerformanceLoading(false);
     }
@@ -314,7 +248,7 @@ const HighRatedDashboard = () => {
     );
   }
 
-  // Error screen with data fallback
+  // Error screen
   if ((error && data.length === 0) || (performanceError && performanceData.length === 0)) {
     return (
       <div className="checklist-error">
@@ -354,8 +288,8 @@ const HighRatedDashboard = () => {
             letterSpacing: '1px'
           }}>
             LIVE DATA FROM GOOGLE SHEETS • {data.length} OUTLETS • {selectedPeriod.toUpperCase()} DATA
-            {error && ' • SHOWING SAMPLE HIGH-RATED DATA'}
-            {performanceError && ' • SHOWING SAMPLE PERFORMANCE DATA'}
+            {error && ' • ERROR FETCHING HIGH-RATED DATA'}
+            {performanceError && ' • ERROR FETCHING PERFORMANCE DATA'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -698,7 +632,7 @@ const HighRatedDashboard = () => {
                       fontSize: '1.1rem',
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                     }}>
-                      #{index + 1} {outlet.name.toUpperCase()} ({outlet.high_minus_error}% SCORE)
+                      #{index + 1} {outlet.name.toUpperCase()} ({outlet.error_rate}% ERROR RATE)
                     </h4>
                     <ul style={{ 
                       margin: 0, 
@@ -1006,8 +940,8 @@ const HighRatedDashboard = () => {
             letterSpacing: '0.5px'
           }}>
             LAST UPDATED: {lastUpdate.toUpperCase()}
-            {error && ' • USING SAMPLE HIGH-RATED DATA'}
-            {performanceError && ' • USING SAMPLE PERFORMANCE DATA'}
+            {error && ' • ERROR FETCHING HIGH-RATED DATA'}
+            {performanceError && ' • ERROR FETCHING PERFORMANCE DATA'}
           </p>
         </div>
       )}
