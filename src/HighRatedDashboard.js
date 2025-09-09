@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const HighRatedDashboard = () => {
   const [data, setData] = useState([]);
+  const [swiggyData, setSwiggyData] = useState(null);
+  const [zomatoData, setZomatoData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -23,9 +25,11 @@ const HighRatedDashboard = () => {
       setError(null);
       
       const periodParam = period === '7 Days' ? '7 Days' : '28 Day';
+      const swiggyZomatoPeriod = period === '7 Days' ? '7 Day' : '1 Day';
+      
       console.log(`Fetching data for period: ${periodParam}`);
       
-      // Try multiple possible endpoints
+      // Fetch High Rated data
       const possibleUrls = [
         `${API_URL}/api/high-rated-data-gemini`,
         `/api/high-rated-data-gemini`,
@@ -34,6 +38,7 @@ const HighRatedDashboard = () => {
       ];
 
       let lastError = null;
+      let highRatedSuccess = false;
       
       for (const baseUrl of possibleUrls) {
         try {
@@ -49,15 +54,13 @@ const HighRatedDashboard = () => {
           if (response.data && response.data.success && response.data.data) {
             console.log(`Success! API returned ${response.data.data.length} outlets for ${periodParam}`);
             setData(response.data.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
+            highRatedSuccess = true;
+            break;
           } else if (response.data && Array.isArray(response.data)) {
             console.log(`Found array data with ${response.data.length} items`);
             setData(response.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
+            highRatedSuccess = true;
+            break;
           } else {
             lastError = new Error(`Unexpected response format from ${baseUrl}`);
             continue;
@@ -70,73 +73,111 @@ const HighRatedDashboard = () => {
         }
       }
       
-      // All URLs failed, throw the last error
-      throw lastError || new Error('All API endpoints failed');
+      if (!highRatedSuccess) {
+        console.log('Loading sample data as fallback...');
+        const sampleData = [
+          {
+            outlet_code: "BLN",
+            outlet_name: "Bellandur",
+            start_date: "11/08/2025",
+            end_date: "17/08/2025",
+            total_orders: 537,
+            low_rated: 10,
+            igcc: 2,
+            errors: 12,
+            error_rate: 2.23,
+            high_rated: 53,
+            high_rated_percent: 9.87,
+            high_minus_error: 7.64,
+            incentive: 0,
+            deduction: -360,
+            incentives: -360,
+            per_day: -51.43
+          },
+          {
+            outlet_code: "IND",
+            outlet_name: "Indiranagar",
+            start_date: "11/08/2025",
+            end_date: "17/08/2025",
+            total_orders: 388,
+            low_rated: 5,
+            igcc: 2,
+            errors: 7,
+            error_rate: 1.8,
+            high_rated: 43,
+            high_rated_percent: 11.08,
+            high_minus_error: 9.28,
+            incentive: 860,
+            deduction: -210,
+            incentives: 650,
+            per_day: 92.86
+          },
+          {
+            outlet_code: "RR",
+            outlet_name: "Residency Road",
+            start_date: "11/08/2025",
+            end_date: "17/08/2025",
+            total_orders: 328,
+            low_rated: 6,
+            igcc: 1,
+            errors: 7,
+            error_rate: 2.13,
+            high_rated: 37,
+            high_rated_percent: 11.28,
+            high_minus_error: 9.15,
+            incentive: 0,
+            deduction: -210,
+            incentives: -210,
+            per_day: -30
+          }
+        ];
+        setData(sampleData);
+      }
+
+      // Fetch Swiggy data
+      try {
+        console.log('Fetching Swiggy data...');
+        const swiggyResponse = await axios.get(`${API_URL}/api/swiggy-dashboard-data`, {
+          params: { period: swiggyZomatoPeriod },
+          timeout: 10000
+        });
+        
+        if (swiggyResponse.data && swiggyResponse.data.success) {
+          console.log('Swiggy data fetched successfully');
+          setSwiggyData(swiggyResponse.data.data);
+        }
+      } catch (swiggyError) {
+        console.log('Swiggy API not available:', swiggyError.message);
+        setSwiggyData(null);
+      }
+
+      // Fetch Zomato data
+      try {
+        console.log('Fetching Zomato data...');
+        const zomatoResponse = await axios.get(`${API_URL}/api/dashboard-data`, {
+          params: { period: swiggyZomatoPeriod },
+          timeout: 10000
+        });
+        
+        if (zomatoResponse.data && zomatoResponse.data.data) {
+          console.log('Zomato data fetched successfully');
+          setZomatoData(zomatoResponse.data.data);
+        }
+      } catch (zomatoError) {
+        console.log('Zomato API not available:', zomatoError.message);
+        setZomatoData(null);
+      }
+
+      setLastUpdate(new Date().toLocaleString());
+      if (!highRatedSuccess) {
+        setError(lastError?.message || 'High Rated API failed, using sample data');
+      } else {
+        setError(null);
+      }
       
     } catch (err) {
       console.error('Load data error:', err);
       setError(err.message || 'Failed to load data');
-      
-      // Load sample data as fallback
-      console.log('Loading sample data as fallback...');
-      const sampleData = [
-        {
-          outlet_code: "BLN",
-          outlet_name: "Bellandur",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 537,
-          low_rated: 10,
-          igcc: 2,
-          errors: 12,
-          error_rate: 2.23,
-          high_rated: 53,
-          high_rated_percent: 9.87,
-          high_minus_error: 7.64,
-          incentive: 0,
-          deduction: -360,
-          incentives: -360,
-          per_day: -51.43
-        },
-        {
-          outlet_code: "IND",
-          outlet_name: "Indiranagar",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 388,
-          low_rated: 5,
-          igcc: 2,
-          errors: 7,
-          error_rate: 1.8,
-          high_rated: 43,
-          high_rated_percent: 11.08,
-          high_minus_error: 9.28,
-          incentive: 860,
-          deduction: -210,
-          incentives: 650,
-          per_day: 92.86
-        },
-        {
-          outlet_code: "RR",
-          outlet_name: "Residency Road",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
-          total_orders: 328,
-          low_rated: 6,
-          igcc: 1,
-          errors: 7,
-          error_rate: 2.13,
-          high_rated: 37,
-          high_rated_percent: 11.28,
-          high_minus_error: 9.15,
-          incentive: 0,
-          deduction: -210,
-          incentives: -210,
-          per_day: -30
-        }
-      ];
-      setData(sampleData);
-      setLastUpdate(new Date().toLocaleString());
     } finally {
       setLoading(false);
     }
@@ -190,7 +231,7 @@ const HighRatedDashboard = () => {
   };
 
   const getBottom3Outlets = () => {
-    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate); // Sort by highest error rate first
+    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate);
     return sorted.slice(0, 3).map(outlet => ({
       name: outlet.outlet_name,
       error_rate: outlet.error_rate,
@@ -200,6 +241,52 @@ const HighRatedDashboard = () => {
         `Low high rated % of ${outlet.high_rated_percent}%`,
         `Low rated orders: ${outlet.low_rated}`,
       ],
+    }));
+  };
+
+  // Swiggy Performance Data (exact same format as Swiggy dashboard)
+  const getSwiggyPerformanceData = () => {
+    if (!swiggyData || !swiggyData.outlets) return [];
+    
+    const selectedOutletIndex = filters.outlet ? swiggyData.outlets.findIndex(outlet => outlet === filters.outlet) : null;
+    
+    if (selectedOutletIndex !== null && selectedOutletIndex >= 0) {
+      return [{
+        outlet: swiggyData.outlets[selectedOutletIndex],
+        online: swiggyData.currentData.onlinePercent[selectedOutletIndex],
+        accuracy: swiggyData.currentData.foodAccuracy[selectedOutletIndex],
+        delayed: swiggyData.currentData.delayedOrders[selectedOutletIndex]
+      }];
+    }
+    
+    return swiggyData.outlets.map((outlet, i) => ({
+      outlet,
+      online: swiggyData.currentData.onlinePercent[i],
+      accuracy: swiggyData.currentData.foodAccuracy[i],
+      delayed: swiggyData.currentData.delayedOrders[i]
+    }));
+  };
+
+  // Zomato Performance Data (exact same format as Zomato dashboard)
+  const getZomatoPerformanceData = () => {
+    if (!zomatoData || !zomatoData.outlets) return [];
+    
+    const selectedOutletIndex = filters.outlet ? zomatoData.outlets.findIndex(outlet => outlet === filters.outlet) : null;
+    
+    if (selectedOutletIndex !== null && selectedOutletIndex >= 0) {
+      return [{
+        outlet: zomatoData.outlets[selectedOutletIndex],
+        online: zomatoData.onlinePercent[selectedOutletIndex],
+        accuracy: zomatoData.foodAccuracy[selectedOutletIndex],
+        delayed: zomatoData.delayedOrders[selectedOutletIndex]
+      }];
+    }
+    
+    return zomatoData.outlets.map((outlet, i) => ({
+      outlet,
+      online: zomatoData.onlinePercent[i],
+      accuracy: zomatoData.foodAccuracy[i],
+      delayed: zomatoData.delayedOrders[i]
     }));
   };
 
@@ -237,7 +324,7 @@ const HighRatedDashboard = () => {
           letterSpacing: '2px',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
         }}>
-          LOADING HIGH RATED DASHBOARD...
+          LOADING HIGH RATED DASHBOARD WITH PERFORMANCE METRICS...
         </p>
       </div>
     );
@@ -514,6 +601,78 @@ const HighRatedDashboard = () => {
           </div>
         </div>
 
+        {/* Swiggy Performance Metrics */}
+        {swiggyData && (
+          <div className="submission-card">
+            <div className="submission-header">
+              <div className="submission-info">
+                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                  SWIGGY PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
+                </h3>
+              </div>
+            </div>
+            <div className="responses-section">
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={getSwiggyPerformanceData()}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                  <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'var(--surface-dark)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '10px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
+                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
+                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
+                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
+                  <ReferenceLine y={85} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 85%", position: "topLeft" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Zomato Performance Metrics */}
+        {zomatoData && (
+          <div className="submission-card">
+            <div className="submission-header">
+              <div className="submission-info">
+                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                  ZOMATO PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
+                </h3>
+              </div>
+            </div>
+            <div className="responses-section">
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={getZomatoPerformanceData()}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                  <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'var(--surface-dark)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '10px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
+                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
+                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
+                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
+                  <ReferenceLine y={95} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 95%", position: "topLeft" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Low Rated Percentage Chart */}
         <div className="submission-card">
           <div className="submission-header">
@@ -648,7 +807,7 @@ const HighRatedDashboard = () => {
               </thead>
               <tbody>
                 {filteredData.map((outlet, i) => {
-                  const hasNeedsWork = outlet.high_minus_error <= 5; // "NEEDS WORK" threshold
+                  const hasNeedsWork = outlet.high_minus_error <= 5;
                   return (
                     <tr 
                       key={outlet.outlet_code} 
