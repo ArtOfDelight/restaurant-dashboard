@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const HighRatedDashboard = () => {
   const [data, setData] = useState([]);
+  const [swiggyData, setSwiggyData] = useState(null);
+  const [zomatoData, setZomatoData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -23,9 +24,10 @@ const HighRatedDashboard = () => {
       setError(null);
       
       const periodParam = period === '7 Days' ? '7 Days' : '28 Day';
+      const swiggyZomatoPeriod = period === '7 Days' ? '7 Day' : '1 Day';
       console.log(`Fetching data for period: ${periodParam}`);
       
-      // Try multiple possible endpoints
+      // Try multiple possible endpoints for High Rated data
       const possibleUrls = [
         `${API_URL}/api/high-rated-data-gemini`,
         `/api/high-rated-data-gemini`,
@@ -34,34 +36,37 @@ const HighRatedDashboard = () => {
       ];
 
       let lastError = null;
+      let highRatedSuccess = false;
       
       for (const baseUrl of possibleUrls) {
         try {
           console.log(`Trying URL: ${baseUrl}?period=${encodeURIComponent(periodParam)}`);
           
-          const response = await axios.get(baseUrl, {
-            params: { period: periodParam },
-            timeout: 10000
+          const response = await fetch(`${baseUrl}?period=${encodeURIComponent(periodParam)}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
           });
           
           console.log(`Response status: ${response.status}`);
           
-          if (response.data && response.data.success && response.data.data) {
-            console.log(`Success! API returned ${response.data.data.length} outlets for ${periodParam}`);
-            setData(response.data.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
-          } else if (response.data && Array.isArray(response.data)) {
-            console.log(`Found array data with ${response.data.length} items`);
-            setData(response.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
-          } else {
-            lastError = new Error(`Unexpected response format from ${baseUrl}`);
-            continue;
+          if (response.ok) {
+            const result = await response.json();
+            if (result && result.success && result.data) {
+              console.log(`Success! API returned ${result.data.length} outlets for ${periodParam}`);
+              setData(result.data);
+              highRatedSuccess = true;
+              break;
+            } else if (result && Array.isArray(result)) {
+              console.log(`Found array data with ${result.length} items`);
+              setData(result);
+              highRatedSuccess = true;
+              break;
+            }
           }
+          
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
           
         } catch (fetchError) {
           lastError = fetchError;
@@ -70,8 +75,56 @@ const HighRatedDashboard = () => {
         }
       }
       
-      // All URLs failed, throw the last error
-      throw lastError || new Error('All API endpoints failed');
+      if (!highRatedSuccess) {
+        throw lastError || new Error('All High Rated API endpoints failed');
+      }
+
+      // Fetch Swiggy data
+      try {
+        console.log('Fetching Swiggy data...');
+        const swiggyResponse = await fetch(`${API_URL}/api/swiggy-dashboard-data?period=${swiggyZomatoPeriod}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (swiggyResponse.ok) {
+          const swiggyResult = await swiggyResponse.json();
+          if (swiggyResult && swiggyResult.success) {
+            console.log('Swiggy data fetched successfully');
+            setSwiggyData(swiggyResult.data);
+          }
+        }
+      } catch (swiggyError) {
+        console.log('Swiggy API not available:', swiggyError.message);
+        setSwiggyData(null);
+      }
+
+      // Fetch Zomato data
+      try {
+        console.log('Fetching Zomato data...');
+        const zomatoResponse = await fetch(`${API_URL}/api/dashboard-data?period=${swiggyZomatoPeriod}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (zomatoResponse.ok) {
+          const zomatoResult = await zomatoResponse.json();
+          if (zomatoResult && zomatoResult.data) {
+            console.log('Zomato data fetched successfully');
+            setZomatoData(zomatoResult.data);
+          }
+        }
+      } catch (zomatoError) {
+        console.log('Zomato API not available:', zomatoError.message);
+        setZomatoData(null);
+      }
+
+      setLastUpdate(new Date().toLocaleString());
+      setError(null);
       
     } catch (err) {
       console.error('Load data error:', err);
@@ -190,7 +243,7 @@ const HighRatedDashboard = () => {
   };
 
   const getBottom3Outlets = () => {
-    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate); // Sort by highest error rate first
+    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate);
     return sorted.slice(0, 3).map(outlet => ({
       name: outlet.outlet_name,
       error_rate: outlet.error_rate,
@@ -200,6 +253,52 @@ const HighRatedDashboard = () => {
         `Low high rated % of ${outlet.high_rated_percent}%`,
         `Low rated orders: ${outlet.low_rated}`,
       ],
+    }));
+  };
+
+  // Swiggy Performance Data (exact same format as Swiggy dashboard)
+  const getSwiggyPerformanceData = () => {
+    if (!swiggyData || !swiggyData.outlets) return [];
+    
+    const selectedOutletIndex = filters.outlet ? swiggyData.outlets.findIndex(outlet => outlet === filters.outlet) : null;
+    
+    if (selectedOutletIndex !== null && selectedOutletIndex >= 0) {
+      return [{
+        outlet: swiggyData.outlets[selectedOutletIndex],
+        online: swiggyData.currentData.onlinePercent[selectedOutletIndex],
+        accuracy: swiggyData.currentData.foodAccuracy[selectedOutletIndex],
+        delayed: swiggyData.currentData.delayedOrders[selectedOutletIndex]
+      }];
+    }
+    
+    return swiggyData.outlets.map((outlet, i) => ({
+      outlet,
+      online: swiggyData.currentData.onlinePercent[i],
+      accuracy: swiggyData.currentData.foodAccuracy[i],
+      delayed: swiggyData.currentData.delayedOrders[i]
+    }));
+  };
+
+  // Zomato Performance Data (exact same format as Zomato dashboard)
+  const getZomatoPerformanceData = () => {
+    if (!zomatoData || !zomatoData.outlets) return [];
+    
+    const selectedOutletIndex = filters.outlet ? zomatoData.outlets.findIndex(outlet => outlet === filters.outlet) : null;
+    
+    if (selectedOutletIndex !== null && selectedOutletIndex >= 0) {
+      return [{
+        outlet: zomatoData.outlets[selectedOutletIndex],
+        online: zomatoData.onlinePercent[selectedOutletIndex],
+        accuracy: zomatoData.foodAccuracy[selectedOutletIndex],
+        delayed: zomatoData.delayedOrders[selectedOutletIndex]
+      }];
+    }
+    
+    return zomatoData.outlets.map((outlet, i) => ({
+      outlet,
+      online: zomatoData.onlinePercent[i],
+      accuracy: zomatoData.foodAccuracy[i],
+      delayed: zomatoData.delayedOrders[i]
     }));
   };
 
@@ -514,6 +613,78 @@ const HighRatedDashboard = () => {
           </div>
         </div>
 
+        {/* Swiggy Performance Metrics */}
+        {swiggyData && (
+          <div className="submission-card">
+            <div className="submission-header">
+              <div className="submission-info">
+                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                  SWIGGY PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
+                </h3>
+              </div>
+            </div>
+            <div className="responses-section">
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={getSwiggyPerformanceData()}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                  <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'var(--surface-dark)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '10px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
+                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
+                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
+                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
+                  <ReferenceLine y={85} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 85%", position: "topLeft" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Zomato Performance Metrics */}
+        {zomatoData && (
+          <div className="submission-card">
+            <div className="submission-header">
+              <div className="submission-info">
+                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                  ZOMATO PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
+                </h3>
+              </div>
+            </div>
+            <div className="responses-section">
+              <ResponsiveContainer width="100%" height={350}>
+                <LineChart data={getZomatoPerformanceData()}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                  <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={80} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'var(--surface-dark)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: '10px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
+                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
+                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
+                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
+                  <ReferenceLine y={95} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 95%", position: "topLeft" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Low Rated Percentage Chart */}
         <div className="submission-card">
           <div className="submission-header">
@@ -548,59 +719,6 @@ const HighRatedDashboard = () => {
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* Bottom 3 Outlets - Moved after stats */}
-        {bottom3.length > 0 && (
-          <div className="submission-card">
-            <div className="submission-header">
-              <div className="submission-info">
-                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                  BOTTOM 3 OUTLETS - NEEDS ATTENTION
-                </h3>
-              </div>
-            </div>
-            <div className="responses-section">
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                gap: '20px'
-              }}>
-                {bottom3.map((outlet, index) => (
-                  <div 
-                    key={index} 
-                    style={{
-                      padding: '20px',
-                      borderRadius: '15px',
-                      background: 'rgba(239, 68, 68, 0.1)',
-                      border: '1px solid var(--border-light)',
-                      borderLeft: '4px solid #ef4444'
-                    }}
-                  >
-                    <h4 style={{
-                      margin: '0 0 12px 0',
-                      color: 'var(--text-primary)',
-                      fontSize: '1.1rem',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                    }}>
-                      #{index + 1} {outlet.name.toUpperCase()} ({outlet.high_minus_error}% SCORE)
-                    </h4>
-                    <ul style={{ 
-                      margin: 0, 
-                      paddingLeft: '20px', 
-                      color: 'var(--text-secondary)',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                      fontSize: '0.9rem'
-                    }}>
-                      {outlet.reasons.map((reason, rIndex) => (
-                        <li key={rIndex} style={{ marginBottom: '5px' }}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Outlet Details Table */}
@@ -648,7 +766,7 @@ const HighRatedDashboard = () => {
               </thead>
               <tbody>
                 {filteredData.map((outlet, i) => {
-                  const hasNeedsWork = outlet.high_minus_error <= 5; // "NEEDS WORK" threshold
+                  const hasNeedsWork = outlet.high_minus_error <= 5;
                   return (
                     <tr 
                       key={outlet.outlet_code} 
