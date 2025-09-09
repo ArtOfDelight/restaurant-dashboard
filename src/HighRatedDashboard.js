@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -545,6 +545,50 @@ const HighRatedDashboard = () => {
                 />
                 <Bar dataKey="Low Rated %" fill="#f59e0b" radius={[4, 4, 0, 0]} />
               </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Performance Metrics Chart */}
+        <div className="submission-card">
+          <div className="submission-header">
+            <div className="submission-info">
+              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
+                PERFORMANCE METRICS BY OUTLET
+              </h3>
+            </div>
+          </div>
+          <div className="responses-section">
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={getGraphData()}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
+                />
+                <YAxis 
+                  domain={[0, 'auto']} 
+                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
+                />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'var(--surface-dark)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '10px',
+                    color: 'var(--text-primary)'
+                  }}
+                  formatter={(value, name) => [`${value}%`, name]}
+                />
+                <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
+                <Line type="monotone" dataKey="High Rated %" stroke="#3b82f6" strokeWidth={2} name="High Rated %" />
+                <Line type="monotone" dataKey="Low Rated %" stroke="#f59e0b" strokeWidth={2} name="Low Rated %" />
+                <Line type="monotone" dataKey="Error Rate" stroke="#ef4444" strokeWidth={2} name="Error Rate %" />
+                <ReferenceLine y={10} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "High Rated Target: 10%", position: "topLeft" }} />
+                <ReferenceLine y={2} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Error Rate Max: 2%", position: "topLeft" }} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
