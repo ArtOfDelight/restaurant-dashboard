@@ -2981,6 +2981,250 @@ app.get('/api/debug-tickets', async (req, res) => {
   }
 });
 
+// Add these endpoints to your server.js file after the other endpoints
+
+// === TELEGRAM BROADCAST ENDPOINTS ===
+
+// Send broadcast message
+app.post('/api/send-broadcast', async (req, res) => {
+  try {
+    const { message, recipients } = req.body;
+    
+    if (!message || !recipients || recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message and recipients are required'
+      });
+    }
+
+    console.log(`📢 Sending broadcast to ${recipients.length} recipients`);
+    
+    // Generate unique broadcast ID
+    const broadcastId = `BROADCAST-${Date.now()}`;
+    const timestamp = new Date().toISOString();
+    
+    const results = [];
+    let successCount = 0;
+    
+    // Send messages to each recipient
+    for (const recipient of recipients) {
+      try {
+        console.log(`Sending message to ${recipient.user} (${recipient.chatId})`);
+        
+        // Create inline keyboard for acknowledgment
+        const keyboard = {
+          inline_keyboard: [[
+            {
+              text: 'Understood ✅',
+              callback_data: `ack_${broadcastId}_${recipient.chatId}`
+            }
+          ]]
+        };
+        
+        // Send message with inline keyboard
+        await bot.sendMessage(recipient.chatId, message, {
+          reply_markup: keyboard
+        });
+        
+        results.push({
+          user: recipient.user,
+          chatId: recipient.chatId,
+          success: true
+        });
+        successCount++;
+        console.log(`✅ Sent to ${recipient.user}`);
+        
+        // Store in Google Sheets
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: BROADCAST_SPREADSHEET_ID,
+          range: `${BROADCAST_TAB}!A:G`,
+          valueInputOption: 'RAW',
+          resource: {
+            values: [[
+              broadcastId,
+              message,
+              timestamp,
+              recipient.user,
+              recipient.chatId,
+              'Pending',
+              '' // Acknowledged At - empty initially
+            ]]
+          }
+        });
+        
+      } catch (error) {
+        console.error(`❌ Failed to send to ${recipient.user}:`, error.message);
+        results.push({
+          user: recipient.user,
+          chatId: recipient.chatId,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+    
+    console.log(`📢 Broadcast complete: ${successCount}/${recipients.length} sent`);
+    
+    res.json({
+      success: true,
+      broadcastId,
+      recipients: successCount,
+      totalRecipients: recipients.length,
+      results,
+      timestamp
+    });
+    
+  } catch (error) {
+    console.error('❌ Broadcast error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get broadcast history
+app.get('/api/broadcast-history', async (req, res) => {
+  try {
+    console.log('📋 Fetching broadcast history');
+    
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: BROADCAST_SPREADSHEET_ID,
+      range: `${BROADCAST_TAB}!A:G`
+    });
+
+    const rows = response.data.values || [];
+    
+    if (rows.length <= 1) {
+      return res.json({
+        success: true,
+        broadcasts: []
+      });
+    }
+
+    // Group by broadcast ID
+    const broadcastMap = new Map();
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0]) continue; // Skip empty rows
+      
+      const broadcastId = row[0];
+      const message = row[1];
+      const timestamp = row[2];
+      const user = row[3];
+      const chatId = row[4];
+      const status = row[5] || 'Pending';
+      const acknowledgedAt = row[6] || null;
+      
+      if (!broadcastMap.has(broadcastId)) {
+        broadcastMap.set(broadcastId, {
+          id: broadcastId,
+          message,
+          timestamp,
+          recipients: []
+        });
+      }
+      
+      broadcastMap.get(broadcastId).recipients.push({
+        user,
+        chatId,
+        status,
+        acknowledgedAt
+      });
+    }
+    
+    // Convert to array and sort by timestamp (newest first)
+    const broadcasts = Array.from(broadcastMap.values()).sort((a, b) => 
+      new Date(b.timestamp) - new Date(a.timestamp)
+    );
+    
+    console.log(`✅ Found ${broadcasts.length} broadcasts`);
+    
+    res.json({
+      success: true,
+      broadcasts
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching broadcast history:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Handle callback queries (when users click "Understood")
+bot.on('callback_query', async (query) => {
+  try {
+    const { data, from, message } = query;
+    
+    if (data.startsWith('ack_')) {
+      const parts = data.split('_');
+      const broadcastId = parts[1];
+      const chatId = parts[2];
+      
+      console.log(`📝 Acknowledgment received from ${from.first_name} for broadcast ${broadcastId}`);
+      
+      // Update Google Sheets
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: BROADCAST_SPREADSHEET_ID,
+        range: `${BROADCAST_TAB}!A:G`
+      });
+      
+      const rows = response.data.values || [];
+      
+      // Find the row to update
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row[0] === broadcastId && row[4] === chatId) {
+          // Update status and acknowledged time
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: BROADCAST_SPREADSHEET_ID,
+            range: `${BROADCAST_TAB}!F${i + 1}:G${i + 1}`,
+            valueInputOption: 'RAW',
+            resource: {
+              values: [['Acknowledged', new Date().toISOString()]]
+            }
+          });
+          break;
+        }
+      }
+      
+      // Edit the message to remove the button
+      await bot.editMessageReplyMarkup(null, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id
+      });
+      
+      // Send confirmation to user
+      await bot.answerCallbackQuery(query.id, {
+        text: 'Thank you! Message acknowledged.',
+        show_alert: false
+      });
+      
+      console.log(`✅ Acknowledgment processed for ${from.first_name}`);
+    }
+  } catch (error) {
+    console.error('❌ Error handling callback query:', error.message);
+  }
+});
+
+// Handle polling errors
+bot.on('polling_error', (error) => {
+  console.error('❌ Telegram polling error:', error.message);
+});
+
+console.log('📢 Telegram broadcast endpoints initialized');
+
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
