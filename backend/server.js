@@ -2,7 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { google } = require('googleapis');
-const axios = require('axios'); // Added for HTTP requests to Gemini API
+const axios = require('axios');
+const TelegramBot = require('node-telegram-bot-api');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,7 +17,33 @@ let sheets;
 let drive;
 let authClient;
 
-async function initializeGoogleSheets() {
+// Telegram Bot setup
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!TELEGRAM_BOT_TOKEN) {
+  console.error('❌ Missing environment variable: TELEGRAM_BOT_TOKEN is required');
+  process.exit(1);
+}
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+const BROADCAST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+const BROADCAST_TAB = 'Broadcasts';
+
+// Environment variable validation
+const CHECKLIST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+const SUBMISSIONS_TAB = process.env.CHECKLIST_SUBMISSIONS_TAB || 'ChecklistSubmissions';
+const RESPONSES_TAB = process.env.CHECKLIST_RESPONSES_TAB || 'ChecklistResponses';
+const DASHBOARD_SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+const DASHBOARD_SHEET_NAME = process.env.SHEET_NAME || 'Zomato Dashboard';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+if (!DASHBOARD_SPREADSHEET_ID || !DASHBOARD_SHEET_NAME) {
+  console.error('❌ Missing environment variables: SPREADSHEET_ID and SHEET_NAME are required for dashboard endpoints');
+}
+if (!GEMINI_API_KEY) {
+  console.error('❌ Missing environment variable: GEMINI_API_KEY is required for Gemini API integration');
+}
+
+// Initialize Google Sheets and Broadcast tab
+async function initializeGoogleServices() {
   try {
     const serviceAccount = require('./service-account-key.json');
     
@@ -36,31 +63,65 @@ async function initializeGoogleSheets() {
     drive = google.drive({ version: 'v3', auth: authClient });
     console.log('✅ Google Sheets and Drive connected');
     console.log(`Service account email: ${serviceAccount.client_email}`);
+
+    await initializeBroadcastTab();
     
     return true;
   } catch (error) {
-    console.error('❌ Error connecting to Google APIs:', error.message);
+    console.error('❌ Error initializing Google APIs:', error.message);
     return false;
   }
 }
 
+// Initialize Broadcasts tab
+async function initializeBroadcastTab() {
+  try {
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: BROADCAST_SPREADSHEET_ID,
+      ranges: [],
+      includeGridData: false,
+    });
+
+    const sheetExists = response.data.sheets.some(sheet => sheet.properties.title === BROADCAST_TAB);
+    if (!sheetExists) {
+      console.log(`Creating ${BROADCAST_TAB} tab in spreadsheet ${BROADCAST_SPREADSHEET_ID}`);
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: BROADCAST_SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: BROADCAST_TAB,
+                },
+              },
+            },
+          ],
+        },
+      });
+      // Add headers
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: BROADCAST_SPREADSHEET_ID,
+        range: `${BROADCAST_TAB}!A1:G1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[
+            'Broadcast ID', 'Message', 'Timestamp', 'Recipient User', 'Recipient Chat ID', 'Status', 'Acknowledged At'
+          ]],
+        },
+      });
+      console.log(`✅ Created ${BROADCAST_TAB} tab with headers`);
+    } else {
+      console.log(`✅ ${BROADCAST_TAB} tab already exists`);
+    }
+  } catch (error) {
+    console.error('❌ Error initializing Broadcasts tab:', error.message);
+    throw error;
+  }
+}
+
 // Initialize on startup
-initializeGoogleSheets();
-
-// Environment variable validation
-const CHECKLIST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-const SUBMISSIONS_TAB = process.env.CHECKLIST_SUBMISSIONS_TAB || 'ChecklistSubmissions';
-const RESPONSES_TAB = process.env.CHECKLIST_RESPONSES_TAB || 'ChecklistResponses';
-const DASHBOARD_SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
-const DASHBOARD_SHEET_NAME = process.env.SHEET_NAME || 'Zomato Dashboard';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY; // Add Gemini API key to .env
-
-if (!DASHBOARD_SPREADSHEET_ID || !DASHBOARD_SHEET_NAME) {
-  console.error('❌ Missing environment variables: SPREADSHEET_ID and SHEET_NAME are required for dashboard endpoints');
-}
-if (!GEMINI_API_KEY) {
-  console.error('❌ Missing environment variable: GEMINI_API_KEY is required for Gemini API integration');
-}
+initializeGoogleServices();
 
 // Helper function to create empty data structure for dashboard
 function createEmptyDataStructure() {
@@ -410,7 +471,7 @@ function generateFallbackInsights(dataSummary, outletPerformance) {
 // Extract lists from AI text response
 function extractListFromText(text, keyword) {
   const patterns = {
-    findings: /(?:key findings|insights)[:\s]*((?:[-•*]\s*.*.*(?:\n|$))*)/i,
+    findings: /(?:key findings|insights)[:\s]*((?:[-•*]\s*.*(?:\n|$))*)/i,
     recommendations: /(?:recommendations|actions)[:\s]*((?:[-•*]\s*.*(?:\n|$))*)/i,
     risks: /(?:risks?|concerns?)[:\s]*((?:[-•*]\s*.*(?:\n|$))*)/i,
     opportunities: /(?:opportunities)[:\s]*((?:[-•*]\s*.*(?:\n|$))*)/i
@@ -669,7 +730,7 @@ app.get('/api/checklist-data', async (req, res) => {
     console.log('📋 Fetching checklist data...');
 
     if (!sheets || !drive) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -867,7 +928,7 @@ app.get('/api/checklist-stats', async (req, res) => {
     console.log('📊 Calculating checklist statistics...');
     
     if (!sheets || !drive) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -978,7 +1039,7 @@ app.post('/api/checklist-filter', async (req, res) => {
 
     // Reuse logic from /api/checklist-data
     if (!sheets || !drive) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -1190,7 +1251,7 @@ app.post('/api/checklist-filter', async (req, res) => {
 app.get('/api/debug-checklist', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     console.log(`Debug: Checking spreadsheet ${CHECKLIST_SPREADSHEET_ID}`);
@@ -1247,7 +1308,7 @@ app.get('/api/dashboard-data', async (req, res) => {
     }
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google Sheets');
       }
@@ -1295,7 +1356,7 @@ app.get('/api/dashboard-data', async (req, res) => {
 app.get('/api/debug-sheet', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     console.log(`🔍 Debug: Fetching raw sheet data from ${DASHBOARD_SPREADSHEET_ID}`);
@@ -1355,7 +1416,6 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
     console.log(`📊 High Rated data requested for period: ${period}`);
 
     if (!['7 Days', '28 Day'].includes(period)) {
-      // Set proper JSON headers even for errors
       res.set('Content-Type', 'application/json');
       return res.status(400).json({
         success: false,
@@ -1364,7 +1424,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
     }
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         res.set('Content-Type', 'application/json');
         return res.status(500).json({
@@ -1386,7 +1446,6 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
 
     console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
 
-    // Process high rated data with fixed structure
     const processedData = processHighRatedSheetDataFixed(sheetResponse.data.values, period);
 
     console.log(`✅ Successfully processed High Rated data for ${period}:`, {
@@ -1394,7 +1453,6 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
       sample: processedData[0] || {},
     });
 
-    // CRITICAL: Set JSON headers before sending response
     res.set('Content-Type', 'application/json');
     res.json({
       success: true,
@@ -1409,7 +1467,6 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error fetching High Rated data:', error.message);
-    // Set JSON headers even for error responses
     res.set('Content-Type', 'application/json');
     res.status(500).json({
       success: false,
@@ -1556,7 +1613,7 @@ function parseHighRatedValue(val) {
 app.get('/api/debug-high-rated', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
@@ -2232,7 +2289,7 @@ app.get('/api/swiggy-dashboard-data', async (req, res) => {
     }
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google Sheets');
       }
@@ -2415,7 +2472,7 @@ function generateSwiggyOutletFallbackAnalysis(outlet, allData) {
 app.get('/api/debug-swiggy', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     const SWIGGY_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
@@ -2475,7 +2532,7 @@ app.get('/api/employee-data', async (req, res) => {
     }
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         res.set('Content-Type', 'application/json');
         return res.status(500).json({
@@ -2497,7 +2554,6 @@ app.get('/api/employee-data', async (req, res) => {
 
     console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
 
-    // Process employee data with intelligent mapping
     const processedData = await processEmployeeSheetData(sheetResponse.data.values, period);
 
     console.log(`✅ Successfully processed Employee data for ${period}:`, {
@@ -2534,7 +2590,7 @@ app.get('/api/employee-data', async (req, res) => {
 app.get('/api/debug-employee', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
@@ -2628,7 +2684,7 @@ app.get('/api/ticket-data', async (req, res) => {
     console.log('🎫 Fetching ticket data...');
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -2686,7 +2742,7 @@ app.post('/api/assign-ticket', async (req, res) => {
     console.log(`🎫 Assigning ticket ${ticketId} to ${assignedTo}`);
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -2782,7 +2838,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
     console.log(`🎫 Updating ticket ${ticketId} status to ${status} with action: ${actionTaken || 'none'}`);
 
     if (!sheets) {
-      const initialized = await initializeGoogleSheets();
+      const initialized = await initializeGoogleServices();
       if (!initialized) {
         throw new Error('Failed to initialize Google APIs');
       }
@@ -2873,7 +2929,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
 app.get('/api/debug-tickets', async (req, res) => {
   try {
     if (!sheets) {
-      await initializeGoogleSheets();
+      await initializeGoogleServices();
     }
 
     const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
@@ -2990,12 +3046,14 @@ app.get('/health', async (req, res) => {
       googleSheets: sheetsConnected ? 'Connected' : 'Disconnected',
       googleDrive: driveConnected ? 'Connected' : 'Disconnected',
       geminiApi: GEMINI_API_KEY ? 'Configured' : 'Not Configured',
+      telegramBot: TELEGRAM_BOT_TOKEN ? 'Configured' : 'Missing'
     },
     environment: {
       dashboardSpreadsheetId: DASHBOARD_SPREADSHEET_ID ? 'Set' : 'Missing',
       dashboardSheetName: DASHBOARD_SHEET_NAME ? 'Set' : 'Missing',
       checklistSpreadsheetId: CHECKLIST_SPREADSHEET_ID ? 'Set' : 'Missing',
       geminiApiKey: GEMINI_API_KEY ? 'Set' : 'Missing',
+      telegramBotToken: TELEGRAM_BOT_TOKEN ? 'Set' : 'Missing'
     },
     endpoints: {
       dashboard: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
@@ -3010,6 +3068,11 @@ app.get('/health', async (req, res) => {
       updateTicketStatus: '/api/update-ticket-status (POST)',
       debugTickets: '/api/debug-tickets',
       swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
+      assignTicket: '/api/assign-ticket (POST)',
+      updateTicketStatus: '/api/update-ticket-status (POST)',
+      debugTickets: '/api/debug-tickets',
+      sendBroadcast: '/api/send-broadcast (POST)',
+      broadcastHistory: '/api/broadcast-history',
       aiInsights: '/api/generate-insights (POST)',
       outletAnalysis: '/api/analyze-outlet (POST)'
     },
@@ -3062,7 +3125,8 @@ app.get('/', (req, res) => {
       'Swiggy-specific analytics',
       'High-rated order tracking',
       'AI-powered insights with Gemini',
-      'Comprehensive debugging endpoints'
+      'Comprehensive debugging endpoints',
+      'Telegram broadcast with acknowledgment tracking'
     ],
     endpoints: {
       tickets: {
@@ -3088,6 +3152,11 @@ app.get('/', (req, res) => {
         imageProxy: '/api/image-proxy/:fileId',
         health: '/health',
         description: 'Utility endpoints for system monitoring and file access'
+      },
+      telegram: {
+        sendBroadcast: '/api/send-broadcast (POST)',
+        broadcastHistory: '/api/broadcast-history',
+        description: 'Telegram broadcast management with acknowledgment tracking'
       }
     },
     ticketUpdates: {
@@ -3110,6 +3179,24 @@ app.get('/', (req, res) => {
         'I': 'Assigned To',
         'J': 'Action Taken',
         'K': 'Type (NEW)'
+      }
+    },
+    telegramUpdates: {
+      features: [
+        'Send broadcasts to multiple recipients',
+        'Store broadcast history in Google Sheets',
+        'Handle "Understood" acknowledgments',
+        'Track individual recipient statuses (Pending/Acknowledged)',
+        'Remove button after acknowledgment'
+      ],
+      columnStructure: {
+        'A': 'Broadcast ID',
+        'B': 'Message',
+        'C': 'Timestamp',
+        'D': 'Recipient User',
+        'E': 'Recipient Chat ID',
+        'F': 'Status',
+        'G': 'Acknowledged At'
       }
     },
     timestamp: new Date().toISOString(),
@@ -3142,6 +3229,8 @@ app.use((req, res) => {
       swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
       health: '/health',
       root: '/',
+      sendBroadcast: '/api/send-broadcast (POST)',
+      broadcastHistory: '/api/broadcast-history'
     },
     timestamp: new Date().toISOString(),
   });
@@ -3186,6 +3275,10 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/swiggy-dashboard-data?period=[7 Day|1 Day] - Fetch Swiggy performance data`);
   console.log(`   GET  /api/debug-swiggy                              - Debug Swiggy data structure`);
   console.log('');
+  console.log('📢 Telegram endpoints:');
+  console.log(`   POST /api/send-broadcast                           - Send Telegram broadcast`);
+  console.log(`   GET  /api/broadcast-history                        - Fetch broadcast history`);
+  console.log('');
   console.log('🔧 Utility endpoints:');
   console.log(`   GET  /health                                        - Health check`);
   console.log(`   GET  /                                              - API info`);
@@ -3195,6 +3288,7 @@ app.listen(PORT, () => {
   console.log(`   Dashboard Sheet: ${DASHBOARD_SPREADSHEET_ID ? '✅ Configured' : '❌ Missing'}`);
   console.log(`   Checklist Sheet: ${CHECKLIST_SPREADSHEET_ID ? '✅ Configured' : '❌ Missing'}`);
   console.log(`   Gemini 1.5 Flash API: ${GEMINI_API_KEY ? '✅ Configured' : '❌ Missing'}`);
+  console.log(`   Telegram Bot: ${TELEGRAM_BOT_TOKEN ? '✅ Configured' : '❌ Missing'}`);
   console.log(`   Service Account: ${authClient ? '✅ Connected' : '❌ Not Connected'}`);
   console.log('');
   console.log('🎫 Ticket Management Updates:');
@@ -3207,5 +3301,5 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/employee-data?period=[7 Days|28 Days]      - Fetch employee performance data`);
   console.log(`   GET  /api/debug-employee                             - Debug employee data structure`);
   console.log('');
-  console.log('🎯 Ready to serve requests with enhanced ticket management!');
+  console.log('🎯 Ready to serve requests with enhanced ticket management and Telegram broadcasts!');
 });
