@@ -17,16 +17,6 @@ let sheets;
 let drive;
 let authClient;
 
-// Telegram Bot setup
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-if (!TELEGRAM_BOT_TOKEN) {
-  console.error('❌ Missing environment variable: TELEGRAM_BOT_TOKEN is required');
-  process.exit(1);
-}
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
-const BROADCAST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-const BROADCAST_TAB = 'Broadcasts';
-
 // Environment variable validation
 const CHECKLIST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
 const SUBMISSIONS_TAB = process.env.CHECKLIST_SUBMISSIONS_TAB || 'ChecklistSubmissions';
@@ -35,11 +25,20 @@ const DASHBOARD_SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1XmKondedSs_c6PZ
 const DASHBOARD_SHEET_NAME = process.env.SHEET_NAME || 'Zomato Dashboard';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// Telegram Bot setup with conflict resolution
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const ENABLE_TELEGRAM_BOT = process.env.ENABLE_TELEGRAM_BOT !== 'false'; // Default to true unless explicitly disabled
+const BROADCAST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+const BROADCAST_TAB = 'Broadcasts';
+
+let bot = null;
+let isShuttingDown = false;
+
 if (!DASHBOARD_SPREADSHEET_ID || !DASHBOARD_SHEET_NAME) {
-  console.error('❌ Missing environment variables: SPREADSHEET_ID and SHEET_NAME are required for dashboard endpoints');
+  console.error('Missing environment variables: SPREADSHEET_ID and SHEET_NAME are required for dashboard endpoints');
 }
 if (!GEMINI_API_KEY) {
-  console.error('❌ Missing environment variable: GEMINI_API_KEY is required for Gemini API integration');
+  console.error('Missing environment variable: GEMINI_API_KEY is required for Gemini API integration');
 }
 
 // Initialize Google Sheets and Broadcast tab
@@ -57,18 +56,18 @@ async function initializeGoogleServices() {
     });
 
     await authClient.authorize();
-    console.log('✅ Google Auth successful');
+    console.log('Google Auth successful');
 
     sheets = google.sheets({ version: 'v4', auth: authClient });
     drive = google.drive({ version: 'v3', auth: authClient });
-    console.log('✅ Google Sheets and Drive connected');
+    console.log('Google Sheets and Drive connected');
     console.log(`Service account email: ${serviceAccount.client_email}`);
 
     await initializeBroadcastTab();
     
     return true;
   } catch (error) {
-    console.error('❌ Error initializing Google APIs:', error.message);
+    console.error('Error initializing Google APIs:', error.message);
     return false;
   }
 }
@@ -76,19 +75,16 @@ async function initializeGoogleServices() {
 // Initialize Broadcasts tab
 async function initializeBroadcastTab() {
   try {
-    // Check if sheets is initialized
     if (!sheets) {
       console.error('Google Sheets not initialized');
       throw new Error('Google Sheets service not available');
     }
 
-    // Check if BROADCAST_SPREADSHEET_ID is defined
     if (!BROADCAST_SPREADSHEET_ID) {
       console.error('BROADCAST_SPREADSHEET_ID not defined');
       throw new Error('Broadcast spreadsheet ID not configured');
     }
 
-    // Check if BROADCAST_TAB is defined
     if (!BROADCAST_TAB) {
       console.error('BROADCAST_TAB not defined');
       throw new Error('Broadcast tab name not configured');
@@ -124,7 +120,7 @@ async function initializeBroadcastTab() {
         },
       });
 
-      console.log(`✅ Created ${BROADCAST_TAB} tab successfully`);
+      console.log(`Created ${BROADCAST_TAB} tab successfully`);
 
       // Add headers with a small delay to ensure tab is fully created
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -146,15 +142,15 @@ async function initializeBroadcastTab() {
         },
       });
 
-      console.log(`✅ Added headers to ${BROADCAST_TAB} tab`);
+      console.log(`Added headers to ${BROADCAST_TAB} tab`);
     } else {
-      console.log(`✅ ${BROADCAST_TAB} tab already exists`);
+      console.log(`${BROADCAST_TAB} tab already exists`);
     }
 
     return true;
 
   } catch (error) {
-    console.error('❌ Error initializing Broadcasts tab:', error.message);
+    console.error('Error initializing Broadcasts tab:', error.message);
     
     // More specific error handling
     if (error.message.includes('not found')) {
@@ -169,8 +165,260 @@ async function initializeBroadcastTab() {
   }
 }
 
-// Initialize on startup
-initializeGoogleServices();
+// Telegram Bot initialization with proper conflict resolution
+async function initializeTelegramBot() {
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.log('Telegram Bot Token not provided - broadcast functionality disabled');
+    return null;
+  }
+
+  if (!ENABLE_TELEGRAM_BOT) {
+    console.log('Telegram Bot disabled by environment variable');
+    return null;
+  }
+
+  try {
+    console.log('Initializing Telegram Bot...');
+    
+    // First, try to clear any existing webhook to avoid conflicts
+    try {
+      const tempBot = new TelegramBot(TELEGRAM_BOT_TOKEN);
+      await tempBot.deleteWebHook();
+      console.log('Cleared any existing webhooks');
+    } catch (webhookError) {
+      // Ignore webhook errors - they're expected if no webhook exists
+    }
+
+    // Wait a bit before starting polling
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Initialize bot with polling
+    const newBot = new TelegramBot(TELEGRAM_BOT_TOKEN, {
+      polling: {
+        interval: 2000, // Check every 2 seconds
+        autoStart: false, // Don't start automatically
+        params: {
+          timeout: 20, // 20 second timeout for long polling
+        }
+      }
+    });
+
+    // Set up error handlers before starting polling
+    newBot.on('polling_error', (error) => {
+      console.log('Telegram polling error:', error.message);
+      
+      // Handle 409 conflicts specifically
+      if (error.message.includes('409') && error.message.includes('Conflict')) {
+        console.log('Bot conflict detected - attempting recovery in 10 seconds...');
+        setTimeout(async () => {
+          if (!isShuttingDown) {
+            await restartBotPolling(newBot);
+          }
+        }, 10000);
+      }
+    });
+
+    newBot.on('webhook_error', (error) => {
+      console.log('Telegram webhook error:', error.message);
+    });
+
+    // Start polling with retry logic
+    await startPollingWithRetry(newBot);
+    
+    // Set up callback query handler
+    setupCallbackQueryHandler(newBot);
+    
+    console.log('Telegram Bot initialized successfully');
+    return newBot;
+
+  } catch (error) {
+    console.error('Failed to initialize Telegram Bot:', error.message);
+    return null;
+  }
+}
+
+async function startPollingWithRetry(botInstance, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await botInstance.stopPolling();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await botInstance.startPolling();
+      console.log('Bot polling started successfully');
+      return;
+    } catch (error) {
+      console.error(`Polling attempt ${i + 1} failed:`, error.message);
+      if (i === maxRetries - 1) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 3000 * (i + 1))); // Increasing delay
+    }
+  }
+}
+
+async function restartBotPolling(botInstance) {
+  try {
+    console.log('Attempting to restart bot polling...');
+    await botInstance.stopPolling();
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    await startPollingWithRetry(botInstance);
+    console.log('Bot polling restarted successfully');
+  } catch (error) {
+    console.error('Failed to restart bot polling:', error.message);
+  }
+}
+
+function setupCallbackQueryHandler(botInstance) {
+  botInstance.on('callback_query', async (query) => {
+    try {
+      const { data, from, message } = query;
+      
+      if (!data || !data.startsWith('ack_')) {
+        return;
+      }
+      
+      const parts = data.split('_');
+      if (parts.length < 3) {
+        console.error('Invalid callback data format:', data);
+        return;
+      }
+      
+      const broadcastId = parts[1];
+      const chatId = parts[2];
+      
+      console.log(`Acknowledgment received from ${from.first_name || from.username || 'Unknown'} for broadcast ${broadcastId}`);
+      
+      // Ensure Google Sheets is initialized
+      if (!sheets) {
+        const initialized = await initializeGoogleServices();
+        if (!initialized) {
+          throw new Error('Failed to initialize Google APIs');
+        }
+      }
+      
+      // Update Google Sheets
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: BROADCAST_SPREADSHEET_ID,
+          range: `${BROADCAST_TAB}!A:G`
+        });
+        
+        const rows = response.data.values || [];
+        
+        // Find the row to update
+        let rowFound = false;
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (row[0] === broadcastId && row[4] === chatId) {
+            // Update status and acknowledged time
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: BROADCAST_SPREADSHEET_ID,
+              range: `${BROADCAST_TAB}!F${i + 1}:G${i + 1}`,
+              valueInputOption: 'RAW',
+              resource: {
+                values: [['Acknowledged', new Date().toISOString()]]
+              }
+            });
+            rowFound = true;
+            break;
+          }
+        }
+        
+        if (!rowFound) {
+          console.warn(`Row not found for broadcast ${broadcastId} and chat ${chatId}`);
+        }
+      } catch (sheetError) {
+        console.error('Error updating sheets:', sheetError.message);
+      }
+      
+      // Edit the message to remove the button
+      try {
+        await botInstance.editMessageReplyMarkup(null, {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id
+        });
+      } catch (editError) {
+        console.warn('Could not remove button:', editError.message);
+      }
+      
+      // Send confirmation to user
+      await botInstance.answerCallbackQuery(query.id, {
+        text: 'Thank you! Message acknowledged.',
+        show_alert: false
+      });
+      
+      console.log(`Acknowledgment processed for ${from.first_name || from.username || 'Unknown'}`);
+      
+    } catch (error) {
+      console.error('Error handling callback query:', error.message);
+      
+      // Still try to answer the callback to prevent "loading" state
+      try {
+        await botInstance.answerCallbackQuery(query.id, {
+          text: 'Error processing acknowledgment',
+          show_alert: false
+        });
+      } catch (answerError) {
+        console.error('Failed to answer callback query:', answerError.message);
+      }
+    }
+  });
+}
+
+// Graceful shutdown function
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  console.log(`\n${signal} received, shutting down gracefully...`);
+  
+  try {
+    if (bot) {
+      console.log('Stopping Telegram bot...');
+      await bot.stopPolling();
+      console.log('Telegram bot stopped');
+    }
+    
+    console.log('Graceful shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error.message);
+    process.exit(1);
+  }
+}
+
+// Process signal handlers
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For nodemon
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
+
+// Initialize services on startup
+async function initializeServices() {
+  console.log('Initializing services...');
+  
+  // Initialize Google Services
+  const googleInitialized = await initializeGoogleServices();
+  if (!googleInitialized) {
+    console.error('Failed to initialize Google Services');
+  }
+  
+  // Initialize Telegram Bot
+  bot = await initializeTelegramBot();
+  
+  console.log('Service initialization complete');
+}
+
+// Start initialization
+initializeServices();
 
 // Helper function to create empty data structure for dashboard
 function createEmptyDataStructure() {
@@ -309,7 +557,7 @@ function processSheetData(rawData, requestedPeriod = '7 Day') {
     
     // Debug log for the first few outlets to verify correct mapping
     if (data.outlets.length <= 2) {
-      console.log(`\n🔍 COLUMN MAPPING DEBUG for "${outletLocation}":`);
+      console.log(`\nCOLUMN MAPPING DEBUG for "${outletLocation}":`);
       console.log(`  M2O (Column E, index ${columnOffset + 2}): "${row[columnOffset + 2]}" -> ${parseValue(row[columnOffset + 2])}`);
       console.log(`  M2O Trend (Column F, index ${columnOffset + 3}): "${row[columnOffset + 3]}" -> ${parseValue(row[columnOffset + 3])}`);
       console.log(`  New Users (Column J, index ${columnOffset + 7}): "${row[columnOffset + 7]}" -> ${parseValue(row[columnOffset + 7])}`);
@@ -330,11 +578,12 @@ function processSheetData(rawData, requestedPeriod = '7 Day') {
     totalOutlets: data.outlets.length,
   };
   
-  console.log(`✅ Processed ${data.outlets.length} outlets for ${requestedPeriod}`);
+  console.log(`Processed ${data.outlets.length} outlets for ${requestedPeriod}`);
   console.log('Summary:', data.summary);
   
   return data;
 }
+
 // === AI ANALYSIS FUNCTIONS ===
 
 // AI-powered insight generation
@@ -348,7 +597,7 @@ async function generateInsightsWithGemini(data, period, analysisType = 'comprehe
   }
 
   try {
-    console.log(`🤖 Generating AI insights for ${period} data with ${data.outlets.length} outlets`);
+    console.log(`Generating AI insights for ${period} data with ${data.outlets.length} outlets`);
     
     // Prepare data summary for AI analysis
     const dataSummary = {
@@ -641,7 +890,7 @@ function formatDate(dateString) {
 // Helper function to validate Google Drive image accessibility
 async function validateImageLink(imageLink) {
   if (!imageLink || !imageLink.trim()) {
-    console.warn('⚠️ Empty or invalid image link');
+    console.warn('Empty or invalid image link');
     return { accessible: false, error: 'Empty link', fileId: null, url: null };
   }
 
@@ -662,7 +911,7 @@ async function validateImageLink(imageLink) {
     }
 
     if (!fileId) {
-      console.warn(`⚠️ Invalid Google Drive link format: ${imageLink}`);
+      console.warn(`Invalid Google Drive link format: ${imageLink}`);
       return { accessible: false, error: 'Invalid link format', fileId: null, url: null };
     }
 
@@ -676,25 +925,25 @@ async function validateImageLink(imageLink) {
 
       const mimeType = response.data.mimeType;
       if (!mimeType.startsWith('image/')) {
-        console.warn(`⚠️ File is not an image: ${fileId}, MIME: ${mimeType}`);
+        console.warn(`File is not an image: ${fileId}, MIME: ${mimeType}`);
         return { accessible: false, error: `Not an image file (MIME: ${mimeType})`, fileId, url: proxyUrl };
       }
 
-      console.log(`✅ Valid image file: ${fileId}`);
+      console.log(`Valid image file: ${fileId}`);
       return {
         accessible: true,
         fileId,
         url: proxyUrl,
       };
     } catch (error) {
-      console.error(`❌ Error validating image ${imageLink}: ${error.message}`);
+      console.error(`Error validating image ${imageLink}: ${error.message}`);
       let errorMessage = error.message;
       if (error.message.includes('File not found')) {
         errorMessage = `File not found: ${fileId}. Ensure the file is shared with the service account (${authClient.email || 'unknown'})`;
-        console.warn(`⚠️ ${errorMessage}. Attempting proxy URL: ${proxyUrl}`);
+        console.warn(`${errorMessage}. Attempting proxy URL: ${proxyUrl}`);
       } else if (error.code === 403) {
         errorMessage = `Permission denied for file ${fileId}. Share the file with the service account (${authClient.email || 'unknown'})`;
-        console.warn(`⚠️ ${errorMessage}. Attempting proxy URL: ${proxyUrl}`);
+        console.warn(`${errorMessage}. Attempting proxy URL: ${proxyUrl}`);
       }
       return {
         accessible: false,
@@ -704,7 +953,7 @@ async function validateImageLink(imageLink) {
       };
     }
   } catch (error) {
-    console.error(`❌ Unexpected error validating image ${imageLink}: ${error.message}`);
+    console.error(`Unexpected error validating image ${imageLink}: ${error.message}`);
     return { accessible: false, error: `Unexpected error: ${error.message}`, fileId: null, url: null };
   }
 }
@@ -713,7 +962,7 @@ async function validateImageLink(imageLink) {
 app.get('/api/image-proxy/:fileId', async (req, res) => {
   try {
     const fileId = req.params.fileId;
-    console.log(`📷 Proxying image for fileId: ${fileId}`);
+    console.log(`Proxying image for fileId: ${fileId}`);
     
     // Add CORS headers
     res.header('Access-Control-Allow-Origin', '*');
@@ -736,7 +985,7 @@ app.get('/api/image-proxy/:fileId', async (req, res) => {
     response.data.pipe(res);
     
   } catch (error) {
-    console.error(`❌ Image proxy error for file ${req.params.fileId}: ${error.message}`);
+    console.error(`Image proxy error for file ${req.params.fileId}: ${error.message}`);
     
     // Set CORS headers even for errors
     res.header('Access-Control-Allow-Origin', '*');
@@ -776,7 +1025,7 @@ app.options('/api/image-proxy/:fileId', (req, res) => {
 // Checklist data endpoint - FIXED FOR DUPLICATES
 app.get('/api/checklist-data', async (req, res) => {
   try {
-    console.log('📋 Fetching checklist data...');
+    console.log('Fetching checklist data...');
 
     if (!sheets || !drive) {
       const initialized = await initializeGoogleServices();
@@ -834,7 +1083,7 @@ app.get('/api/checklist-data', async (req, res) => {
 
         // Only add if not a duplicate
         if (submissionsMap.has(submissionId)) {
-          console.warn(`⚠️ Duplicate submissionId detected: ${submissionId} at row ${i + 1}, keeping first occurrence`);
+          console.warn(`Duplicate submissionId detected: ${submissionId} at row ${i + 1}, keeping first occurrence`);
         } else {
           submissionsMap.set(submissionId, submission);
           console.log(`Processed submission at row ${i + 1}:`, {
@@ -923,10 +1172,10 @@ app.get('/api/checklist-data', async (req, res) => {
     // Log unmatched responses for debugging
     const unmatchedSubmissionIds = [...new Set(responses.map(r => r.submissionId))].filter(id => !submissionIds.has(id));
     if (unmatchedSubmissionIds.length > 0) {
-      console.warn(`⚠️ Found ${unmatchedSubmissionIds.length} submissionIds in responses with no matching submissions:`, unmatchedSubmissionIds);
+      console.warn(`Found ${unmatchedSubmissionIds.length} submissionIds in responses with no matching submissions:`, unmatchedSubmissionIds);
     }
 
-    console.log(`✅ Processed ${submissions.length} submissions and ${filteredResponses.length} responses`);
+    console.log(`Processed ${submissions.length} submissions and ${filteredResponses.length} responses`);
 
     // Calculate metadata
     const droppedSubmissions = (submissionsData.length - 1) - submissions.length;
@@ -953,7 +1202,7 @@ app.get('/api/checklist-data', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching checklist data:', error.message, error.stack);
+    console.error('Error fetching checklist data:', error.message, error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -974,7 +1223,7 @@ function getCellValue(row, index, defaultValue = '') {
 // Checklist statistics endpoint
 app.get('/api/checklist-stats', async (req, res) => {
   try {
-    console.log('📊 Calculating checklist statistics...');
+    console.log('Calculating checklist statistics...');
     
     if (!sheets || !drive) {
       const initialized = await initializeGoogleServices();
@@ -1044,7 +1293,7 @@ app.get('/api/checklist-stats', async (req, res) => {
       employees: uniqueEmployees.sort(),
     };
 
-    console.log('✅ Statistics calculated:', stats);
+    console.log('Statistics calculated:', stats);
 
     res.set('Content-Type', 'application/json');
     res.json({
@@ -1053,7 +1302,7 @@ app.get('/api/checklist-stats', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error calculating checklist stats:', error.message);
+    console.error('Error calculating checklist stats:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1065,7 +1314,7 @@ app.get('/api/checklist-stats', async (req, res) => {
 app.post('/api/checklist-filter', async (req, res) => {
   try {
     const filters = req.body;
-    console.log('🔍 Filtering checklist data with:', filters);
+    console.log('Filtering checklist data with:', filters);
 
     // Validate filters
     if (!filters || typeof filters !== 'object') {
@@ -1157,7 +1406,7 @@ app.post('/api/checklist-filter', async (req, res) => {
         // Only add if it passes filters and is not a duplicate
         if (passesFilter) {
           if (submissionsMap.has(submissionId)) {
-            console.warn(`⚠️ Duplicate submissionId detected: ${submissionId} at row ${i + 1}, keeping first occurrence`);
+            console.warn(`Duplicate submissionId detected: ${submissionId} at row ${i + 1}, keeping first occurrence`);
           } else {
             submissionsMap.set(submissionId, submission);
             console.log(`Processed submission at row ${i + 1}:`, {
@@ -1256,10 +1505,10 @@ app.post('/api/checklist-filter', async (req, res) => {
     // Log unmatched responses for debugging
     const unmatchedSubmissionIds = [...new Set(responses.map(r => r.submissionId))].filter(id => !submissionIds.has(id));
     if (unmatchedSubmissionIds.length > 0) {
-      console.warn(`⚠️ Found ${unmatchedSubmissionIds.length} submissionIds in responses with no matching submissions:`, unmatchedSubmissionIds);
+      console.warn(`Found ${unmatchedSubmissionIds.length} submissionIds in responses with no matching submissions:`, unmatchedSubmissionIds);
     }
 
-    console.log(`✅ Filtered to ${submissions.length} submissions and ${filteredResponses.length} responses`);
+    console.log(`Filtered to ${submissions.length} submissions and ${filteredResponses.length} responses`);
 
     // Calculate metadata
     const droppedSubmissions = (submissionsData.length - 1) - submissions.length;
@@ -1287,7 +1536,7 @@ app.post('/api/checklist-filter', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error filtering checklist data:', error.message, error.stack);
+    console.error('Error filtering checklist data:', error.message, error.stack);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1296,6 +1545,7 @@ app.post('/api/checklist-filter', async (req, res) => {
     });
   }
 });
+
 // Debug checklist endpoint
 app.get('/api/debug-checklist', async (req, res) => {
   try {
@@ -1334,7 +1584,7 @@ app.get('/api/debug-checklist', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Debug checklist error:', error.message);
+    console.error('Debug checklist error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1347,7 +1597,7 @@ app.get('/api/debug-checklist', async (req, res) => {
 app.get('/api/dashboard-data', async (req, res) => {
   try {
     const period = req.query.period || '28 Day';
-    console.log(`📊 Dashboard data requested for period: ${period}`);
+    console.log(`Dashboard data requested for period: ${period}`);
     
     if (!['7 Day', '1 Day'].includes(period)) {
       return res.status(400).json({
@@ -1378,7 +1628,7 @@ app.get('/api/dashboard-data', async (req, res) => {
     
     const processedData = processSheetData(response.data.values, period);
     
-    console.log(`✅ Successfully processed dashboard data for ${period}:`, {
+    console.log(`Successfully processed dashboard data for ${period}:`, {
       outlets: processedData.outlets.length,
       avgM2O: processedData.summary.avgM2O,
       avgMarketShare: processedData.summary.avgMarketShare
@@ -1392,7 +1642,7 @@ app.get('/api/dashboard-data', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching dashboard data:', error.message);
+    console.error('Error fetching dashboard data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1408,7 +1658,7 @@ app.get('/api/debug-sheet', async (req, res) => {
       await initializeGoogleServices();
     }
 
-    console.log(`🔍 Debug: Fetching raw sheet data from ${DASHBOARD_SPREADSHEET_ID}`);
+    console.log(`Debug: Fetching raw sheet data from ${DASHBOARD_SPREADSHEET_ID}`);
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
@@ -1448,7 +1698,7 @@ app.get('/api/debug-sheet', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching debug dashboard data:', error.message);
+    console.error('Error fetching debug dashboard data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1462,7 +1712,7 @@ app.get('/api/debug-sheet', async (req, res) => {
 app.get('/api/high-rated-data-gemini', async (req, res) => {
   try {
     const period = req.query.period || '7 Days';
-    console.log(`📊 High Rated data requested for period: ${period}`);
+    console.log(`High Rated data requested for period: ${period}`);
 
     if (!['7 Days', '28 Day'].includes(period)) {
       res.set('Content-Type', 'application/json');
@@ -1497,7 +1747,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
 
     const processedData = processHighRatedSheetDataFixed(sheetResponse.data.values, period);
 
-    console.log(`✅ Successfully processed High Rated data for ${period}:`, {
+    console.log(`Successfully processed High Rated data for ${period}:`, {
       outlets: processedData.length,
       sample: processedData[0] || {},
     });
@@ -1515,7 +1765,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching High Rated data:', error.message);
+    console.error('Error fetching High Rated data:', error.message);
     res.set('Content-Type', 'application/json');
     res.status(500).json({
       success: false,
@@ -1629,7 +1879,7 @@ function processHighRatedSheetDataFixed(rawData, requestedPeriod = '7 Days') {
     
     // Debug log for the first few outlets to verify correct mapping
     if (processedData.length <= 2) {
-      console.log(`\n🔍 HIGH RATED FIXED COLUMN MAPPING DEBUG for "${outletName}":`);
+      console.log(`\nHIGH RATED FIXED COLUMN MAPPING DEBUG for "${outletName}":`);
       console.log(`  Row: ${i + 1}`);
       console.log(`  Total Orders (Column E): "${row[4]}" -> ${outletData.total_orders}`);
       console.log(`  Error Rate (Column I): "${row[8]}" -> ${outletData.error_rate}`);
@@ -1638,7 +1888,7 @@ function processHighRatedSheetDataFixed(rawData, requestedPeriod = '7 Days') {
     }
   }
   
-  console.log(`✅ Processed ${processedData.length} High Rated outlets for ${requestedPeriod}`);
+  console.log(`Processed ${processedData.length} High Rated outlets for ${requestedPeriod}`);
   
   return processedData;
 }
@@ -1668,7 +1918,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
     const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard Live';
 
-    console.log(`🔍 Debug: Fetching raw High Rated data from ${HIGH_RATED_SPREADSHEET_ID}`);
+    console.log(`Debug: Fetching raw High Rated data from ${HIGH_RATED_SPREADSHEET_ID}`);
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: HIGH_RATED_SPREADSHEET_ID,
@@ -1716,7 +1966,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching debug High Rated data:', error.message);
+    console.error('Error fetching debug High Rated data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -1726,11 +1976,8 @@ app.get('/api/debug-high-rated', async (req, res) => {
   }
 });
 
-// Add these new functions and endpoints to your existing server.js file
-
 // === SWIGGY DASHBOARD SPECIFIC FUNCTIONS ===
 
-// Swiggy-specific data processing function
 // Fixed Swiggy-specific data processing function
 function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
   console.log(`Processing Swiggy data for period: ${requestedPeriod}`);
@@ -1860,7 +2107,7 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     
     // Debug log for first few outlets
     if (data.outlets.length <= 2) {
-      console.log(`\n🔍 SWIGGY COLUMN MAPPING DEBUG (FIXED) for "${location}":`);
+      console.log(`\nSWIGGY COLUMN MAPPING DEBUG (FIXED) for "${location}":`);
       console.log(`  M2O (Column D): "${row[columnOffset + 1]}" -> ${parseSwiggyValue(row[columnOffset + 1])}`);
       console.log(`  Organic M2O Trend (Column X): "${row[columnOffset + 21]}" -> ${parseSwiggyValue(row[columnOffset + 21])}`);
       console.log(`  Online % (Column Z): "${row[columnOffset + 23]}" -> ${parseSwiggyValue(row[columnOffset + 23])}`);
@@ -1878,11 +2125,12 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     totalOutlets: data.outlets.length,
   };
   
-  console.log(`✅ Processed ${data.outlets.length} Swiggy outlets for ${requestedPeriod}`);
+  console.log(`Processed ${data.outlets.length} Swiggy outlets for ${requestedPeriod}`);
   console.log('Swiggy Summary:', data.summary);
   
   return data;
 }
+
 // Helper function to create empty Swiggy data structure
 function createEmptySwiggyDataStructure() {
   return {
@@ -1925,7 +2173,7 @@ async function generateSwiggyInsightsWithGemini(data, period) {
   }
 
   try {
-    console.log(`🤖 Generating Swiggy AI insights for ${period} data with ${data.outlets.length} outlets`);
+    console.log(`Generating Swiggy AI insights for ${period} data with ${data.outlets.length} outlets`);
     
     // Find bottom 3 performers
     const outletPerformance = data.outlets.map((outlet, i) => ({
@@ -2156,7 +2404,7 @@ Return ONLY a JSON object mapping field names to column indices, like:
         const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const mapping = JSON.parse(jsonMatch[0]);
-          console.log('✅ Employee column mapping generated:', mapping);
+          console.log('Employee column mapping generated:', mapping);
           return mapping;
         }
       } catch (parseError) {
@@ -2302,7 +2550,7 @@ async function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
   const sortField = requestedPeriod === '7 Days' ? 'high_rated_percent_7_days' : 'high_rated_percent_28_days';
   processedData.sort((a, b) => b[sortField] - a[sortField]);
   
-  console.log(`✅ Processed ${processedData.length} employees for ${requestedPeriod}, sorted by ${sortField} (descending)`);
+  console.log(`Processed ${processedData.length} employees for ${requestedPeriod}, sorted by ${sortField} (descending)`);
   
   return processedData;
 }
@@ -2321,13 +2569,14 @@ function parseEmployeeValue(val) {
   const num = parseFloat(cleanStr);
   return isNaN(num) ? 0 : num;
 }
+
 // === SWIGGY DASHBOARD API ENDPOINTS ===
 
 // Swiggy dashboard data endpoint
 app.get('/api/swiggy-dashboard-data', async (req, res) => {
   try {
     const period = req.query.period || '7 Day';
-    console.log(`📊 Swiggy dashboard data requested for period: ${period}`);
+    console.log(`Swiggy dashboard data requested for period: ${period}`);
     
     // Only allow 1 Day and 7 Day for Swiggy dashboard
     if (!['7 Day', '1 Day'].includes(period)) {
@@ -2359,7 +2608,7 @@ app.get('/api/swiggy-dashboard-data', async (req, res) => {
     
     const processedData = processSwiggySheetData(response.data.values, period);
     
-    console.log(`✅ Successfully processed Swiggy data for ${period}:`, {
+    console.log(`Successfully processed Swiggy data for ${period}:`, {
       outlets: processedData.outlets.length,
       avgM2O: processedData.summary.avgM2O,
       avgOnlinePercent: processedData.summary.avgOnlinePercent
@@ -2373,7 +2622,7 @@ app.get('/api/swiggy-dashboard-data', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching Swiggy dashboard data:', error.message);
+    console.error('Error fetching Swiggy dashboard data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -2527,7 +2776,7 @@ app.get('/api/debug-swiggy', async (req, res) => {
     const SWIGGY_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
     const SWIGGY_SHEET_NAME = 'Swiggy Dashboard - AOD';
 
-    console.log(`🔍 Debug: Fetching raw Swiggy data from ${SWIGGY_SPREADSHEET_ID}`);
+    console.log(`Debug: Fetching raw Swiggy data from ${SWIGGY_SPREADSHEET_ID}`);
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SWIGGY_SPREADSHEET_ID,
@@ -2554,7 +2803,7 @@ app.get('/api/debug-swiggy', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching debug Swiggy data:', error.message);
+    console.error('Error fetching debug Swiggy data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -2570,7 +2819,7 @@ app.get('/api/debug-swiggy', async (req, res) => {
 app.get('/api/employee-data', async (req, res) => {
   try {
     const period = req.query.period || '7 Days';
-    console.log(`👥 Employee data requested for period: ${period}`);
+    console.log(`Employee data requested for period: ${period}`);
 
     if (!['7 Days', '28 Days'].includes(period)) {
       res.set('Content-Type', 'application/json');
@@ -2605,7 +2854,7 @@ app.get('/api/employee-data', async (req, res) => {
 
     const processedData = await processEmployeeSheetData(sheetResponse.data.values, period);
 
-    console.log(`✅ Successfully processed Employee data for ${period}:`, {
+    console.log(`Successfully processed Employee data for ${period}:`, {
       employees: processedData.length,
       sample: processedData[0] || {},
       usingAI: !!GEMINI_API_KEY
@@ -2625,7 +2874,7 @@ app.get('/api/employee-data', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching Employee data:', error.message);
+    console.error('Error fetching Employee data:', error.message);
     res.set('Content-Type', 'application/json');
     res.status(500).json({
       success: false,
@@ -2645,7 +2894,7 @@ app.get('/api/debug-employee', async (req, res) => {
     const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
     const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
 
-    console.log(`🔍 Debug: Fetching raw Employee data from ${EMPLOYEE_SPREADSHEET_ID}`);
+    console.log(`Debug: Fetching raw Employee data from ${EMPLOYEE_SPREADSHEET_ID}`);
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
@@ -2667,7 +2916,7 @@ app.get('/api/debug-employee', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching debug Employee data:', error.message);
+    console.error('Error fetching debug Employee data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -2730,7 +2979,7 @@ function transformTicketData(rawTickets) {
 // Fetch tickets from Google Sheets Tickets tab
 app.get('/api/ticket-data', async (req, res) => {
   try {
-    console.log('🎫 Fetching ticket data...');
+    console.log('Fetching ticket data...');
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -2752,7 +3001,7 @@ app.get('/api/ticket-data', async (req, res) => {
     console.log(`Found ${ticketsData.length} ticket rows`);
 
     const tickets = transformTicketData(ticketsData);
-    console.log(`✅ Processed ${tickets.length} tickets`);
+    console.log(`Processed ${tickets.length} tickets`);
 
     res.set('Content-Type', 'application/json');
     res.json({
@@ -2767,7 +3016,7 @@ app.get('/api/ticket-data', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Error fetching ticket data:', error.message);
+    console.error('Error fetching ticket data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -2788,7 +3037,7 @@ app.post('/api/assign-ticket', async (req, res) => {
       });
     }
 
-    console.log(`🎫 Assigning ticket ${ticketId} to ${assignedTo}`);
+    console.log(`Assigning ticket ${ticketId} to ${assignedTo}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -2848,7 +3097,7 @@ app.post('/api/assign-ticket', async (req, res) => {
       }
     });
 
-    console.log(`✅ Successfully updated ticket ${ticketId}`);
+    console.log(`Successfully updated ticket ${ticketId}`);
     console.log(`Batch update response:`, batchUpdateResponse.data);
 
     res.json({
@@ -2861,7 +3110,7 @@ app.post('/api/assign-ticket', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error assigning ticket:', error.message);
+    console.error('Error assigning ticket:', error.message);
     console.error('Full error:', error);
     res.status(500).json({
       success: false,
@@ -2884,7 +3133,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
       });
     }
 
-    console.log(`🎫 Updating ticket ${ticketId} status to ${status} with action: ${actionTaken || 'none'}`);
+    console.log(`Updating ticket ${ticketId} status to ${status} with action: ${actionTaken || 'none'}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -2950,7 +3199,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
       }
     });
 
-    console.log(`✅ Successfully updated ticket ${ticketId}`);
+    console.log(`Successfully updated ticket ${ticketId}`);
     console.log(`Batch update response:`, batchUpdateResponse.data);
 
     res.json({
@@ -2963,7 +3212,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error updating ticket status:', error.message);
+    console.error('Error updating ticket status:', error.message);
     console.error('Full error:', error);
     res.status(500).json({
       success: false,
@@ -2984,7 +3233,7 @@ app.get('/api/debug-tickets', async (req, res) => {
     const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
     const TICKET_TAB = 'Tickets';
 
-    console.log(`🔍 Debug: Checking ticket data from ${TICKET_SPREADSHEET_ID}`);
+    console.log(`Debug: Checking ticket data from ${TICKET_SPREADSHEET_ID}`);
     
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
@@ -3020,7 +3269,7 @@ app.get('/api/debug-tickets', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('❌ Debug tickets error:', error.message);
+    console.error('Debug tickets error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -3030,14 +3279,18 @@ app.get('/api/debug-tickets', async (req, res) => {
   }
 });
 
-// Add these endpoints to your server.js file after the other endpoints
-
 // === TELEGRAM BROADCAST ENDPOINTS ===
 
 // Send broadcast message
-// Send broadcast message
 app.post('/api/send-broadcast', async (req, res) => {
   try {
+    if (!bot) {
+      return res.status(503).json({
+        success: false,
+        error: 'Telegram bot is not available. Please check bot configuration.'
+      });
+    }
+
     const { message, recipients } = req.body;
     
     if (!message || !recipients || recipients.length === 0) {
@@ -3047,9 +3300,8 @@ app.post('/api/send-broadcast', async (req, res) => {
       });
     }
 
-    console.log(`📢 Sending broadcast to ${recipients.length} recipients`);
+    console.log(`Sending broadcast to ${recipients.length} recipients`);
     
-    // Ensure Google Sheets is initialized
     if (!sheets) {
       const initialized = await initializeGoogleServices();
       if (!initialized) {
@@ -3057,39 +3309,33 @@ app.post('/api/send-broadcast', async (req, res) => {
       }
     }
 
-    // Ensure broadcast tab exists
     await initializeBroadcastTab();
     
-    // Generate unique broadcast ID
     const broadcastId = `BROADCAST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
     
     const results = [];
     let successCount = 0;
     
-    // Send messages to each recipient with delay to avoid rate limiting
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
       
       try {
         console.log(`Sending message to ${recipient.user} (${recipient.chatId})`);
         
-        // Validate chatId
         if (!recipient.chatId || recipient.chatId === 'undefined' || recipient.chatId === 'null') {
           throw new Error(`Invalid chat ID for user ${recipient.user}`);
         }
         
-        // Create inline keyboard for acknowledgment
         const keyboard = {
           inline_keyboard: [[
             {
-              text: '✅ Understood',
+              text: 'Understood',
               callback_data: `ack_${broadcastId}_${recipient.chatId}`
             }
           ]]
         };
         
-        // Send message with inline keyboard
         await bot.sendMessage(recipient.chatId, message, {
           reply_markup: keyboard,
           parse_mode: 'HTML'
@@ -3101,9 +3347,8 @@ app.post('/api/send-broadcast', async (req, res) => {
           success: true
         });
         successCount++;
-        console.log(`✅ Sent to ${recipient.user}`);
+        console.log(`Sent to ${recipient.user}`);
         
-        // Store in Google Sheets
         try {
           await sheets.spreadsheets.values.append({
             spreadsheetId: BROADCAST_SPREADSHEET_ID,
@@ -3117,7 +3362,7 @@ app.post('/api/send-broadcast', async (req, res) => {
                 recipient.user,
                 recipient.chatId.toString(),
                 'Sent',
-                '' // Acknowledged At - empty initially
+                ''
               ]]
             }
           });
@@ -3125,13 +3370,12 @@ app.post('/api/send-broadcast', async (req, res) => {
           console.error(`Warning: Failed to log to sheets for ${recipient.user}:`, sheetError.message);
         }
         
-        // Add delay between messages to avoid rate limiting
         if (i < recipients.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         
       } catch (error) {
-        console.error(`❌ Failed to send to ${recipient.user}:`, error.message);
+        console.error(`Failed to send to ${recipient.user}:`, error.message);
         results.push({
           user: recipient.user,
           chatId: recipient.chatId,
@@ -3141,7 +3385,7 @@ app.post('/api/send-broadcast', async (req, res) => {
       }
     }
     
-    console.log(`📢 Broadcast complete: ${successCount}/${recipients.length} sent`);
+    console.log(`Broadcast complete: ${successCount}/${recipients.length} sent`);
     
     res.json({
       success: true,
@@ -3153,7 +3397,7 @@ app.post('/api/send-broadcast', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Broadcast error:', error.message);
+    console.error('Broadcast error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message
@@ -3164,7 +3408,7 @@ app.post('/api/send-broadcast', async (req, res) => {
 // Get broadcast history
 app.get('/api/broadcast-history', async (req, res) => {
   try {
-    console.log('📋 Fetching broadcast history');
+    console.log('Fetching broadcast history');
     
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -3173,7 +3417,6 @@ app.get('/api/broadcast-history', async (req, res) => {
       }
     }
 
-    // Ensure broadcast tab exists
     await initializeBroadcastTab();
 
     const response = await sheets.spreadsheets.values.get({
@@ -3190,12 +3433,11 @@ app.get('/api/broadcast-history', async (req, res) => {
       });
     }
 
-    // Group by broadcast ID
     const broadcastMap = new Map();
     
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row[0]) continue; // Skip empty rows
+      if (!row[0]) continue;
       
       const broadcastId = row[0];
       const message = row[1] || '';
@@ -3230,12 +3472,11 @@ app.get('/api/broadcast-history', async (req, res) => {
       }
     }
     
-    // Convert to array and sort by timestamp (newest first)
     const broadcasts = Array.from(broadcastMap.values()).sort((a, b) => 
       new Date(b.timestamp) - new Date(a.timestamp)
     );
     
-    console.log(`✅ Found ${broadcasts.length} broadcasts`);
+    console.log(`Found ${broadcasts.length} broadcasts`);
     
     res.json({
       success: true,
@@ -3243,111 +3484,13 @@ app.get('/api/broadcast-history', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error fetching broadcast history:', error.message);
+    console.error('Error fetching broadcast history:', error.message);
     res.status(500).json({
       success: false,
       error: error.message
     });
   }
 });
-
-// Handle callback queries (when users click "Understood") - Updated version
-bot.on('callback_query', async (query) => {
-  try {
-    const { data, from, message } = query;
-    
-    if (!data || !data.startsWith('ack_')) {
-      return;
-    }
-    
-    const parts = data.split('_');
-    if (parts.length < 3) {
-      console.error('Invalid callback data format:', data);
-      return;
-    }
-    
-    const broadcastId = parts[1];
-    const chatId = parts[2];
-    
-    console.log(`📝 Acknowledgment received from ${from.first_name || from.username || 'Unknown'} for broadcast ${broadcastId}`);
-    
-    // Ensure Google Sheets is initialized
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
-    }
-    
-    // Update Google Sheets
-    try {
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: BROADCAST_SPREADSHEET_ID,
-        range: `${BROADCAST_TAB}!A:G`
-      });
-      
-      const rows = response.data.values || [];
-      
-      // Find the row to update
-      let rowFound = false;
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (row[0] === broadcastId && row[4] === chatId) {
-          // Update status and acknowledged time
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: BROADCAST_SPREADSHEET_ID,
-            range: `${BROADCAST_TAB}!F${i + 1}:G${i + 1}`,
-            valueInputOption: 'RAW',
-            resource: {
-              values: [['Acknowledged', new Date().toISOString()]]
-            }
-          });
-          rowFound = true;
-          break;
-        }
-      }
-      
-      if (!rowFound) {
-        console.warn(`Row not found for broadcast ${broadcastId} and chat ${chatId}`);
-      }
-    } catch (sheetError) {
-      console.error('Error updating sheets:', sheetError.message);
-    }
-    
-    // Edit the message to remove the button
-    try {
-      await bot.editMessageReplyMarkup(null, {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id
-      });
-    } catch (editError) {
-      console.warn('Could not remove button:', editError.message);
-    }
-    
-    // Send confirmation to user
-    await bot.answerCallbackQuery(query.id, {
-      text: '✅ Thank you! Message acknowledged.',
-      show_alert: false
-    });
-    
-    console.log(`✅ Acknowledgment processed for ${from.first_name || from.username || 'Unknown'}`);
-    
-  } catch (error) {
-    console.error('❌ Error handling callback query:', error.message);
-    
-    // Still try to answer the callback to prevent "loading" state
-    try {
-      await bot.answerCallbackQuery(query.id, {
-        text: '❌ Error processing acknowledgment',
-        show_alert: false
-      });
-    } catch (answerError) {
-      console.error('Failed to answer callback query:', answerError.message);
-    }
-  }
-});
-
-console.log('📢 Telegram broadcast endpoints initialized');
 
 // === AI API ENDPOINTS ===
 
@@ -3406,6 +3549,7 @@ app.post('/api/analyze-outlet', async (req, res) => {
 app.get('/health', async (req, res) => {
   const sheetsConnected = !!sheets;
   const driveConnected = !!drive;
+  const botConnected = !!bot;
   
   res.set('Content-Type', 'application/json');
   res.json({ 
@@ -3414,62 +3558,19 @@ app.get('/health', async (req, res) => {
       googleSheets: sheetsConnected ? 'Connected' : 'Disconnected',
       googleDrive: driveConnected ? 'Connected' : 'Disconnected',
       geminiApi: GEMINI_API_KEY ? 'Configured' : 'Not Configured',
-      telegramBot: TELEGRAM_BOT_TOKEN ? 'Configured' : 'Missing'
+      telegramBot: botConnected ? 'Connected' : 'Disconnected'
     },
     environment: {
       dashboardSpreadsheetId: DASHBOARD_SPREADSHEET_ID ? 'Set' : 'Missing',
       dashboardSheetName: DASHBOARD_SHEET_NAME ? 'Set' : 'Missing',
       checklistSpreadsheetId: CHECKLIST_SPREADSHEET_ID ? 'Set' : 'Missing',
       geminiApiKey: GEMINI_API_KEY ? 'Set' : 'Missing',
-      telegramBotToken: TELEGRAM_BOT_TOKEN ? 'Set' : 'Missing'
+      telegramBotToken: TELEGRAM_BOT_TOKEN ? 'Set' : 'Missing',
+      telegramBotEnabled: ENABLE_TELEGRAM_BOT ? 'Enabled' : 'Disabled'
     },
-    endpoints: {
-      dashboard: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
-      checklist: '/api/checklist-data',
-      checklistStats: '/api/checklist-stats',
-      debugChecklist: '/api/debug-checklist',
-      debugDashboard: '/api/debug-sheet',
-      highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
-      debugHighRated: '/api/debug-high-rated',
-      tickets: '/api/ticket-data',
-      assignTicket: '/api/assign-ticket (POST)',
-      updateTicketStatus: '/api/update-ticket-status (POST)',
-      debugTickets: '/api/debug-tickets',
-      swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
-      assignTicket: '/api/assign-ticket (POST)',
-      updateTicketStatus: '/api/update-ticket-status (POST)',
-      debugTickets: '/api/debug-tickets',
-      sendBroadcast: '/api/send-broadcast (POST)',
-      broadcastHistory: '/api/broadcast-history',
-      aiInsights: '/api/generate-insights (POST)',
-      outletAnalysis: '/api/analyze-outlet (POST)'
-    },
-    ticketManagement: {
-      features: [
-        'Ticket assignment to team members',
-        'Status updates (Open, In Progress, Resolved, Closed)',
-        'Action taken tracking',
-        'Ticket type classification (Complaint/Order)',
-        'Image attachment support',
-        'Days pending calculation',
-        'Filtering and sorting',
-        'Real-time updates'
-      ],
-      supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
-      ticketTypes: ['Complaint', 'Order'],
-      columnMapping: {
-        'A': 'Ticket ID',
-        'B': 'Date',
-        'C': 'Outlet',
-        'D': 'Submitted By',
-        'E': 'Issue Description',
-        'F': 'Image Link',
-        'G': 'Image Hash',
-        'H': 'Status',
-        'I': 'Assigned To',
-        'J': 'Action Taken',
-        'K': 'Type'
-      }
+    telegram: {
+      botStatus: botConnected ? 'Active' : 'Inactive',
+      broadcastFunctionality: botConnected ? 'Available' : 'Unavailable'
     },
     timestamp: new Date().toISOString(),
   });
@@ -3479,35 +3580,42 @@ app.get('/health', async (req, res) => {
 app.get('/', (req, res) => {
   res.set('Content-Type', 'application/json');
   res.json({
-    message: 'AOD Dashboard & Ticket Management API Server',
-    version: '2.4.0',
+    message: 'AOD Dashboard API Server with Fixed Telegram Bot',
+    version: '2.5.0',
     status: 'Running',
+    telegramBotStatus: bot ? 'Connected' : 'Not Connected',
     features: [
       'Multi-period dashboard data (1/7/28 days)',
       'Enhanced ticket management with type classification',
-      'Ticket types: Complaint and Order tracking',
-      'Action taken tracking for tickets',
+      'AI-powered insights with Gemini',
+      'Fixed Telegram broadcast with conflict resolution',
+      'Proper bot shutdown and error handling',
+      'Environment-based bot configuration',
       'Image proxy with improved error handling',
-      'Checklist management with completion tracking',
+      'Comprehensive debugging endpoints',
       'Employee performance dashboard',
       'Swiggy-specific analytics',
-      'High-rated order tracking',
-      'AI-powered insights with Gemini',
-      'Comprehensive debugging endpoints',
-      'Telegram broadcast with acknowledgment tracking'
+      'High-rated order tracking'
     ],
     endpoints: {
+      dashboard: {
+        data: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
+        insights: '/api/generate-insights (POST)',
+        outletAnalysis: '/api/analyze-outlet (POST)',
+        description: 'Restaurant performance analytics with AI insights'
+      },
+      telegram: {
+        sendBroadcast: '/api/send-broadcast (POST)',
+        broadcastHistory: '/api/broadcast-history',
+        status: bot ? 'Active' : 'Inactive',
+        description: 'Telegram broadcast management with acknowledgment tracking'
+      },
       tickets: {
         data: '/api/ticket-data',
         assign: '/api/assign-ticket (POST)',
         updateStatus: '/api/update-ticket-status (POST)',
         debug: '/api/debug-tickets',
-        description: 'Complete ticket management system with type classification and status tracking'
-      },
-      dashboard: {
-        data: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
-        debug: '/api/debug-sheet',
-        description: 'Restaurant performance analytics'
+        description: 'Complete ticket management system with type classification'
       },
       checklist: {
         data: '/api/checklist-data',
@@ -3516,55 +3624,41 @@ app.get('/', (req, res) => {
         debug: '/api/debug-checklist',
         description: 'Checklist management and completion tracking'
       },
+      swiggy: {
+        data: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
+        insights: '/api/swiggy-generate-insights (POST)',
+        outletAnalysis: '/api/swiggy-analyze-outlet (POST)',
+        debug: '/api/debug-swiggy',
+        description: 'Swiggy-specific analytics'
+      },
+      employee: {
+        data: '/api/employee-data?period=[7 Days|28 Days]',
+        debug: '/api/debug-employee',
+        description: 'Employee performance dashboard with intelligent mapping'
+      },
+      highRated: {
+        data: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
+        debug: '/api/debug-high-rated',
+        description: 'High-rated order tracking'
+      },
       utilities: {
         imageProxy: '/api/image-proxy/:fileId',
         health: '/health',
         description: 'Utility endpoints for system monitoring and file access'
-      },
-      telegram: {
-        sendBroadcast: '/api/send-broadcast (POST)',
-        broadcastHistory: '/api/broadcast-history',
-        description: 'Telegram broadcast management with acknowledgment tracking'
-      }
-    },
-    ticketUpdates: {
-      newFeatures: [
-        'Ticket type classification (Complaint vs Order)',
-        'Enhanced column structure with Type field',
-        'Better filtering and categorization',
-        'Improved dashboard analytics',
-        'Type-based reporting capabilities'
-      ],
-      columnStructure: {
-        'A': 'Ticket ID',
-        'B': 'Date', 
-        'C': 'Outlet',
-        'D': 'Submitted By',
-        'E': 'Issue Description',
-        'F': 'Image Link',
-        'G': 'Image Hash',
-        'H': 'Status',
-        'I': 'Assigned To',
-        'J': 'Action Taken',
-        'K': 'Type (NEW)'
       }
     },
     telegramUpdates: {
-      features: [
-        'Send broadcasts to multiple recipients',
-        'Store broadcast history in Google Sheets',
-        'Handle "Understood" acknowledgments',
-        'Track individual recipient statuses (Pending/Acknowledged)',
-        'Remove button after acknowledgment'
+      fixes: [
+        '409 Conflict error resolution',
+        'Proper bot shutdown handling',
+        'Retry logic for polling failures',
+        'Environment-based bot enabling/disabling',
+        'Graceful error handling without server crashes'
       ],
-      columnStructure: {
-        'A': 'Broadcast ID',
-        'B': 'Message',
-        'C': 'Timestamp',
-        'D': 'Recipient User',
-        'E': 'Recipient Chat ID',
-        'F': 'Status',
-        'G': 'Acknowledged At'
+      configuration: {
+        enableBot: 'Set ENABLE_TELEGRAM_BOT=false to disable',
+        development: 'Uses polling with conflict resolution',
+        production: 'Consider using webhooks for better performance'
       }
     },
     timestamp: new Date().toISOString(),
@@ -3573,7 +3667,7 @@ app.get('/', (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('❌ Server error:', err.stack);
+  console.error('Server error:', err.stack);
   res.set('Content-Type', 'application/json');
   res.status(500).json({
     success: false,
@@ -3595,6 +3689,7 @@ app.use((req, res) => {
       tickets: '/api/ticket-data',
       highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
       swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
+      employee: '/api/employee-data?period=[7 Days|28 Days]',
       health: '/health',
       root: '/',
       sendBroadcast: '/api/send-broadcast',
@@ -3604,70 +3699,65 @@ app.use((req, res) => {
   });
 });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down server gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n🛑 Server terminated');
-  process.exit(0);
-});
-
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 AOD Dashboard & Ticket Management API Server running on http://localhost:${PORT}`);
+  console.log(`AOD Dashboard API Server running on http://localhost:${PORT}`);
   console.log('');
-  console.log('📊 Dashboard endpoints:');
+  console.log('Dashboard endpoints:');
   console.log(`   GET  /api/dashboard-data?period=[28 Day|7 Day|1 Day] - Fetch performance data`);
-  console.log(`   GET  /api/debug-sheet                                - Debug raw sheet data`);
+  console.log(`   POST /api/generate-insights                           - Generate AI insights`);
+  console.log(`   POST /api/analyze-outlet                              - Analyze specific outlet`);
   console.log('');
-  console.log('🎫 Ticket Management endpoints (UPDATED WITH TYPE):');
+  console.log('Telegram endpoints (FIXED):');
+  console.log(`   POST /api/send-broadcast                             - Send Telegram broadcast`);
+  console.log(`   GET  /api/broadcast-history                          - Fetch broadcast history`);
+  console.log('');
+  console.log('Ticket Management endpoints:');
   console.log(`   GET  /api/ticket-data                               - Fetch all tickets with type classification`);
   console.log(`   POST /api/assign-ticket                             - Assign tickets to team members`);
   console.log(`   POST /api/update-ticket-status                      - Update status and action taken`);
-  console.log(`   GET  /api/debug-tickets                             - Debug ticket structure with Type column`);
+  console.log(`   GET  /api/debug-tickets                             - Debug ticket structure`);
   console.log('');
-  console.log('📋 Checklist endpoints:');
+  console.log('Checklist endpoints:');
   console.log(`   GET  /api/checklist-data                            - Fetch all checklist data`);
   console.log(`   GET  /api/checklist-stats                           - Get statistics`);
   console.log(`   POST /api/checklist-filter                          - Filter data`);
   console.log(`   GET  /api/debug-checklist                           - Debug checklist data`);
   console.log('');
-  console.log('⭐ High Rated endpoints:');
+  console.log('Employee endpoints:');
+  console.log(`   GET  /api/employee-data?period=[7 Days|28 Days]      - Fetch employee performance data`);
+  console.log(`   GET  /api/debug-employee                             - Debug employee data structure`);
+  console.log('');
+  console.log('Swiggy endpoints:');
+  console.log(`   GET  /api/swiggy-dashboard-data?period=[7 Day|1 Day] - Fetch Swiggy performance data`);
+  console.log(`   POST /api/swiggy-generate-insights                   - Generate Swiggy AI insights`);
+  console.log(`   POST /api/swiggy-analyze-outlet                      - Analyze Swiggy outlet`);
+  console.log(`   GET  /api/debug-swiggy                              - Debug Swiggy data structure`);
+  console.log('');
+  console.log('High Rated endpoints:');
   console.log(`   GET  /api/high-rated-data-gemini?period=[7 Days|28 Day] - Fetch high rated data`);
   console.log(`   GET  /api/debug-high-rated                          - Debug high rated data structure`);
   console.log('');
-  console.log('🍽️ Swiggy endpoints:');
-  console.log(`   GET  /api/swiggy-dashboard-data?period=[7 Day|1 Day] - Fetch Swiggy performance data`);
-  console.log(`   GET  /api/debug-swiggy                              - Debug Swiggy data structure`);
-  console.log('');
-  console.log('📢 Telegram endpoints:');
-  console.log(`   POST /api/send-broadcast                           - Send Telegram broadcast`);
-  console.log(`   GET  /api/broadcast-history                        - Fetch broadcast history`);
-  console.log('');
-  console.log('🔧 Utility endpoints:');
+  console.log('Utility endpoints:');
   console.log(`   GET  /health                                        - Health check`);
   console.log(`   GET  /                                              - API info`);
   console.log(`   GET  /api/image-proxy/:fileId                       - Image proxy`);
   console.log('');
-  console.log('🔑 Environment:');
-  console.log(`   Dashboard Sheet: ${DASHBOARD_SPREADSHEET_ID ? '✅ Configured' : '❌ Missing'}`);
-  console.log(`   Checklist Sheet: ${CHECKLIST_SPREADSHEET_ID ? '✅ Configured' : '❌ Missing'}`);
-  console.log(`   Gemini 1.5 Flash API: ${GEMINI_API_KEY ? '✅ Configured' : '❌ Missing'}`);
-  console.log(`   Telegram Bot: ${TELEGRAM_BOT_TOKEN ? '✅ Configured' : '❌ Missing'}`);
-  console.log(`   Service Account: ${authClient ? '✅ Connected' : '❌ Not Connected'}`);
+  console.log('Environment:');
+  console.log(`   Dashboard Sheet: ${DASHBOARD_SPREADSHEET_ID ? 'Configured' : 'Missing'}`);
+  console.log(`   Checklist Sheet: ${CHECKLIST_SPREADSHEET_ID ? 'Configured' : 'Missing'}`);
+  console.log(`   Gemini 1.5 Flash API: ${GEMINI_API_KEY ? 'Configured' : 'Missing'}`);
+  console.log(`   Telegram Bot: ${TELEGRAM_BOT_TOKEN ? 'Configured' : 'Missing'}`);
+  console.log(`   Telegram Bot Enabled: ${ENABLE_TELEGRAM_BOT ? 'Yes' : 'No'}`);
+  console.log(`   Bot Status: ${bot ? 'Connected' : 'Not Connected'}`);
+  console.log(`   Service Account: ${authClient ? 'Connected' : 'Not Connected'}`);
   console.log('');
-  console.log('🎫 Ticket Management Updates:');
-  console.log('   NEW: Type column (K) for Complaint/Order classification');
-  console.log('   Column Structure: A-K (Ticket ID → Type)');
-  console.log('   Enhanced filtering and categorization support');
-  console.log('   Closed tickets hidden from UI but kept in sheets');
+  console.log('Telegram Bot Updates (FIXED):');
+  console.log('   FIXED: 409 Conflict error with proper shutdown');
+  console.log('   FIXED: Polling error handling without server crashes');
+  console.log('   NEW: Environment-based bot enabling/disabling');
+  console.log('   NEW: Automatic conflict recovery mechanism');
+  console.log('   NEW: Proper graceful shutdown for all processes');
   console.log('');
-  console.log('👥 Employee endpoints:');
-  console.log(`   GET  /api/employee-data?period=[7 Days|28 Days]      - Fetch employee performance data`);
-  console.log(`   GET  /api/debug-employee                             - Debug employee data structure`);
-  console.log('');
-  console.log('🎯 Ready to serve requests with enhanced ticket management and Telegram broadcasts!');
+  console.log('Ready to serve requests with stable Telegram functionality!');
 });
