@@ -256,8 +256,38 @@ const TelegramBroadcast = () => {
 
   return (
     <div className="ticket-dashboard" style={{ background: 'transparent' }}>
-      <div className="ticket-header">
-        <h1>Telegram Broadcast</h1>
+      <div className="ticket-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h1 style={{ margin: 0 }}>Telegram Broadcast</h1>
+        <button
+          onClick={refreshPage}
+          disabled={loading}
+          style={{
+            padding: '8px 16px',
+            fontSize: '0.9rem',
+            backgroundColor: loading ? '#555' : '#10b981',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#fff',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+          onMouseOver={(e) => {
+            if (!loading) {
+              e.target.style.backgroundColor = '#059669';
+            }
+          }}
+          onMouseOut={(e) => {
+            if (!loading) {
+              e.target.style.backgroundColor = '#10b981';
+            }
+          }}
+        >
+          {loading ? 'Refreshing...' : '🔄 Refresh Page'}
+        </button>
       </div>
 
       <div
