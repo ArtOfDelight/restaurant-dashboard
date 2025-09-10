@@ -9,6 +9,7 @@ const TelegramBroadcast = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [botStatus, setBotStatus] = useState('unknown'); // 'connected', 'disconnected', 'unknown'
 
   const allUsers = [
     'Ajay', 'Jin', 'Kim', 'Nishat', 'Sailo', 'Minthang', 'Mangboi', 'Zansung',
@@ -25,10 +26,28 @@ const TelegramBroadcast = () => {
     'Jatin': '1225343546',
   };
 
-  // Fetch broadcast history on mount
+  // Check bot status and fetch broadcast history on mount
   useEffect(() => {
+    checkBotStatus();
     fetchBroadcastHistory();
   }, []);
+
+  const checkBotStatus = async () => {
+    try {
+      const response = await fetch('/health');
+      const data = await response.json();
+      
+      if (data.services?.telegramBot === 'Connected') {
+        setBotStatus('connected');
+      } else {
+        setBotStatus('disconnected');
+        setError('Telegram bot is not connected. Some features may be unavailable.');
+      }
+    } catch (err) {
+      console.error('Error checking bot status:', err);
+      setBotStatus('unknown');
+    }
+  };
 
   const fetchBroadcastHistory = async () => {
     setLoading(true);
@@ -36,17 +55,14 @@ const TelegramBroadcast = () => {
       const response = await fetch('/api/broadcast-history');
       const data = await response.json();
       
-      console.log('API Response:', data); // Debug log
+      console.log('API Response:', data);
       
-      // Handle both data.broadcasts and data directly
       const broadcasts = data.broadcasts || data || [];
-      
-      // Ensure broadcasts is an array
       const broadcastArray = Array.isArray(broadcasts) ? broadcasts : [];
       
       setBroadcastHistory(broadcastArray);
       setError(null);
-      console.log('Processed broadcasts:', broadcastArray); // Debug log
+      console.log('Processed broadcasts:', broadcastArray);
     } catch (err) {
       console.error('Error fetching broadcast history:', err);
       setError('Failed to load broadcast history: ' + (err.message || 'Unknown error'));
@@ -55,20 +71,18 @@ const TelegramBroadcast = () => {
     }
   };
 
-  // Helper function to format timestamp
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return 'Unknown time';
     
-    // Try to parse as a Date
-    const date = new Date(timestamp);
-    
-    // Check if it's a valid date
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleString();
+    try {
+      const date = new Date(timestamp);
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleString();
+      }
+      return timestamp;
+    } catch (error) {
+      return timestamp;
     }
-    
-    // If not a valid date, return as is (for cases like "12:00")
-    return timestamp;
   };
 
   const handleUserSelect = (event) => {
@@ -87,6 +101,11 @@ const TelegramBroadcast = () => {
   const handleSend = async () => {
     if (!message.trim() || selectedUsers.length === 0) {
       setError('Please fill in all fields: message and select at least one user');
+      return;
+    }
+
+    if (botStatus === 'disconnected') {
+      setError('Telegram bot is not connected. Cannot send broadcasts.');
       return;
     }
 
@@ -120,7 +139,14 @@ const TelegramBroadcast = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send broadcast');
+        // Handle specific bot unavailable error
+        if (response.status === 503) {
+          setError('Telegram bot is currently unavailable. Please try again later or check the bot configuration.');
+          setBotStatus('disconnected');
+        } else {
+          throw new Error(data.error || 'Failed to send broadcast');
+        }
+        return;
       }
 
       setSuccess(`Broadcast sent to ${data.recipients} recipient${data.recipients !== 1 ? 's' : ''}!`);
@@ -143,6 +169,30 @@ const TelegramBroadcast = () => {
       })));
     } finally {
       setSending(false);
+    }
+  };
+
+  const getBotStatusColor = () => {
+    switch (botStatus) {
+      case 'connected': return '#10b981'; // green
+      case 'disconnected': return '#ef4444'; // red
+      default: return '#f59e0b'; // yellow
+    }
+  };
+
+  const getBotStatusText = () => {
+    switch (botStatus) {
+      case 'connected': return 'Bot Connected';
+      case 'disconnected': return 'Bot Disconnected';
+      default: return 'Bot Status Unknown';
+    }
+  };
+
+  const getBotStatusIcon = () => {
+    switch (botStatus) {
+      case 'connected': return '✅';
+      case 'disconnected': return '❌';
+      default: return '⚠️';
     }
   };
 
@@ -176,6 +226,49 @@ const TelegramBroadcast = () => {
             opacity: '0.8',
           }}
         />
+
+        {/* Bot Status Indicator */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '20px',
+            padding: '8px 12px',
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: '8px',
+            border: `1px solid ${getBotStatusColor()}33`,
+          }}
+        >
+          <span style={{ fontSize: '1rem' }}>{getBotStatusIcon()}</span>
+          <span
+            style={{
+              color: getBotStatusColor(),
+              fontSize: '0.85rem',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontWeight: '600'
+            }}
+          >
+            {getBotStatusText()}
+          </span>
+          <button
+            onClick={checkBotStatus}
+            style={{
+              marginLeft: 'auto',
+              padding: '4px 8px',
+              fontSize: '0.75rem',
+              backgroundColor: 'transparent',
+              border: '1px solid #555',
+              borderRadius: '4px',
+              color: '#ccc',
+              cursor: 'pointer',
+            }}
+            onMouseOver={(e) => (e.target.style.borderColor = '#777')}
+            onMouseOut={(e) => (e.target.style.borderColor = '#555')}
+          >
+            Refresh
+          </button>
+        </div>
 
         {error && (
           <div
@@ -218,13 +311,14 @@ const TelegramBroadcast = () => {
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your broadcast message here..."
             rows={4}
+            disabled={botStatus === 'disconnected'}
             style={{
               width: '100%',
               padding: '10px',
               borderRadius: '8px',
               border: '1px solid #333',
-              background: '#2a2a2a',
-              color: '#fff',
+              background: botStatus === 'disconnected' ? '#1a1a1a' : '#2a2a2a',
+              color: botStatus === 'disconnected' ? '#666' : '#fff',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               resize: 'vertical',
             }}
@@ -237,13 +331,14 @@ const TelegramBroadcast = () => {
             id="userSelect"
             onChange={handleUserSelect}
             value=""
+            disabled={botStatus === 'disconnected'}
             style={{
               width: '100%',
               padding: '10px',
               borderRadius: '8px',
               border: '1px solid #333',
-              background: '#2a2a2a',
-              color: '#fff',
+              background: botStatus === 'disconnected' ? '#1a1a1a' : '#2a2a2a',
+              color: botStatus === 'disconnected' ? '#666' : '#fff',
             }}
           >
             <option value="">Choose users to add...</option>
@@ -330,7 +425,7 @@ const TelegramBroadcast = () => {
 
         <button
           onClick={handleSend}
-          disabled={sending || !message.trim() || selectedUsers.length === 0}
+          disabled={sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected'}
           style={{
             marginTop: '25px',
             width: '100%',
@@ -340,16 +435,16 @@ const TelegramBroadcast = () => {
             gap: '8px',
             padding: '12px',
             borderRadius: '8px',
-            background: sending || !message.trim() || selectedUsers.length === 0 
+            background: (sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected')
               ? '#555' 
               : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
             color: '#fff',
             border: 'none',
-            cursor: sending || !message.trim() || selectedUsers.length === 0 ? 'not-allowed' : 'pointer',
+            cursor: (sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected') ? 'not-allowed' : 'pointer',
             fontWeight: '600',
           }}
         >
-          {sending ? 'Sending...' : `Send to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}`}
+          {sending ? 'Sending...' : botStatus === 'disconnected' ? 'Bot Disconnected' : `Send to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}`}
         </button>
 
         {sendResults.length > 0 && (
@@ -421,7 +516,6 @@ const TelegramBroadcast = () => {
           </div>
         )}
 
-        {/* Debug section - remove this after confirming data is loading */}
         {loading && (
           <div style={{ marginTop: '35px', color: '#999' }}>
             Loading broadcast history...
@@ -575,6 +669,8 @@ const TelegramBroadcast = () => {
             <li>Users without chat IDs will be excluded from broadcasts</li>
             <li>Broadcast history and acknowledgments are stored in Google Sheets</li>
             <li>Users acknowledge messages by clicking 'Understood' in Telegram</li>
+            <li>Bot status is checked automatically and can be refreshed manually</li>
+            <li>Broadcasts are disabled when bot is disconnected</li>
           </ul>
         </div>
       </div>
