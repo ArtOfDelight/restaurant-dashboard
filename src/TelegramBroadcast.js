@@ -32,22 +32,39 @@ const TelegramBroadcast = () => {
     fetchBroadcastHistory();
   }, []);
 
-  const checkBotStatus = async () => {
-    try {
-      const response = await fetch('/health');
-      const data = await response.json();
-      
-      if (data.services?.telegramBot === 'Connected') {
-        setBotStatus('connected');
-      } else {
-        setBotStatus('disconnected');
-        setError('Telegram bot is not connected. Some features may be unavailable.');
-      }
-    } catch (err) {
-      console.error('Error checking bot status:', err);
-      setBotStatus('unknown');
+  // Replace your checkBotStatus function with this debug version:
+
+const checkBotStatus = async () => {
+  console.log('=== DEBUGGING BOT STATUS CHECK ===');
+  console.log('Current URL:', window.location.href);
+  console.log('Origin:', window.location.origin);
+  
+  try {
+    // Try the health endpoint
+    console.log('Fetching /health...');
+    const response = await fetch('/health');
+    console.log('Response status:', response.status);
+    console.log('Response OK:', response.ok);
+    
+    const data = await response.json();
+    console.log('Response data:', data);
+    
+    if (data.services?.telegramBot === 'Connected') {
+      console.log('✅ Setting status to connected');
+      setBotStatus('connected');
+    } else {
+      console.log('❌ Setting status to disconnected');
+      setBotStatus('disconnected');
+      setError('Telegram bot is not connected. Some features may be unavailable.');
     }
-  };
+  } catch (err) {
+    console.error('=== ERROR in checkBotStatus ===');
+    console.error('Error type:', err.name);
+    console.error('Error message:', err.message);
+    console.error('Full error:', err);
+    setBotStatus('unknown');
+  }
+};
 
   const fetchBroadcastHistory = async () => {
     setLoading(true);
