@@ -6,8 +6,8 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
 
-// Status options
-const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved', 'Closed'];
+// Status options (excluding Closed since closed tickets are hidden from UI)
+const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
@@ -72,7 +72,8 @@ const transformTicketData = (rawTickets) => {
       imageHash: safeRow[6] || '',
       status: safeRow[7] || 'Open',
       assignedTo: safeRow[8] || '',
-      actionTaken: safeRow[9] || '', // New field for action taken
+      actionTaken: safeRow[9] || '',
+      type: safeRow[10] || 'Unknown', // New field for ticket type
       daysPending: calculateDaysPending(safeRow[1] || '')
     };
   }).filter(ticket => {
@@ -80,7 +81,9 @@ const transformTicketData = (rawTickets) => {
                        ticket.submittedBy !== 'Unknown User' || 
                        ticket.date || 
                        ticket.ticketId.startsWith('TKT-') === false;
-    return hasAnyData;
+    // Filter out closed tickets from UI
+    const isNotClosed = ticket.status !== 'Closed';
+    return hasAnyData && isNotClosed;
   });
 };
 
@@ -101,6 +104,7 @@ const TicketDashboard = () => {
     outlet: '',
     status: '',
     assignee: '',
+    type: '',
     search: ''
   });
   const [selectedImage, setSelectedImage] = useState(null);
@@ -110,16 +114,19 @@ const TicketDashboard = () => {
     outlets: [],
     assignees: [],
     statuses: STATUS_OPTIONS,
+    types: [],
   });
 
   const updateFilterOptions = useCallback((ticketsData) => {
     const outlets = [...new Set(ticketsData.map(t => t.outlet).filter(Boolean))];
     const assignees = [...new Set(ticketsData.map(t => t.assignedTo).filter(Boolean))];
+    const types = [...new Set(ticketsData.map(t => t.type).filter(Boolean))];
     
     setFilterOptions(prev => ({
       ...prev,
       outlets: outlets.sort(),
       assignees: assignees.sort(),
+      types: types.sort(),
       statuses: STATUS_OPTIONS,
     }));
   }, []);
@@ -243,17 +250,25 @@ const TicketDashboard = () => {
       const result = await response.json();
 
       if (result.success) {
-        setTickets(prevTickets => 
-          prevTickets.map(ticket => 
-            ticket.ticketId === ticketId 
-              ? { ...ticket, status: newStatus, actionTaken: actionTaken.trim() }
-              : ticket
-          )
-        );
+        if (newStatus === 'Closed') {
+          // Remove closed tickets from UI
+          setTickets(prevTickets => 
+            prevTickets.filter(ticket => ticket.ticketId !== ticketId)
+          );
+          alert(`Ticket ${ticketId} has been closed and removed from the dashboard`);
+        } else {
+          setTickets(prevTickets => 
+            prevTickets.map(ticket => 
+              ticket.ticketId === ticketId 
+                ? { ...ticket, status: newStatus, actionTaken: actionTaken.trim() }
+                : ticket
+            )
+          );
+          alert(`Ticket ${ticketId} status updated to ${newStatus}`);
+        }
         
         setStatusInputs(prev => ({ ...prev, [ticketId]: newStatus }));
         setActionInputs(prev => ({ ...prev, [ticketId]: actionTaken.trim() }));
-        alert(`Ticket ${ticketId} status updated to ${newStatus}`);
       } else {
         throw new Error(result.error || 'Status update failed');
       }
@@ -281,6 +296,7 @@ const TicketDashboard = () => {
         (!filters.outlet || ticket.outlet === filters.outlet) &&
         (!filters.status || ticket.status === filters.status) &&
         (!filters.assignee || ticket.assignedTo === filters.assignee) &&
+        (!filters.type || ticket.type === filters.type) &&
         (!filters.search || 
           ticket.ticketId.toLowerCase().includes(filters.search.toLowerCase()) ||
           ticket.issueDescription.toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -300,9 +316,9 @@ const TicketDashboard = () => {
         aVal = new Date(aVal);
         bVal = new Date(bVal);
       } else if (sortField === 'status') {
-        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2, 'Closed': 3 };
-        aVal = statusOrder[aVal] || 4;
-        bVal = statusOrder[bVal] || 4;
+        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2 };
+        aVal = statusOrder[aVal] || 3;
+        bVal = statusOrder[bVal] || 3;
       }
       
       if (sortDirection === 'asc') {
@@ -320,7 +336,6 @@ const TicketDashboard = () => {
       case 'Open': return '🔴';
       case 'In Progress': return '🟡';
       case 'Resolved': return '🟢';
-      case 'Closed': return '⚪';
       default: return '❓';
     }
   };
@@ -330,13 +345,12 @@ const TicketDashboard = () => {
       case 'Open': return '#ef4444';
       case 'In Progress': return '#f59e0b';
       case 'Resolved': return '#10b981';
-      case 'Closed': return '#6b7280';
       default: return '#6b7280';
     }
   };
 
   const clearAllFilters = () => {
-    setFilters({ date: '', outlet: '', status: '', assignee: '', search: '' });
+    setFilters({ date: '', outlet: '', status: '', assignee: '', type: '', search: '' });
   };
 
   const handleImageError = () => {
@@ -349,7 +363,6 @@ const TicketDashboard = () => {
     open: tickets.filter(t => t.status === 'Open').length,
     inProgress: tickets.filter(t => t.status === 'In Progress').length,
     resolved: tickets.filter(t => t.status === 'Resolved').length,
-    closed: tickets.filter(t => t.status === 'Closed').length,
     avgDaysPending: tickets.length > 0 ? 
       Math.round(tickets.reduce((sum, t) => sum + t.daysPending, 0) / tickets.length) : 0,
   };
@@ -385,7 +398,7 @@ const TicketDashboard = () => {
       <div className="ticket-stats">
         <div className="stat-card">
           <div className="stat-number">{stats.total}</div>
-          <div className="stat-label">Total Tickets</div>
+          <div className="stat-label">Total Active</div>
         </div>
         <div className="stat-card">
           <div className="stat-number">{stats.open}</div>
@@ -399,11 +412,6 @@ const TicketDashboard = () => {
           <div className="stat-number">{stats.resolved}</div>
           <div className="stat-label">Resolved</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.closed}</div>
-          <div className="stat-label">Closed</div>
-        </div>
-        
       </div>
 
       {tickets.length > 0 && (
@@ -434,6 +442,18 @@ const TicketDashboard = () => {
               <option value="">All Outlets</option>
               {filterOptions.outlets.map(outlet => (
                 <option key={outlet} value={outlet}>{outlet}</option>
+              ))}
+            </select>
+          </div>
+          <div className="filter-group">
+            <label>Type</label>
+            <select
+              value={filters.type}
+              onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+            >
+              <option value="">All Types</option>
+              {filterOptions.types.map(type => (
+                <option key={type} value={type}>{type}</option>
               ))}
             </select>
           </div>
@@ -476,8 +496,8 @@ const TicketDashboard = () => {
         {!error && tickets.length === 0 ? (
           <div className="no-data">
             <div className="no-data-icon">🎫</div>
-            <h3>No tickets found</h3>
-            <p>No ticket data is available in your Google Sheets yet.</p>
+            <h3>No active tickets found</h3>
+            <p>No active ticket data is available. Closed tickets are hidden from this view.</p>
             <button onClick={loadTicketData} className="refresh-btn">
               🔄 Refresh Data
             </button>
@@ -507,6 +527,9 @@ const TicketDashboard = () => {
                 <th onClick={() => handleSort('submittedBy')} className="sortable">
                   Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
+                <th onClick={() => handleSort('type')} className="sortable">
+                  Type {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
+                </th>
                 <th>Issue Description</th>
                 <th onClick={() => handleSort('status')} className="sortable">
                   Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -529,6 +552,11 @@ const TicketDashboard = () => {
                   <td className="ticket-date">{formatDate(ticket.date)}</td>
                   <td className="ticket-outlet">{ticket.outlet}</td>
                   <td className="ticket-submitter">{ticket.submittedBy}</td>
+                  <td className="ticket-type">
+                    <span className={`type-badge ${ticket.type?.toLowerCase()}`}>
+                      {ticket.type === 'Complaint' ? '🔴' : ticket.type === 'Order' ? '📦' : '❓'} {ticket.type}
+                    </span>
+                  </td>
                   <td className="ticket-description">
                     <div className="description-text">{ticket.issueDescription}</div>
                     {ticket.imageLink && (
@@ -616,6 +644,7 @@ const TicketDashboard = () => {
                         {STATUS_OPTIONS.map(status => (
                           <option key={status} value={status}>{status}</option>
                         ))}
+                        <option value="Closed">Close Ticket</option>
                       </select>
                       <button
                         onClick={() => updateTicketStatus(

@@ -513,7 +513,7 @@ const HighRatedDashboard = () => {
             <div className="submission-header">
               <div className="submission-info">
                 <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                  PERFORMANCE METRICS {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
+                  PERFORMANCE METRICS SWIGGY {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
                 </h3>
               </div>
             </div>
