@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
 const TelegramBroadcast = () => {
+  // API Base URL - Update this if your backend URL changes
+  const API_BASE_URL = 'https://restaurant-dashboard-nqbtonrender.com';
+  
   const [message, setMessage] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [sending, setSending] = useState(false);
@@ -32,44 +35,27 @@ const TelegramBroadcast = () => {
     fetchBroadcastHistory();
   }, []);
 
-  // Replace your checkBotStatus function with this debug version:
-
-const checkBotStatus = async () => {
-  console.log('=== DEBUGGING BOT STATUS CHECK ===');
-  console.log('Current URL:', window.location.href);
-  console.log('Origin:', window.location.origin);
-  
-  try {
-    // Try the health endpoint
-    console.log('Fetching /health...');
-    const response = await fetch('/health');
-    console.log('Response status:', response.status);
-    console.log('Response OK:', response.ok);
-    
-    const data = await response.json();
-    console.log('Response data:', data);
-    
-    if (data.services?.telegramBot === 'Connected') {
-      console.log('✅ Setting status to connected');
-      setBotStatus('connected');
-    } else {
-      console.log('❌ Setting status to disconnected');
-      setBotStatus('disconnected');
-      setError('Telegram bot is not connected. Some features may be unavailable.');
+  const checkBotStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`);
+      const data = await response.json();
+      
+      if (data.services?.telegramBot === 'Connected') {
+        setBotStatus('connected');
+      } else {
+        setBotStatus('disconnected');
+        setError('Telegram bot is not connected. Some features may be unavailable.');
+      }
+    } catch (err) {
+      console.error('Error checking bot status:', err);
+      setBotStatus('unknown');
     }
-  } catch (err) {
-    console.error('=== ERROR in checkBotStatus ===');
-    console.error('Error type:', err.name);
-    console.error('Error message:', err.message);
-    console.error('Full error:', err);
-    setBotStatus('unknown');
-  }
-};
+  };
 
   const fetchBroadcastHistory = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/broadcast-history');
+      const response = await fetch(`${API_BASE_URL}/api/broadcast-history`);
       const data = await response.json();
       
       console.log('API Response:', data);
@@ -142,7 +128,7 @@ const checkBotStatus = async () => {
     }
 
     try {
-      const response = await fetch('/api/send-broadcast', {
+      const response = await fetch(`${API_BASE_URL}/api/send-broadcast`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -688,6 +674,7 @@ const checkBotStatus = async () => {
             <li>Users acknowledge messages by clicking 'Understood' in Telegram</li>
             <li>Bot status is checked automatically and can be refreshed manually</li>
             <li>Broadcasts are disabled when bot is disconnected</li>
+            <li>API Base URL: {API_BASE_URL}</li>
           </ul>
         </div>
       </div>
