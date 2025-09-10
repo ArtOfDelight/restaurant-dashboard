@@ -2207,860 +2207,24 @@ app.get('/api/debug-swiggy', async (req, res) => {
   }
 });
 
-// Update the health check endpoint to include Swiggy endpoints
-// Add this to your existing /health endpoint response in the endpoints section:
-/*
-swiggy: {
-  data: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
-  insights: '/api/swiggy-generate-insights (POST)',
-  outletAnalysis: '/api/swiggy-analyze-outlet (POST)',
-  debug: '/api/debug-swiggy',
-  description: 'Swiggy-specific dashboard with bottom 3 outlet focus and critical threshold monitoring'
-}
-*/
-
-// Add this to your existing backend code (server.js)
-
-// Employee Dashboard data endpoint
-// Employee Dashboard data endpoint with intelligent mapping
-app.get('/api/employee-data', async (req, res) => {
-  try {
-    const period = req.query.period || '7 Days';
-    console.log(`👥 Employee data requested for period: ${period}`);
-
-    if (!['7 Days', '28 Days'].includes(period)) {
-      res.set('Content-Type', 'application/json');
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid period. Must be one of: 7 Days, 28 Days',
-      });
-    }
-
-    if (!sheets) {
-      const initialized = await initializeGoogleSheets();
-      if (!initialized) {
-        res.set('Content-Type', 'application/json');
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to initialize Google Sheets',
-        });
-      }
-    }
-
-    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
-
-    console.log(`Fetching Employee data for ${period} from: ${EMPLOYEE_SPREADSHEET_ID}`);
-
-    const sheetResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
-      range: `${EMPLOYEE_SHEET_NAME}!A:Z`,
-    });
-
-    console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
-
-    // Process employee data with intelligent mapping
-    const processedData = await processEmployeeSheetData(sheetResponse.data.values, period);
-
-    console.log(`✅ Successfully processed Employee data for ${period}:`, {
-      employees: processedData.length,
-      sample: processedData[0] || {},
-      usingAI: !!GEMINI_API_KEY
-    });
-
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      data: processedData,
-      metadata: {
-        spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
-        sheetName: EMPLOYEE_SHEET_NAME,
-        period: period,
-        rowCount: sheetResponse.data.values ? sheetResponse.data.values.length : 0,
-        intelligentMapping: !!GEMINI_API_KEY
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('❌ Error fetching Employee data:', error.message);
-    res.set('Content-Type', 'application/json');
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: error.response?.data || 'No additional details',
-    });
-  }
-});
-
-
-// === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
-async function mapEmployeeDataWithGemini(headers, sampleRows) {
-  if (!GEMINI_API_KEY) {
-    console.warn('Gemini API key not configured for employee mapping');
-    return null;
-  }
-
-  try {
-    const prompt = `You are analyzing an employee performance dashboard spreadsheet. Identify the correct column mapping.
-
-Expected columns in the data:
-- Employee Name (text)
-- Type (text - values like "counter", "kitchen", etc.)
-- High Rated orders for 7 days (number)
-- High Rated orders for 28 days (number)
-- Low Rated orders for 7 days (number)
-- Low Rated orders for 28 days (number)
-- Total Orders for 7 days (number)
-- Total Orders for 28 days (number)
-- High Rated % for 7 days (percentage)
-- High Rated % for 28 days (percentage)
-- Low Rated % for 7 days (percentage)
-- Low Rated % for 28 days (percentage)
-- IGCC for 7 days (number)
-- IGCC for 28 days (number)
-
-Headers found in spreadsheet:
-${JSON.stringify(headers)}
-
-Sample data rows:
-${JSON.stringify(sampleRows)}
-
-Analyze the headers and sample data to determine the correct column index for each field.
-The Type column should contain values like "counter", "kitchen", etc.
-
-Return ONLY a JSON object mapping field names to column indices, like:
-{
-  "employee_name": 0,
-  "type": 1,
-  "high_rated_7_days": 2,
-  "high_rated_28_days": 3,
-  "low_rated_7_days": 4,
-  "low_rated_28_days": 5,
-  "total_orders_7_days": 6,
-  "total_orders_28_days": 7,
-  "high_rated_percent_7_days": 8,
-  "high_rated_percent_28_days": 9,
-  "low_rated_percent_7_days": 10,
-  "low_rated_percent_28_days": 11,
-  "igcc_7_days": 12,
-  "igcc_28_days": 13
-}`;
-
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 500,
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000
-      }
-    );
-
-    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      const aiResponse = response.data.candidates[0].content.parts[0].text;
-      console.log('Gemini column mapping response received');
-      
-      try {
-        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const mapping = JSON.parse(jsonMatch[0]);
-          console.log('✅ Employee column mapping generated:', mapping);
-          return mapping;
-        }
-      } catch (parseError) {
-        console.error('Failed to parse Gemini mapping response:', parseError);
-      }
-    }
-
-  } catch (error) {
-    console.error('Gemini employee mapping error:', error.message);
-  }
-
-  return null;
-}
-// Employee data processing function with intelligent mapping
-// Employee data processing function with intelligent mapping, filtering, and sorting
-async function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
-  console.log(`Processing Employee data for period: ${requestedPeriod}`);
-  
-  if (!rawData || rawData.length === 0) {
-    console.log('No data found in Employee sheet');
-    return [];
-  }
-
-  // Find the header row
-  let headerRowIndex = -1;
-  for (let i = 0; i < Math.min(rawData.length, 10); i++) {
-    const row = rawData[i];
-    if (row && row[0] && row[0].toString().toLowerCase().includes('employee')) {
-      headerRowIndex = i;
-      console.log(`Found header row at index ${i}`);
-      break;
-    }
-  }
-
-  if (headerRowIndex === -1) {
-    console.log('Could not find header row in Employee sheet');
-    return [];
-  }
-
-  const headers = rawData[headerRowIndex];
-  console.log('Employee headers:', headers);
-
-  // Get sample data rows for intelligent mapping
-  const sampleRows = [];
-  for (let i = headerRowIndex + 1; i < Math.min(headerRowIndex + 4, rawData.length); i++) {
-    if (rawData[i] && rawData[i][0]) {
-      sampleRows.push(rawData[i]);
-    }
-  }
-
-  // Try to get intelligent mapping from Gemini
-  let columnMapping = await mapEmployeeDataWithGemini(headers, sampleRows);
-  
-  // Fallback to default mapping if Gemini fails
-  if (!columnMapping) {
-    console.log('Using default column mapping');
-    // Try to find Type column index
-    let typeIndex = headers.findIndex(h => h && h.toString().toLowerCase().includes('type'));
-    if (typeIndex === -1) typeIndex = 1; // Default to column 1
-    
-    columnMapping = {
-      employee_name: 0,
-      type: typeIndex,
-      high_rated_7_days: 2,
-      high_rated_28_days: 3,
-      low_rated_7_days: 4,
-      low_rated_28_days: 5,
-      total_orders_7_days: 6,
-      total_orders_28_days: 7,
-      high_rated_percent_7_days: 8,
-      high_rated_percent_28_days: 9,
-      low_rated_percent_7_days: 10,
-      low_rated_percent_28_days: 11,
-      igcc_7_days: 12,
-      igcc_28_days: 13
-    };
-  }
-
-  const processedData = [];
-  
-  // Process each data row after headers
-  for (let i = headerRowIndex + 1; i < rawData.length; i++) {
-    const row = rawData[i];
-    
-    if (!row || !row[columnMapping.employee_name] || row[columnMapping.employee_name].toString().trim() === '') {
-      continue; // Skip empty rows
-    }
-    
-    const employeeName = getCellValue(row, columnMapping.employee_name, '').trim();
-    
-    // Skip if employee name is empty or is "overall"
-    if (!employeeName || employeeName.toLowerCase() === 'overall' || employeeName.toLowerCase() === 'total') {
-      console.log(`Skipping row ${i + 1}: ${employeeName || 'empty'}`);
-      continue;
-    }
-    
-    // Get the type value
-    const employeeType = getCellValue(row, columnMapping.type, '').trim().toLowerCase();
-    
-    // Only include employees with type = "counter"
-    if (employeeType !== 'counter') {
-      console.log(`Skipping employee ${employeeName}: Type is "${employeeType}", not "counter"`);
-      continue;
-    }
-    
-    console.log(`Processing counter employee: ${employeeName} at row ${i + 1}`);
-    
-    // Map data using the intelligent column mapping
-    const employeeData = {
-      employee_name: employeeName,
-      type: employeeType,
-      high_rated_7_days: parseEmployeeValue(row[columnMapping.high_rated_7_days]),
-      high_rated_28_days: parseEmployeeValue(row[columnMapping.high_rated_28_days]),
-      low_rated_7_days: parseEmployeeValue(row[columnMapping.low_rated_7_days]),
-      low_rated_28_days: parseEmployeeValue(row[columnMapping.low_rated_28_days]),
-      total_orders_7_days: parseEmployeeValue(row[columnMapping.total_orders_7_days]),
-      total_orders_28_days: parseEmployeeValue(row[columnMapping.total_orders_28_days]),
-      high_rated_percent_7_days: parseEmployeeValue(row[columnMapping.high_rated_percent_7_days]),
-      high_rated_percent_28_days: parseEmployeeValue(row[columnMapping.high_rated_percent_28_days]),
-      low_rated_percent_7_days: parseEmployeeValue(row[columnMapping.low_rated_percent_7_days]),
-      low_rated_percent_28_days: parseEmployeeValue(row[columnMapping.low_rated_percent_28_days]),
-      igcc_7_days: parseEmployeeValue(row[columnMapping.igcc_7_days]),
-      igcc_28_days: parseEmployeeValue(row[columnMapping.igcc_28_days])
-    };
-    
-    // Calculate additional metrics
-    const totalOrders = requestedPeriod === '7 Days' ? employeeData.total_orders_7_days : employeeData.total_orders_28_days;
-    const highRated = requestedPeriod === '7 Days' ? employeeData.high_rated_7_days : employeeData.high_rated_28_days;
-    const lowRated = requestedPeriod === '7 Days' ? employeeData.low_rated_7_days : employeeData.low_rated_28_days;
-    const highRatedPercent = requestedPeriod === '7 Days' ? employeeData.high_rated_percent_7_days : employeeData.high_rated_percent_28_days;
-    const lowRatedPercent = requestedPeriod === '7 Days' ? employeeData.low_rated_percent_7_days : employeeData.low_rated_percent_28_days;
-    const igcc = requestedPeriod === '7 Days' ? employeeData.igcc_7_days : employeeData.igcc_28_days;
-
-    // Add current period data for easier access
-    employeeData.current_period = {
-      total_orders: totalOrders,
-      high_rated: highRated,
-      low_rated: lowRated,
-      high_rated_percent: highRatedPercent,
-      low_rated_percent: lowRatedPercent,
-      igcc: igcc,
-      performance_score: totalOrders > 0 ? (highRatedPercent - lowRatedPercent) : 0
-    };
-    
-    processedData.push(employeeData);
-  }
-  
-  // Sort by high_rated_percent in descending order
-  const sortField = requestedPeriod === '7 Days' ? 'high_rated_percent_7_days' : 'high_rated_percent_28_days';
-  processedData.sort((a, b) => b[sortField] - a[sortField]);
-  
-  console.log(`✅ Processed ${processedData.length} counter employees for ${requestedPeriod}, sorted by ${sortField} (descending)`);
-  
-  return processedData;
-}
-
-// Helper function to parse employee values
-function parseEmployeeValue(val) {
-  if (!val && val !== 0) return 0;
-  const str = val.toString().trim();
-  
-  // Handle error values
-  if (str === '#DIV/0!' || str === '#N/A' || str === '#VALUE!' || str === '') return 0;
-  
-  // Remove percentage signs and clean the string
-  const cleanStr = str.replace(/%/g, '').replace(/,/g, '').trim();
-  
-  const num = parseFloat(cleanStr);
-  return isNaN(num) ? 0 : num;
-}
-
-// Debug Employee endpoint
-app.get('/api/debug-employee', async (req, res) => {
-  try {
-    if (!sheets) {
-      await initializeGoogleSheets();
-    }
-
-    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
-
-    console.log(`🔍 Debug: Fetching raw Employee data from ${EMPLOYEE_SPREADSHEET_ID}`);
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
-      range: `${EMPLOYEE_SHEET_NAME}!A1:Z50`,
-    });
-
-    const rawData = response.data.values || [];
-    console.log(`Debug: Retrieved ${rawData.length} rows`);
-
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
-      sheetName: EMPLOYEE_SHEET_NAME,
-      rawData: rawData.slice(0, 20),
-      totalRows: rawData.length,
-      firstRow: rawData[0] || null,
-      headers: rawData.find(row => row && row[0] && row[0].toString().toLowerCase().includes('employee')) || null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('❌ Error fetching debug Employee data:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
-      sheetName: 'EmployeeDashboard',
-    });
-  }
-});
-// Add these new endpoints to your existing server.js file
-
-// Checklist completion status endpoint
-app.get('/api/checklist-completion-status', async (req, res) => {
-  try {
-    const date = req.query.date || new Date().toISOString().split('T')[0]; // Default to today
-    console.log(`📊 Fetching checklist completion status for date: ${date}`);
-
-    if (!sheets) {
-      const initialized = await initializeGoogleSheets();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
-    }
-
-    const CHECKLIST_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-
-    // Fetch all required tabs
-    console.log('Fetching ChecklistQuestions tab...');
-    const questionsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: 'ChecklistQuestions!A:Z',
-    });
-
-    console.log('Fetching ChecklistSubmissions tab...');
-    const submissionsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: 'ChecklistSubmissions!A:Z',
-    });
-
-    console.log('Fetching Outlet master data tab...');
-    // Try common outlet tab names
-    let outletResponse;
-    const possibleOutletTabs = ['Outlets', 'Outlet', 'OutletMaster', 'Outlet Master', 'OutletData'];
-    
-    for (const tabName of possibleOutletTabs) {
-      try {
-        outletResponse = await sheets.spreadsheets.values.get({
-          spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-          range: `${tabName}!A:Z`,
-        });
-        console.log(`✅ Found outlet data in tab: ${tabName}`);
-        break;
-      } catch (error) {
-        console.log(`Tab "${tabName}" not found, trying next...`);
-      }
-    }
-
-    if (!outletResponse) {
-      console.warn('⚠️ Could not find outlet master data tab, using submissions data only');
-    }
-
-    const questionsData = questionsResponse.data.values || [];
-    const submissionsData = submissionsResponse.data.values || [];
-    const outletData = outletResponse ? outletResponse.data.values || [] : [];
-
-    console.log(`Found ${questionsData.length} question rows, ${submissionsData.length} submission rows, ${outletData.length} outlet rows`);
-
-    // Process the data
-    const completionStatus = processChecklistCompletionData(
-      questionsData, 
-      submissionsData, 
-      outletData, 
-      date
-    );
-
-    console.log(`✅ Processed completion status for ${completionStatus.length} outlets`);
-
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      data: completionStatus,
-      metadata: {
-        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-        date: date,
-        totalOutlets: completionStatus.length,
-        completedOutlets: completionStatus.filter(o => o.overallStatus === 'Completed').length,
-        partialOutlets: completionStatus.filter(o => o.overallStatus === 'Partial').length,
-        pendingOutlets: completionStatus.filter(o => o.overallStatus === 'Pending').length,
-      },
-      timestamp: new Date().toISOString(),
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching checklist completion status:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
-// Function to process checklist completion data
-function processChecklistCompletionData(questionsData, submissionsData, outletData, filterDate) {
-  console.log(`Processing checklist completion data for date: ${filterDate}`);
-  
-  // WHITELIST: Only these outlet codes are allowed
-  const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
-
-  // Extract outlets from master data or submissions
-  const allOutlets = extractOutletList(outletData, submissionsData);
-  
-  // Filter to only whitelisted outlets
-  const outlets = allOutlets.filter(outlet => {
-    if (!outlet.code || !outlet.code.trim()) return false;
-    const outletCode = outlet.code.trim().toUpperCase();
-    return ALLOWED_OUTLET_CODES.includes(outletCode);
-  });
-  
-  console.log(`Found ${outlets.length} whitelisted outlets out of ${allOutlets.length} total`);
-  console.log(`Whitelisted outlets: ${outlets.map(o => o.code).join(', ')}`);
-
-  // Rest of the function remains the same...
-  const timeSlots = extractTimeSlots(questionsData);
-  console.log(`Time slots: ${timeSlots.join(', ')}`);
-
-  const submissionsForDate = filterSubmissionsByDate(submissionsData, filterDate);
-  console.log(`Found ${submissionsForDate.length} submissions for ${filterDate}`);
-
-  // Build completion status for each outlet
-  const completionStatus = outlets.map(outlet => {
-    const outletSubmissions = submissionsForDate.filter(sub => {
-      if (!sub.outlet) return false;
-      const submissionOutlet = sub.outlet.toLowerCase().trim();
-      const outletCode = (outlet.code || '').toLowerCase().trim();
-      const outletName = (outlet.name || '').toLowerCase().trim();
-      
-      return submissionOutlet === outletCode || submissionOutlet === outletName;
-    });
-
-    const timeSlotStatus = timeSlots.map(timeSlot => {
-      const slotSubmission = outletSubmissions.find(sub => 
-        sub.timeSlot && sub.timeSlot.toLowerCase().includes(timeSlot.toLowerCase())
-      );
-
-      return {
-        timeSlot: timeSlot,
-        status: slotSubmission ? 'Completed' : 'Pending',
-        submissionId: slotSubmission ? slotSubmission.submissionId : null,
-        submittedBy: slotSubmission ? slotSubmission.submittedBy : null,
-        timestamp: slotSubmission ? slotSubmission.timestamp : null
-      };
-    });
-
-    const completedSlots = timeSlotStatus.filter(ts => ts.status === 'Completed').length;
-    const totalSlots = timeSlotStatus.length;
-
-    let overallStatus = 'Pending';
-    if (completedSlots === totalSlots) {
-      overallStatus = 'Completed';
-    } else if (completedSlots > 0) {
-      overallStatus = 'Partial';
-    }
-
-    return {
-      outletCode: outlet.code,
-      outletName: outlet.name,
-      outletType: outlet.type,
-      outletLocation: outlet.location,
-      isCloudDays: outlet.isCloudDays,
-      timeSlotStatus: timeSlotStatus,
-      overallStatus: overallStatus,
-      completedSlots: completedSlots,
-      totalSlots: totalSlots,
-      completionPercentage: totalSlots > 0 ? ((completedSlots / totalSlots) * 100).toFixed(1) : '0.0',
-      lastSubmissionTime: outletSubmissions.length > 0 ? 
-        Math.max(...outletSubmissions.map(s => new Date(s.timestamp || 0).getTime())) : null
-    };
-  });
-
-  // Sort by whitelist order
-  completionStatus.sort((a, b) => {
-    const indexA = ALLOWED_OUTLET_CODES.indexOf(a.outletCode.toUpperCase());
-    const indexB = ALLOWED_OUTLET_CODES.indexOf(b.outletCode.toUpperCase());
-    return indexA - indexB;
-  });
-
-  return completionStatus;
-}
-
-// Helper function to extract outlet list
-// Helper function to extract outlet list
-// Helper function to extract outlet list
-function extractOutletList(outletData, submissionsData) {
-  const outlets = [];
-  const outletMap = new Map();
-  
-  // WHITELIST: Only these outlet codes are allowed
-  const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
-
-  // First, try to get outlets from master data
-  if (outletData && outletData.length > 1) {
-    const headers = outletData[0];
-    const codeIndex = headers.findIndex(h => h && h.toLowerCase().includes('code'));
-    const nameIndex = headers.findIndex(h => h && h.toLowerCase().includes('name'));
-    const typeIndex = headers.findIndex(h => h && h.toLowerCase().includes('type'));
-    const locationIndex = headers.findIndex(h => h && h.toLowerCase().includes('location'));
-
-    console.log(`Outlet data column mapping: code=${codeIndex}, name=${nameIndex}, type=${typeIndex}, location=${locationIndex}`);
-
-    for (let i = 1; i < outletData.length; i++) {
-      const row = outletData[i];
-      if (!row) continue;
-
-      const outletCode = getCellValue(row, codeIndex, '').trim().toUpperCase();
-      const outletName = getCellValue(row, nameIndex, '').trim();
-      
-      // Only include if outlet code is in the whitelist
-      if (!outletCode || !ALLOWED_OUTLET_CODES.includes(outletCode)) {
-        if (outletCode) {
-          console.log(`Excluding outlet code not in whitelist: ${outletCode}`);
-        }
-        continue;
-      }
-
-      const outlet = {
-        code: outletCode,
-        name: outletName,
-        type: getCellValue(row, typeIndex, ''),
-        location: getCellValue(row, locationIndex, ''),
-        isCloudDays: false
-      };
-
-      outletMap.set(outletCode, outlet);
-      console.log(`✅ Added whitelisted outlet: ${outletCode}`);
-    }
-  }
-
-  // Process submissions data and match to whitelisted outlets only
-  if (submissionsData && submissionsData.length > 1) {
-    const headers = submissionsData[0];
-    const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
-
-    if (outletIndex !== -1) {
-      for (let i = 1; i < submissionsData.length; i++) {
-        const row = submissionsData[i];
-        if (!row || !row[outletIndex]) continue;
-
-        const submissionOutlet = getCellValue(row, outletIndex, '').trim().toUpperCase();
-        if (!submissionOutlet) continue;
-
-        // Only process if it's in the whitelist
-        if (ALLOWED_OUTLET_CODES.includes(submissionOutlet)) {
-          // Check if already exists
-          if (!outletMap.has(submissionOutlet)) {
-            const newOutlet = {
-              code: submissionOutlet,
-              name: '',
-              type: '',
-              location: '',
-              isCloudDays: false
-            };
-            outletMap.set(submissionOutlet, newOutlet);
-            console.log(`✅ Added whitelisted outlet from submissions: ${submissionOutlet}`);
-          }
-        } else {
-          console.log(`Excluding submission outlet not in whitelist: ${submissionOutlet}`);
-        }
-      }
-    }
-  }
-
-  const finalOutlets = Array.from(outletMap.values());
-  console.log(`Final whitelisted outlets: ${finalOutlets.map(o => o.code).join(', ')}`);
-  console.log(`Total whitelisted outlets: ${finalOutlets.length} out of ${ALLOWED_OUTLET_CODES.length} possible`);
-  
-  return finalOutlets;
-}
-
-// Helper function to extract time slots
-function extractTimeSlots(questionsData) {
-  const timeSlots = new Set();
-  
-  if (questionsData && questionsData.length > 1) {
-    const headers = questionsData[0];
-    const timeSlotIndex = headers.findIndex(h => h && h.toLowerCase().includes('time') && h.toLowerCase().includes('slot'));
-    
-    if (timeSlotIndex !== -1) {
-      for (let i = 1; i < questionsData.length; i++) {
-        const row = questionsData[i];
-        if (row && row[timeSlotIndex]) {
-          const timeSlot = getCellValue(row, timeSlotIndex, '').trim();
-          if (timeSlot) {
-            timeSlots.add(timeSlot);
-          }
-        }
-      }
-    }
-  }
-
-  // Use extracted time slots or default ones
-  const slotsArray = Array.from(timeSlots);
-  return slotsArray.length > 0 ? slotsArray : ['Morning', 'Mid Day', 'Closing'];
-}
-
-// Helper function to filter submissions by date
-function filterSubmissionsByDate(submissionsData, filterDate) {
-  const submissions = [];
-  
-  if (!submissionsData || submissionsData.length <= 1) return submissions;
-
-  const headers = submissionsData[0];
-  const submissionIdIndex = headers.findIndex(h => h && h.toLowerCase().includes('submission') && h.toLowerCase().includes('id'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-  const timeSlotIndex = headers.findIndex(h => h && h.toLowerCase().includes('time') && h.toLowerCase().includes('slot'));
-  const outletIndex = headers.findIndex(h => h && h.toLowerCase().includes('outlet'));
-  const submittedByIndex = headers.findIndex(h => h && h.toLowerCase().includes('submitted') && h.toLowerCase().includes('by'));
-  const timestampIndex = headers.findIndex(h => h && h.toLowerCase().includes('timestamp'));
-
-  console.log(`Submission data column mapping: submissionId=${submissionIdIndex}, date=${dateIndex}, timeSlot=${timeSlotIndex}, outlet=${outletIndex}`);
-
-  for (let i = 1; i < submissionsData.length; i++) {
-    const row = submissionsData[i];
-    if (!row) continue;
-
-    const submissionDate = formatDate(getCellValue(row, dateIndex, ''));
-    
-    // Filter by date
-    if (submissionDate === filterDate) {
-      submissions.push({
-        submissionId: getCellValue(row, submissionIdIndex, ''),
-        date: submissionDate,
-        timeSlot: getCellValue(row, timeSlotIndex, ''),
-        outlet: getCellValue(row, outletIndex, ''),
-        submittedBy: getCellValue(row, submittedByIndex, ''),
-        timestamp: getCellValue(row, timestampIndex, '')
-      });
-    }
-  }
-
-  return submissions;
-}
-
-// Checklist completion summary endpoint
-app.get('/api/checklist-completion-summary', async (req, res) => {
-  try {
-    const date = req.query.date || new Date().toISOString().split('T')[0];
-    console.log(`📈 Fetching checklist completion summary for date: ${date}`);
-
-    // Reuse the completion status endpoint logic
-    const completionResponse = await fetch(`http://localhost:${PORT}/api/checklist-completion-status?date=${date}`);
-    const completionData = await completionResponse.json();
-
-    if (!completionData.success) {
-      throw new Error('Failed to fetch completion data');
-    }
-
-    const data = completionData.data;
-    
-    // Calculate summary statistics
-    const summary = {
-      totalOutlets: data.length,
-      completedOutlets: data.filter(o => o.overallStatus === 'Completed').length,
-      partialOutlets: data.filter(o => o.overallStatus === 'Partial').length,
-      pendingOutlets: data.filter(o => o.overallStatus === 'Pending').length,
-      overallCompletionRate: data.length > 0 ? 
-        ((data.filter(o => o.overallStatus === 'Completed').length / data.length) * 100).toFixed(1) : '0.0',
-      timeSlotBreakdown: {},
-      outletTypeBreakdown: {},
-      cloudDaysBreakdown: {
-        cloudDaysOutlets: data.filter(o => o.isCloudDays).length,
-        regularOutlets: data.filter(o => !o.isCloudDays).length
-      }
-    };
-
-    // Time slot breakdown
-    if (data.length > 0) {
-      const allTimeSlots = [...new Set(data.flatMap(o => o.timeSlotStatus.map(ts => ts.timeSlot)))];
-      allTimeSlots.forEach(timeSlot => {
-        const slotData = data.map(o => o.timeSlotStatus.find(ts => ts.timeSlot === timeSlot)).filter(Boolean);
-        summary.timeSlotBreakdown[timeSlot] = {
-          total: slotData.length,
-          completed: slotData.filter(ts => ts.status === 'Completed').length,
-          pending: slotData.filter(ts => ts.status === 'Pending').length,
-          completionRate: slotData.length > 0 ? 
-            ((slotData.filter(ts => ts.status === 'Completed').length / slotData.length) * 100).toFixed(1) : '0.0'
-        };
-      });
-    }
-
-    // Outlet type breakdown
-    const outletTypes = [...new Set(data.map(o => o.outletType).filter(Boolean))];
-    outletTypes.forEach(type => {
-      const typeOutlets = data.filter(o => o.outletType === type);
-      summary.outletTypeBreakdown[type] = {
-        total: typeOutlets.length,
-        completed: typeOutlets.filter(o => o.overallStatus === 'Completed').length,
-        partial: typeOutlets.filter(o => o.overallStatus === 'Partial').length,
-        pending: typeOutlets.filter(o => o.overallStatus === 'Pending').length,
-        completionRate: typeOutlets.length > 0 ? 
-          ((typeOutlets.filter(o => o.overallStatus === 'Completed').length / typeOutlets.length) * 100).toFixed(1) : '0.0'
-      };
-    });
-
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      summary,
-      date,
-      timestamp: new Date().toISOString(),
-    });
-
-  } catch (error) {
-    console.error('❌ Error fetching checklist completion summary:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
-// Debug checklist completion endpoint
-app.get('/api/debug-checklist-completion', async (req, res) => {
-  try {
-    if (!sheets) {
-      await initializeGoogleSheets();
-    }
-
-    const CHECKLIST_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-
-    console.log('🔍 Debug: Fetching all checklist completion tabs...');
-
-    const responses = {};
-    const tabs = ['ChecklistQuestions', 'ChecklistSubmissions', 'Outlets', 'Outlet', 'OutletMaster'];
-
-    for (const tab of tabs) {
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-          range: `${tab}!A1:Z10`, // First 10 rows for debugging
-        });
-        responses[tab] = {
-          found: true,
-          data: response.data.values || [],
-          headers: response.data.values && response.data.values[0] ? response.data.values[0] : []
-        };
-        console.log(`✅ Found tab: ${tab} with ${responses[tab].data.length} rows`);
-      } catch (error) {
-        responses[tab] = {
-          found: false,
-          error: error.message
-        };
-        console.log(`❌ Tab not found: ${tab}`);
-      }
-    }
-
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      tabs: responses,
-      recommendations: {
-        questionsTab: responses.ChecklistQuestions.found ? 'Found' : 'Not found - check tab name',
-        submissionsTab: responses.ChecklistSubmissions.found ? 'Found' : 'Not found - check tab name',
-        outletTab: Object.keys(responses).find(tab => tab.includes('Outlet') && responses[tab].found) || 'Not found - provide correct tab name'
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('❌ Error in debug checklist completion:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
 // === TICKET MANAGEMENT ENDPOINTS ===
 
-// Transform function for ticket data
+// Helper function to calculate days pending
+function calculateDaysPending(dateString) {
+  if (!dateString) return 0;
+  
+  try {
+    const ticketDate = new Date(dateString);
+    const today = new Date();
+    const diffTime = Math.abs(today - ticketDate);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  } catch (error) {
+    return 0;
+  }
+}
+
+// Transform function for ticket data - UPDATED WITH TYPE COLUMN
 function transformTicketData(rawTickets) {
   if (!rawTickets || rawTickets.length <= 1) return [];
   
@@ -3080,6 +2244,8 @@ function transformTicketData(rawTickets) {
       imageHash: getCellValue(safeRow, 6) || '',
       status: getCellValue(safeRow, 7) || 'Open',
       assignedTo: getCellValue(safeRow, 8) || '',
+      actionTaken: getCellValue(safeRow, 9) || '',
+      type: getCellValue(safeRow, 10) || 'Unknown', // NEW: Type column (K)
       daysPending: calculateDaysPending(getCellValue(safeRow, 1))
     };
   }).filter(ticket => {
@@ -3089,21 +2255,6 @@ function transformTicketData(rawTickets) {
                        ticket.ticketId.startsWith('TKT-') === false;
     return hasAnyData;
   });
-}
-
-// Helper function to calculate days pending
-function calculateDaysPending(dateString) {
-  if (!dateString) return 0;
-  
-  try {
-    const ticketDate = new Date(dateString);
-    const today = new Date();
-    const diffTime = Math.abs(today - ticketDate);
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  } catch (error) {
-    return 0;
-  }
 }
 
 // Fetch tickets from Google Sheets Tickets tab
@@ -3124,7 +2275,7 @@ app.get('/api/ticket-data', async (req, res) => {
     console.log(`Fetching ${TICKET_TAB} from ${TICKET_SPREADSHEET_ID}...`);
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:Z`,
+      range: `${TICKET_TAB}!A:K`, // Extended to include Type column (K)
     });
 
     const ticketsData = ticketsResponse.data.values || [];
@@ -3155,7 +2306,6 @@ app.get('/api/ticket-data', async (req, res) => {
   }
 });
 
-// Update ticket assignment and status in Google Sheets
 // Update ticket assignment and status in Google Sheets - FIXED VERSION
 app.post('/api/assign-ticket', async (req, res) => {
   try {
@@ -3183,7 +2333,7 @@ app.post('/api/assign-ticket', async (req, res) => {
     // Get all ticket data to find the row
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:I`, // Only get columns A through I
+      range: `${TICKET_TAB}!A:K`, // Extended to include Type column
     });
 
     const ticketsData = ticketsResponse.data.values || [];
@@ -3252,51 +2402,6 @@ app.post('/api/assign-ticket', async (req, res) => {
   }
 });
 
-// Debug tickets endpoint
-app.get('/api/debug-tickets', async (req, res) => {
-  try {
-    if (!sheets) {
-      await initializeGoogleSheets();
-    }
-
-    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const TICKET_TAB = 'Tickets';
-
-    console.log(`🔍 Debug: Checking ticket data from ${TICKET_SPREADSHEET_ID}`);
-    
-    const ticketsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:Z`,
-    });
-    
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      spreadsheetId: TICKET_SPREADSHEET_ID,
-      tab: TICKET_TAB,
-      rawData: ticketsResponse.data.values || [],
-      rowCount: ticketsResponse.data.values ? ticketsResponse.data.values.length : 0,
-      headers: ticketsResponse.data.values && ticketsResponse.data.values[0] ? ticketsResponse.data.values[0] : [],
-      expectedColumns: [
-        'Ticket ID (A)', 'Date (B)', 'Outlet (C)', 'Submitted By (D)', 
-        'Issue Description (E)', 'Image Link (F)', 'Image Hash (G)', 
-        'Status (H)', 'Assigned To (I)'
-      ],
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('❌ Debug tickets error:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
-      tab: 'Tickets'
-    });
-  }
-});
-
-// Add this new endpoint to your existing server.js file
-
 // Update ticket status and action taken
 app.post('/api/update-ticket-status', async (req, res) => {
   try {
@@ -3324,7 +2429,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
     // Get all ticket data to find the row
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:J`, // Extended to include column J for Action Taken
+      range: `${TICKET_TAB}!A:K`, // Extended to include Type column
     });
 
     const ticketsData = ticketsResponse.data.values || [];
@@ -3399,39 +2504,7 @@ app.post('/api/update-ticket-status', async (req, res) => {
   }
 });
 
-// Updated transform function for ticket data (replace the existing one)
-function transformTicketData(rawTickets) {
-  if (!rawTickets || rawTickets.length <= 1) return [];
-  
-  const headers = rawTickets[0];
-  const dataRows = rawTickets.slice(1);
-  
-  return dataRows.map((row, index) => {
-    const safeRow = Array.isArray(row) ? row : [];
-    
-    return {
-      ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,
-      date: formatDate(getCellValue(safeRow, 1)),
-      outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',
-      submittedBy: getCellValue(safeRow, 3) || 'Unknown User',
-      issueDescription: getCellValue(safeRow, 4) || '',
-      imageLink: getCellValue(safeRow, 5) || '',
-      imageHash: getCellValue(safeRow, 6) || '',
-      status: getCellValue(safeRow, 7) || 'Open',
-      assignedTo: getCellValue(safeRow, 8) || '',
-      actionTaken: getCellValue(safeRow, 9) || '', // New field for Action Taken (Column J)
-      daysPending: calculateDaysPending(getCellValue(safeRow, 1))
-    };
-  }).filter(ticket => {
-    const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
-                       ticket.submittedBy !== 'Unknown User' || 
-                       ticket.date || 
-                       ticket.ticketId.startsWith('TKT-') === false;
-    return hasAnyData;
-  });
-}
-
-// Updated debug tickets endpoint to show new structure
+// Debug tickets endpoint - UPDATED WITH TYPE COLUMN
 app.get('/api/debug-tickets', async (req, res) => {
   try {
     if (!sheets) {
@@ -3445,7 +2518,7 @@ app.get('/api/debug-tickets', async (req, res) => {
     
     const ticketsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:J`, // Extended to include Action Taken column
+      range: `${TICKET_TAB}!A:K`, // Extended to include Type column
     });
     
     res.set('Content-Type', 'application/json');
@@ -3459,13 +2532,20 @@ app.get('/api/debug-tickets', async (req, res) => {
       expectedColumns: [
         'Ticket ID (A)', 'Date (B)', 'Outlet (C)', 'Submitted By (D)', 
         'Issue Description (E)', 'Image Link (F)', 'Image Hash (G)', 
-        'Status (H)', 'Assigned To (I)', 'Action Taken (J)' // Added new column
+        'Status (H)', 'Assigned To (I)', 'Action Taken (J)', 'Type (K)' // Updated with Type column
       ],
-      newFeatures: {
-        statusUpdateEndpoint: '/api/update-ticket-status (POST)',
-        supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
-        actionTakenColumn: 'J',
-        statusColumn: 'H'
+      columnStructure: {
+        'A': 'Ticket ID',
+        'B': 'Date',
+        'C': 'Outlet', 
+        'D': 'Submitted By',
+        'E': 'Issue Description',
+        'F': 'Image Link',
+        'G': 'Image Hash',
+        'H': 'Status',
+        'I': 'Assigned To',
+        'J': 'Action Taken',
+        'K': 'Type' // NEW: Type column
       },
       timestamp: new Date().toISOString(),
     });
@@ -3480,213 +2560,6 @@ app.get('/api/debug-tickets', async (req, res) => {
   }
 });
 
-// Updated health check endpoint to include new ticket management features
-app.get('/health', async (req, res) => {
-  const sheetsConnected = !!sheets;
-  const driveConnected = !!drive;
-  
-  res.set('Content-Type', 'application/json');
-  res.json({ 
-    status: sheetsConnected && driveConnected ? 'OK' : 'Not Connected',
-    services: {
-      googleSheets: sheetsConnected ? 'Connected' : 'Disconnected',
-      googleDrive: driveConnected ? 'Connected' : 'Disconnected',
-      geminiApi: GEMINI_API_KEY ? 'Configured' : 'Not Configured',
-    },
-    environment: {
-      dashboardSpreadsheetId: DASHBOARD_SPREADSHEET_ID ? 'Set' : 'Missing',
-      dashboardSheetName: DASHBOARD_SHEET_NAME ? 'Set' : 'Missing',
-      checklistSpreadsheetId: CHECKLIST_SPREADSHEET_ID ? 'Set' : 'Missing',
-      geminiApiKey: GEMINI_API_KEY ? 'Set' : 'Missing',
-    },
-    endpoints: {
-      dashboard: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
-      checklist: '/api/checklist-data',
-      checklistStats: '/api/checklist-stats',
-      debugChecklist: '/api/debug-checklist',
-      debugDashboard: '/api/debug-sheet',
-      highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
-      debugHighRated: '/api/debug-high-rated',
-      tickets: '/api/ticket-data',
-      assignTicket: '/api/assign-ticket (POST)',
-      updateTicketStatus: '/api/update-ticket-status (POST)', // New endpoint
-      debugTickets: '/api/debug-tickets',
-      swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
-      employee: '/api/employee-data?period=[7 Days|28 Days]',
-      checklistCompletion: '/api/checklist-completion-status?date=YYYY-MM-DD',
-      aiInsights: '/api/generate-insights (POST)',
-      outletAnalysis: '/api/analyze-outlet (POST)'
-    },
-    ticketManagement: {
-      features: [
-        'Ticket assignment to team members',
-        'Status updates (Open, In Progress, Resolved, Closed)',
-        'Action taken tracking',
-        'Image attachment support',
-        'Days pending calculation',
-        'Filtering and sorting',
-        'Real-time updates'
-      ],
-      supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
-      columnMapping: {
-        'A': 'Ticket ID',
-        'B': 'Date',
-        'C': 'Outlet',
-        'D': 'Submitted By',
-        'E': 'Issue Description',
-        'F': 'Image Link',
-        'G': 'Image Hash',
-        'H': 'Status',
-        'I': 'Assigned To',
-        'J': 'Action Taken'
-      }
-    },
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// Image proxy endpoint with better error handling for ticket images
-app.get('/api/image-proxy/:fileId', async (req, res) => {
-  try {
-    const fileId = req.params.fileId;
-    console.log(`📷 Proxying image for fileId: ${fileId}`);
-    
-    // Add CORS headers
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (!drive) {
-      const initialized = await initializeGoogleSheets();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Drive');
-      }
-    }
-    
-    const response = await drive.files.get(
-      { fileId, alt: 'media' },
-      { responseType: 'stream' }
-    );
-    
-    // Set content type and cache headers
-    const contentType = response.headers['content-type'] || 'image/jpeg';
-    res.set({
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=3600',
-      'Access-Control-Allow-Origin': '*'
-    });
-    
-    response.data.pipe(res);
-    
-  } catch (error) {
-    console.error(`❌ Image proxy error for file ${req.params.fileId}: ${error.message}`);
-    
-    // Set CORS headers even for errors
-    res.header('Access-Control-Allow-Origin', '*');
-    
-    if (error.code === 404) {
-      res.status(404).json({
-        error: 'Image not found',
-        fileId: req.params.fileId,
-        message: 'The requested image file was not found or is not accessible.',
-        suggestion: 'Check if the Google Drive file exists and is shared properly'
-      });
-    } else if (error.code === 403) {
-      res.status(403).json({
-        error: 'Access denied',
-        fileId: req.params.fileId,
-        message: 'Permission denied. Make sure the file is shared with the service account.',
-        serviceAccount: authClient?.email || 'unknown'
-      });
-    } else {
-      res.status(500).json({
-        error: 'Internal server error',
-        fileId: req.params.fileId,
-        message: error.message,
-        suggestion: 'Contact support if this issue persists'
-      });
-    }
-  }
-});
-
-// Add OPTIONS handler for CORS preflight
-app.options('/api/image-proxy/:fileId', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  res.sendStatus(200);
-});
-
-// Updated root endpoint to include ticket management info
-app.get('/', (req, res) => {
-  res.set('Content-Type', 'application/json');
-  res.json({
-    message: 'AOD Dashboard & Ticket Management API Server',
-    version: '2.3.0',
-    status: 'Running',
-    features: [
-      'Multi-period dashboard data (1/7/28 days)',
-      'Enhanced ticket management with status updates',
-      'Action taken tracking for tickets',
-      'Image proxy with improved error handling',
-      'Checklist management with completion tracking',
-      'Employee performance dashboard',
-      'Swiggy-specific analytics',
-      'High-rated order tracking',
-      'AI-powered insights with Gemini',
-      'Comprehensive debugging endpoints'
-    ],
-    endpoints: {
-      tickets: {
-        data: '/api/ticket-data',
-        assign: '/api/assign-ticket (POST)',
-        updateStatus: '/api/update-ticket-status (POST)',
-        debug: '/api/debug-tickets',
-        description: 'Complete ticket management system with status tracking and action logging'
-      },
-      dashboard: {
-        data: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
-        debug: '/api/debug-sheet',
-        description: 'Restaurant performance analytics'
-      },
-      checklist: {
-        data: '/api/checklist-data',
-        stats: '/api/checklist-stats',
-        completion: '/api/checklist-completion-status?date=YYYY-MM-DD',
-        filter: '/api/checklist-filter (POST)',
-        debug: '/api/debug-checklist',
-        description: 'Checklist management and completion tracking'
-      },
-      utilities: {
-        imageProxy: '/api/image-proxy/:fileId',
-        health: '/health',
-        description: 'Utility endpoints for system monitoring and file access'
-      }
-    },
-    ticketUpdates: {
-      newFeatures: [
-        'Status management (Open, In Progress, Resolved, Closed)',
-        'Action taken documentation',
-        'Enhanced image handling',
-        'Better error messages',
-        'Improved UI/UX'
-      ],
-      columnStructure: {
-        'A': 'Ticket ID',
-        'B': 'Date', 
-        'C': 'Outlet',
-        'D': 'Submitted By',
-        'E': 'Issue Description',
-        'F': 'Image Link',
-        'G': 'Image Hash',
-        'H': 'Status',
-        'I': 'Assigned To',
-        'J': 'Action Taken'
-      }
-    },
-    timestamp: new Date().toISOString(),
-  });
-});
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
@@ -3767,8 +2640,40 @@ app.get('/health', async (req, res) => {
       debugDashboard: '/api/debug-sheet',
       highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
       debugHighRated: '/api/debug-high-rated',
+      tickets: '/api/ticket-data',
+      assignTicket: '/api/assign-ticket (POST)',
+      updateTicketStatus: '/api/update-ticket-status (POST)',
+      debugTickets: '/api/debug-tickets',
+      swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
       aiInsights: '/api/generate-insights (POST)',
       outletAnalysis: '/api/analyze-outlet (POST)'
+    },
+    ticketManagement: {
+      features: [
+        'Ticket assignment to team members',
+        'Status updates (Open, In Progress, Resolved, Closed)',
+        'Action taken tracking',
+        'Ticket type classification (Complaint/Order)',
+        'Image attachment support',
+        'Days pending calculation',
+        'Filtering and sorting',
+        'Real-time updates'
+      ],
+      supportedStatuses: ['Open', 'In Progress', 'Resolved', 'Closed'],
+      ticketTypes: ['Complaint', 'Order'],
+      columnMapping: {
+        'A': 'Ticket ID',
+        'B': 'Date',
+        'C': 'Outlet',
+        'D': 'Submitted By',
+        'E': 'Issue Description',
+        'F': 'Image Link',
+        'G': 'Image Hash',
+        'H': 'Status',
+        'I': 'Assigned To',
+        'J': 'Action Taken',
+        'K': 'Type'
+      }
     },
     timestamp: new Date().toISOString(),
   });
@@ -3778,41 +2683,68 @@ app.get('/health', async (req, res) => {
 app.get('/', (req, res) => {
   res.set('Content-Type', 'application/json');
   res.json({
-    message: 'AOD Dashboard & Checklist API Server',
-    version: '2.2.0',
+    message: 'AOD Dashboard & Ticket Management API Server',
+    version: '2.4.0',
     status: 'Running',
     features: [
       'Multi-period dashboard data (1/7/28 days)',
-      'Enhanced error handling for #DIV/0! values',
-      'Fixed High Rated processing with Gemini 1.5 Flash',
-      'Improved column mapping for Google Sheets',
-      'Comprehensive debugging endpoints',
-      'Image proxy with CORS support',
-      'Checklist management system',
-      'Fixed structure processing for High Rated data'
+      'Enhanced ticket management with type classification',
+      'Ticket types: Complaint and Order tracking',
+      'Action taken tracking for tickets',
+      'Image proxy with improved error handling',
+      'Checklist management with completion tracking',
+      'Employee performance dashboard',
+      'Swiggy-specific analytics',
+      'High-rated order tracking',
+      'AI-powered insights with Gemini',
+      'Comprehensive debugging endpoints'
     ],
     endpoints: {
-      health: '/health',
+      tickets: {
+        data: '/api/ticket-data',
+        assign: '/api/assign-ticket (POST)',
+        updateStatus: '/api/update-ticket-status (POST)',
+        debug: '/api/debug-tickets',
+        description: 'Complete ticket management system with type classification and status tracking'
+      },
       dashboard: {
         data: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
         debug: '/api/debug-sheet',
-        description: 'Fetch restaurant performance data for different time periods'
+        description: 'Restaurant performance analytics'
       },
       checklist: {
         data: '/api/checklist-data',
         stats: '/api/checklist-stats',
         filter: '/api/checklist-filter (POST)',
         debug: '/api/debug-checklist',
-        description: 'Manage checklist submissions and responses'
-      },
-      highRated: {
-        data: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
-        debug: '/api/debug-high-rated',
-        description: 'Fetch high rated order performance data with fixed structure processing'
+        description: 'Checklist management and completion tracking'
       },
       utilities: {
         imageProxy: '/api/image-proxy/:fileId',
-        description: 'Proxy Google Drive images with CORS support'
+        health: '/health',
+        description: 'Utility endpoints for system monitoring and file access'
+      }
+    },
+    ticketUpdates: {
+      newFeatures: [
+        'Ticket type classification (Complaint vs Order)',
+        'Enhanced column structure with Type field',
+        'Better filtering and categorization',
+        'Improved dashboard analytics',
+        'Type-based reporting capabilities'
+      ],
+      columnStructure: {
+        'A': 'Ticket ID',
+        'B': 'Date', 
+        'C': 'Outlet',
+        'D': 'Submitted By',
+        'E': 'Issue Description',
+        'F': 'Image Link',
+        'G': 'Image Hash',
+        'H': 'Status',
+        'I': 'Assigned To',
+        'J': 'Action Taken',
+        'K': 'Type (NEW)'
       }
     },
     timestamp: new Date().toISOString(),
@@ -3831,7 +2763,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler - Fixed to avoid path-to-regexp error
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -3840,7 +2772,9 @@ app.use((req, res) => {
     availableEndpoints: {
       dashboard: '/api/dashboard-data?period=[28 Day|7 Day|1 Day]',
       checklist: '/api/checklist-data',
+      tickets: '/api/ticket-data',
       highRated: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
+      swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
       health: '/health',
       root: '/',
     },
@@ -3861,26 +2795,36 @@ process.on('SIGTERM', () => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 AOD Dashboard & Checklist API Server running on http://localhost:${PORT}`);
+  console.log(`🚀 AOD Dashboard & Ticket Management API Server running on http://localhost:${PORT}`);
   console.log('');
   console.log('📊 Dashboard endpoints:');
   console.log(`   GET  /api/dashboard-data?period=[28 Day|7 Day|1 Day] - Fetch performance data`);
   console.log(`   GET  /api/debug-sheet                                - Debug raw sheet data`);
   console.log('');
-  console.log('📋 Checklist endpoints:');
-  console.log(`   GET  /api/checklist-data                             - Fetch all checklist data`);
-  console.log(`   GET  /api/checklist-stats                            - Get statistics`);
-  console.log(`   POST /api/checklist-filter                           - Filter data`);
-  console.log(`   GET  /api/debug-checklist                            - Debug checklist data`);
+  console.log('🎫 Ticket Management endpoints (UPDATED WITH TYPE):');
+  console.log(`   GET  /api/ticket-data                               - Fetch all tickets with type classification`);
+  console.log(`   POST /api/assign-ticket                             - Assign tickets to team members`);
+  console.log(`   POST /api/update-ticket-status                      - Update status and action taken`);
+  console.log(`   GET  /api/debug-tickets                             - Debug ticket structure with Type column`);
   console.log('');
-  console.log('⭐ High Rated endpoints (FIXED STRUCTURE):');
-  console.log(`   GET  /api/high-rated-data-gemini?period=[7 Days|28 Day] - Fetch high rated data with fixed processing`);
-  console.log(`   GET  /api/debug-high-rated                           - Debug high rated data structure`);
+  console.log('📋 Checklist endpoints:');
+  console.log(`   GET  /api/checklist-data                            - Fetch all checklist data`);
+  console.log(`   GET  /api/checklist-stats                           - Get statistics`);
+  console.log(`   POST /api/checklist-filter                          - Filter data`);
+  console.log(`   GET  /api/debug-checklist                           - Debug checklist data`);
+  console.log('');
+  console.log('⭐ High Rated endpoints:');
+  console.log(`   GET  /api/high-rated-data-gemini?period=[7 Days|28 Day] - Fetch high rated data`);
+  console.log(`   GET  /api/debug-high-rated                          - Debug high rated data structure`);
+  console.log('');
+  console.log('🍽️ Swiggy endpoints:');
+  console.log(`   GET  /api/swiggy-dashboard-data?period=[7 Day|1 Day] - Fetch Swiggy performance data`);
+  console.log(`   GET  /api/debug-swiggy                              - Debug Swiggy data structure`);
   console.log('');
   console.log('🔧 Utility endpoints:');
-  console.log(`   GET  /health                                         - Health check`);
-  console.log(`   GET  /                                               - API info`);
-  console.log(`   GET  /api/image-proxy/:fileId                        - Image proxy`);
+  console.log(`   GET  /health                                        - Health check`);
+  console.log(`   GET  /                                              - API info`);
+  console.log(`   GET  /api/image-proxy/:fileId                       - Image proxy`);
   console.log('');
   console.log('🔑 Environment:');
   console.log(`   Dashboard Sheet: ${DASHBOARD_SPREADSHEET_ID ? '✅ Configured' : '❌ Missing'}`);
@@ -3888,9 +2832,11 @@ app.listen(PORT, () => {
   console.log(`   Gemini 1.5 Flash API: ${GEMINI_API_KEY ? '✅ Configured' : '❌ Missing'}`);
   console.log(`   Service Account: ${authClient ? '✅ Connected' : '❌ Not Connected'}`);
   console.log('');
-  console.log('📋 High Rated Data Structure:');
-  console.log('   7 Days: Header in Row 1, Data from Row 2-12, Outlet names in Column D');
-  console.log('   28 Days: Header in Row 18, Data from Row 19+, Outlet names in Column D');
+  console.log('🎫 Ticket Management Updates:');
+  console.log('   NEW: Type column (K) for Complaint/Order classification');
+  console.log('   Column Structure: A-K (Ticket ID → Type)');
+  console.log('   Enhanced filtering and categorization support');
+  console.log('   Closed tickets hidden from UI but kept in sheets');
   console.log('');
-  console.log('🎯 Ready to serve requests!');
+  console.log('🎯 Ready to serve requests with enhanced ticket management!');
 });
