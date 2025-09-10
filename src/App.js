@@ -17,6 +17,12 @@ const TicketDashboard = lazy(() =>
   }))
 );
 
+const TelegramBroadcast = lazy(() => 
+  import('./TelegramBroadcast').catch(() => ({ 
+    default: () => <MissingComponent componentName="TELEGRAM BROADCAST" fileName="TelegramBroadcast" />
+  }))
+);
+
 const HighRatedDashboard = lazy(() => 
   import('./HighRatedDashboard').catch(() => ({ 
     default: () => <MissingComponent componentName="OUTLET DASHBOARD" fileName="HighRatedDashboard" />
@@ -264,14 +270,15 @@ function App() {
   const [currentView, setCurrentView] = useState('checklist'); // CHANGED: Now defaults to checklist
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - Updated to include tickets
+  // Navigation configuration - Updated to include tickets and broadcast
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
-    { key: 'tickets', label: 'TICKETS', icon: '🎫' }
+    { key: 'tickets', label: 'TICKETS', icon: '🎫' },
+    { key: 'broadcast', label: 'BROADCAST', icon: '📢' }
   ];
 
   // Handle view changes with smooth transitions
@@ -293,7 +300,8 @@ function App() {
       outlet: <HighRatedDashboard />,
       employee: <EmployeeDashboard />,
       checklist: <ChecklistDashboard />,
-      tickets: <TicketDashboard />
+      tickets: <TicketDashboard />,
+      broadcast: <TelegramBroadcast />
     };
 
     const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />; // CHANGED: Default fallback to ChecklistDashboard
@@ -390,7 +398,7 @@ function App() {
     );
   };
 
-  // Keyboard navigation - Updated to include tickets
+  // Keyboard navigation - Updated to include tickets and broadcast
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey) {
@@ -400,7 +408,8 @@ function App() {
           '3': 'outlet',
           '4': 'employee',
           '5': 'checklist',
-          '6': 'tickets'
+          '6': 'tickets',
+          '7': 'broadcast'
         };
         
         if (keyMap[e.key]) {
@@ -510,7 +519,7 @@ function App() {
           textAlign: 'right',
           lineHeight: '1.2'
         }}>
-          <div>ALT + 1-6</div>
+          <div>ALT + 1-7</div>
           <div>SHORTCUTS</div>
         </div>
       </nav>
@@ -562,7 +571,7 @@ function App() {
           DASHBOARD SUITE v2.1 • POWERED BY REACT & GOOGLE SHEETS API
         </div>
         <div style={{ marginTop: '5px', fontSize: '0.7rem' }}>
-          USE ALT + 1-6 FOR QUICK NAVIGATION BETWEEN DASHBOARDS
+          USE ALT + 1-7 FOR QUICK NAVIGATION BETWEEN DASHBOARDS
         </div>
       </footer>
     </div>
