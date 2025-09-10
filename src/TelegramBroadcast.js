@@ -6,6 +6,8 @@ const TelegramBroadcast = () => {
   
   const [message, setMessage] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState([]);
   const [broadcastHistory, setBroadcastHistory] = useState([]);
@@ -101,9 +103,53 @@ const TelegramBroadcast = () => {
     setSelectedUsers(selectedUsers.filter(user => user !== userToRemove));
   };
 
+  const handleImageSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Check file size (max 20MB for Telegram)
+      if (file.size > 20 * 1024 * 1024) {
+        setError('Image file size must be less than 20MB');
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select a valid image file');
+        return;
+      }
+      
+      setSelectedImage(file);
+      setError(null);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    // Reset file input
+    const fileInput = document.getElementById('imageInput');
+    if (fileInput) fileInput.value = '';
+  };
+
+  const convertImageToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSend = async () => {
-    if (!message.trim() || selectedUsers.length === 0) {
-      setError('Please fill in all fields: message and select at least one user');
+    if ((!message.trim() && !selectedImage) || selectedUsers.length === 0) {
+      setError('Please provide a message or image and select at least one user');
       return;
     }
 
@@ -128,13 +174,20 @@ const TelegramBroadcast = () => {
     }
 
     try {
+      let imageBase64 = null;
+      if (selectedImage) {
+        imageBase64 = await convertImageToBase64(selectedImage);
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/send-broadcast`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message,
+          message: message.trim() || null,
+          image: imageBase64,
+          imageName: selectedImage?.name || null,
           recipients,
         }),
       });
@@ -152,7 +205,8 @@ const TelegramBroadcast = () => {
         return;
       }
 
-      setSuccess(`Broadcast sent to ${data.recipients} recipient${data.recipients !== 1 ? 's' : ''}!`);
+      const messageType = selectedImage ? (message.trim() ? 'image with caption' : 'image') : 'message';
+      setSuccess(`Broadcast ${messageType} sent to ${data.recipients} recipient${data.recipients !== 1 ? 's' : ''}!`);
       setSendResults(recipients.map(r => ({
         user: r.user,
         success: true,
@@ -160,6 +214,7 @@ const TelegramBroadcast = () => {
       })));
       setMessage('');
       setSelectedUsers([]);
+      removeImage();
       fetchBroadcastHistory(); // Refresh history
     } catch (err) {
       console.error('Error sending broadcast:', err);
@@ -307,12 +362,12 @@ const TelegramBroadcast = () => {
         )}
 
         <div className="filter-group">
-          <label htmlFor="message">Broadcast Message</label>
+          <label htmlFor="message">Broadcast Message (Optional with Image)</label>
           <textarea
             id="message"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type your broadcast message here..."
+            placeholder="Type your broadcast message here... (Optional if uploading an image)"
             rows={4}
             disabled={botStatus === 'disconnected'}
             style={{
@@ -327,6 +382,124 @@ const TelegramBroadcast = () => {
             }}
           />
         </div>
+
+        <div className="filter-group" style={{ marginTop: '25px' }}>
+          <label htmlFor="imageInput">Upload Image (Optional)</label>
+          <div style={{
+            position: 'relative',
+            display: 'inline-block',
+            width: '100%'
+          }}>
+            <input
+              id="imageInput"
+              type="file"
+              accept="image/*"
+              onChange={handleImageSelect}
+              disabled={botStatus === 'disconnected'}
+              style={{
+                position: 'absolute',
+                opacity: 0,
+                width: '100%',
+                height: '100%',
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '2px dashed #555',
+              background: botStatus === 'disconnected' ? '#1a1a1a' : '#2a2a2a',
+              color: botStatus === 'disconnected' ? '#666' : '#fff',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textAlign: 'center',
+              cursor: botStatus === 'disconnected' ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseOver={(e) => {
+              if (botStatus !== 'disconnected') {
+                e.target.style.borderColor = '#777';
+                e.target.style.background = '#333';
+              }
+            }}
+            onMouseOut={(e) => {
+              if (botStatus !== 'disconnected') {
+                e.target.style.borderColor = '#555';
+                e.target.style.background = '#2a2a2a';
+              }
+            }}
+            >
+              📁 Click to choose image file or drag and drop
+            </div>
+          </div>
+          <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '5px' }}>
+            Supported formats: JPG, PNG, GIF, WebP • Max size: 20MB
+          </div>
+        </div>
+
+        {imagePreview && (
+          <div style={{ marginTop: '15px' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              marginBottom: '10px'
+            }}>
+              <span style={{ 
+                fontSize: '0.85rem', 
+                fontWeight: '600', 
+                color: '#fff',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              }}>
+                Selected Image:
+              </span>
+              <button
+                onClick={removeImage}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.75rem',
+                  backgroundColor: '#ef4444',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                }}
+              >
+                Remove Image
+              </button>
+            </div>
+            <div style={{
+              border: '1px solid #333',
+              borderRadius: '8px',
+              padding: '10px',
+              background: '#2a2a2a',
+              display: 'flex',
+              gap: '15px',
+              alignItems: 'flex-start'
+            }}>
+              <img
+                src={imagePreview}
+                alt="Preview"
+                style={{
+                  maxWidth: '150px',
+                  maxHeight: '150px',
+                  borderRadius: '8px',
+                  objectFit: 'cover',
+                }}
+              />
+              <div style={{ 
+                fontSize: '0.8rem', 
+                color: '#ccc',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              }}>
+                <div><strong>Name:</strong> {selectedImage?.name}</div>
+                <div><strong>Size:</strong> {(selectedImage?.size / 1024 / 1024).toFixed(2)} MB</div>
+                <div><strong>Type:</strong> {selectedImage?.type}</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="filter-group" style={{ marginTop: '25px' }}>
           <label htmlFor="userSelect">Select Recipients</label>
@@ -428,7 +601,7 @@ const TelegramBroadcast = () => {
 
         <button
           onClick={handleSend}
-          disabled={sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected'}
+          disabled={sending || (!message.trim() && !selectedImage) || selectedUsers.length === 0 || botStatus === 'disconnected'}
           style={{
             marginTop: '25px',
             width: '100%',
@@ -438,16 +611,24 @@ const TelegramBroadcast = () => {
             gap: '8px',
             padding: '12px',
             borderRadius: '8px',
-            background: (sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected')
+            background: (sending || (!message.trim() && !selectedImage) || selectedUsers.length === 0 || botStatus === 'disconnected')
               ? '#555' 
               : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
             color: '#fff',
             border: 'none',
-            cursor: (sending || !message.trim() || selectedUsers.length === 0 || botStatus === 'disconnected') ? 'not-allowed' : 'pointer',
+            cursor: (sending || (!message.trim() && !selectedImage) || selectedUsers.length === 0 || botStatus === 'disconnected') ? 'not-allowed' : 'pointer',
             fontWeight: '600',
           }}
         >
-          {sending ? 'Sending...' : botStatus === 'disconnected' ? 'Bot Disconnected' : `Send to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}`}
+          {sending ? (
+            <>Sending {selectedImage ? (message.trim() ? 'image with message' : 'image') : 'message'}...</>
+          ) : botStatus === 'disconnected' ? (
+            'Bot Disconnected'
+          ) : (
+            <>
+              Send {selectedImage ? (message.trim() ? 'image + message' : 'image') : 'message'} to {selectedUsers.length} recipient{selectedUsers.length !== 1 ? 's' : ''}
+            </>
+          )}
         </button>
 
         {sendResults.length > 0 && (
