@@ -3310,7 +3310,16 @@ app.post('/api/send-broadcast', async (req, res) => {
 
     console.log(`Sending broadcast to ${recipients.length} recipients`);
     
-    // Initialize Google Services - THIS WAS MISSING!
+    // Log what type of content we're sending
+    if (image && message) {
+      console.log('📸 Sending IMAGE with CAPTION');
+    } else if (image) {
+      console.log('📸 Sending IMAGE ONLY');
+    } else {
+      console.log('💬 Sending TEXT ONLY');
+    }
+    
+    // Initialize Google Services
     if (!sheets) {
       const initialized = await initializeGoogleServices();
       if (!initialized) {
@@ -3330,7 +3339,7 @@ app.post('/api/send-broadcast', async (req, res) => {
       const recipient = recipients[i];
       
       try {
-        console.log(`Sending to ${recipient.user} (${recipient.chatId})`);
+        console.log(`\n--- Sending to ${recipient.user} (${recipient.chatId}) ---`);
         
         const keyboard = {
           inline_keyboard: [[
@@ -3342,21 +3351,81 @@ app.post('/api/send-broadcast', async (req, res) => {
         };
         
         if (image) {
-          // Handle image sending
-          const base64Data = image.replace(/^data:image\/[a-z]+;base64,/, '');
-          const imageBuffer = Buffer.from(base64Data, 'base64');
+          // DETAILED IMAGE LOGGING
+          console.log('🔍 Processing image data...');
+          console.log('Original image data length:', image ? image.length : 'null');
+          console.log('Image starts with:', image ? image.substring(0, 50) : 'null');
+          console.log('Image name:', imageName || 'no name provided');
           
-          await bot.sendPhoto(recipient.chatId, imageBuffer, {
-            caption: message || undefined, // Use message as caption if provided
-            reply_markup: keyboard,
-            parse_mode: 'HTML'
-          });
+          // Check if image data format is correct
+          if (!image.startsWith('data:image/')) {
+            throw new Error(`Invalid image format. Expected data:image/... but got: ${image.substring(0, 30)}`);
+          }
+          
+          // Extract base64 data with better regex
+          const base64Match = image.match(/^data:image\/([^;]+);base64,(.+)$/);
+          if (!base64Match) {
+            throw new Error(`Could not extract base64 data from image. Format: ${image.substring(0, 100)}`);
+          }
+          
+          const imageType = base64Match[1];
+          const base64Data = base64Match[2];
+          
+          console.log('Image type detected:', imageType);
+          console.log('Base64 data length:', base64Data.length);
+          console.log('Base64 data starts with:', base64Data.substring(0, 30));
+          
+          // Create buffer
+          let imageBuffer;
+          try {
+            imageBuffer = Buffer.from(base64Data, 'base64');
+            console.log('✅ Buffer created successfully, size:', imageBuffer.length, 'bytes');
+            
+            if (imageBuffer.length === 0) {
+              throw new Error('Image buffer is empty');
+            }
+            
+            if (imageBuffer.length > 20 * 1024 * 1024) {
+              throw new Error(`Image too large: ${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB (max 20MB)`);
+            }
+            
+          } catch (bufferError) {
+            console.error('❌ Buffer creation failed:', bufferError.message);
+            throw new Error(`Failed to create image buffer: ${bufferError.message}`);
+          }
+          
+          // Send photo with detailed logging
+          console.log('📤 Sending photo to Telegram...');
+          try {
+            await bot.sendPhoto(recipient.chatId, imageBuffer, {
+              caption: message || undefined,
+              reply_markup: keyboard,
+              parse_mode: 'HTML'
+            });
+            console.log('✅ Photo sent successfully!');
+          } catch (telegramError) {
+            console.error('❌ Telegram API error:', telegramError.message);
+            console.error('Error details:', {
+              description: telegramError.description,
+              error_code: telegramError.error_code,
+              parameters: telegramError.parameters
+            });
+            throw new Error(`Telegram API error: ${telegramError.message}`);
+          }
+          
         } else {
           // Handle text-only sending
-          await bot.sendMessage(recipient.chatId, message, {
-            reply_markup: keyboard,
-            parse_mode: 'HTML'
-          });
+          console.log('📤 Sending text message...');
+          try {
+            await bot.sendMessage(recipient.chatId, message, {
+              reply_markup: keyboard,
+              parse_mode: 'HTML'
+            });
+            console.log('✅ Text message sent successfully!');
+          } catch (telegramError) {
+            console.error('❌ Telegram text error:', telegramError.message);
+            throw telegramError;
+          }
         }
         
         results.push({
@@ -3365,6 +3434,7 @@ app.post('/api/send-broadcast', async (req, res) => {
           success: true
         });
         successCount++;
+        console.log(`✅ SUCCESS for ${recipient.user}`);
         
         // Log to Google Sheets
         try {
@@ -3385,17 +3455,23 @@ app.post('/api/send-broadcast', async (req, res) => {
               ]]
             }
           });
+          console.log('📊 Logged to Google Sheets successfully');
         } catch (sheetError) {
-          console.error(`Warning: Failed to log to sheets for ${recipient.user}:`, sheetError.message);
+          console.error(`⚠️ Warning: Failed to log to sheets for ${recipient.user}:`, sheetError.message);
         }
         
         // Rate limiting
         if (i < recipients.length - 1) {
+          console.log('⏳ Waiting 100ms before next send...');
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         
       } catch (error) {
-        console.error(`Failed to send to ${recipient.user}:`, error.message);
+        console.error(`\n❌ FAILED to send to ${recipient.user}:`);
+        console.error('Error type:', error.constructor.name);
+        console.error('Error message:', error.message);
+        console.error('Full error:', error);
+        
         results.push({
           user: recipient.user,
           chatId: recipient.chatId,
@@ -3405,7 +3481,7 @@ app.post('/api/send-broadcast', async (req, res) => {
       }
     }
     
-    console.log(`Broadcast complete: ${successCount}/${recipients.length} sent`);
+    console.log(`\n🎯 Broadcast complete: ${successCount}/${recipients.length} sent`);
     
     res.json({
       success: true,
@@ -3418,7 +3494,11 @@ app.post('/api/send-broadcast', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Broadcast error:', error.message);
+    console.error('\n💥 BROADCAST ERROR:');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Stack trace:', error.stack);
+    
     res.status(500).json({
       success: false,
       error: error.message
