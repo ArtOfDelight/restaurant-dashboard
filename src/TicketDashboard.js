@@ -6,8 +6,15 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
 
-// Status options (excluding Closed since closed tickets are hidden from UI)
+// Status options (including Closed since closed tickets are now shown in their own tab)
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
+
+// Tab configuration
+const TABS = [
+  { id: 'orders', label: 'Orders', icon: '📦' },
+  { id: 'complaints', label: 'Complaints', icon: '🔴' },
+  { id: 'closed', label: 'Closed Tickets', icon: '✅' }
+];
 
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
@@ -81,9 +88,8 @@ const transformTicketData = (rawTickets) => {
                        ticket.submittedBy !== 'Unknown User' || 
                        ticket.date || 
                        ticket.ticketId.startsWith('TKT-') === false;
-    // Filter out closed tickets from UI
-    const isNotClosed = ticket.status !== 'Closed';
-    return hasAnyData && isNotClosed;
+    // No longer filtering out closed tickets - they'll be shown in the closed tab
+    return hasAnyData;
   });
 };
 
@@ -99,12 +105,12 @@ const TicketDashboard = () => {
   const [actionInputs, setActionInputs] = useState({});
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
+  const [activeTab, setActiveTab] = useState('orders'); // New state for active tab
   const [filters, setFilters] = useState({
     date: '',
     outlet: '',
     status: '',
     assignee: '',
-    type: '',
     search: ''
   });
   const [selectedImage, setSelectedImage] = useState(null);
@@ -114,19 +120,16 @@ const TicketDashboard = () => {
     outlets: [],
     assignees: [],
     statuses: STATUS_OPTIONS,
-    types: [],
   });
 
   const updateFilterOptions = useCallback((ticketsData) => {
     const outlets = [...new Set(ticketsData.map(t => t.outlet).filter(Boolean))];
     const assignees = [...new Set(ticketsData.map(t => t.assignedTo).filter(Boolean))];
-    const types = [...new Set(ticketsData.map(t => t.type).filter(Boolean))];
     
     setFilterOptions(prev => ({
       ...prev,
       outlets: outlets.sort(),
       assignees: assignees.sort(),
-      types: types.sort(),
       statuses: STATUS_OPTIONS,
     }));
   }, []);
@@ -250,20 +253,20 @@ const TicketDashboard = () => {
       const result = await response.json();
 
       if (result.success) {
+        // Update the ticket status instead of removing it
+        setTickets(prevTickets => 
+          prevTickets.map(ticket => 
+            ticket.ticketId === ticketId 
+              ? { ...ticket, status: newStatus, actionTaken: actionTaken.trim() }
+              : ticket
+          )
+        );
+        
         if (newStatus === 'Closed') {
-          // Remove closed tickets from UI
-          setTickets(prevTickets => 
-            prevTickets.filter(ticket => ticket.ticketId !== ticketId)
-          );
-          alert(`Ticket ${ticketId} has been closed and removed from the dashboard`);
+          // Switch to closed tab when ticket is closed
+          setActiveTab('closed');
+          alert(`Ticket ${ticketId} has been closed and moved to the Closed Tickets tab`);
         } else {
-          setTickets(prevTickets => 
-            prevTickets.map(ticket => 
-              ticket.ticketId === ticketId 
-                ? { ...ticket, status: newStatus, actionTaken: actionTaken.trim() }
-                : ticket
-            )
-          );
           alert(`Ticket ${ticketId} status updated to ${newStatus}`);
         }
         
@@ -289,14 +292,26 @@ const TicketDashboard = () => {
     }
   };
 
+  const getTicketsByTab = () => {
+    switch (activeTab) {
+      case 'orders':
+        return tickets.filter(ticket => ticket.type === 'Order' && ticket.status !== 'Closed');
+      case 'complaints':
+        return tickets.filter(ticket => ticket.type === 'Complaint' && ticket.status !== 'Closed');
+      case 'closed':
+        return tickets.filter(ticket => ticket.status === 'Closed');
+      default:
+        return tickets;
+    }
+  };
+
   const getFilteredAndSortedTickets = () => {
-    let filtered = tickets.filter(ticket => {
+    let filtered = getTicketsByTab().filter(ticket => {
       return (
         (!filters.date || ticket.date === filters.date) &&
         (!filters.outlet || ticket.outlet === filters.outlet) &&
         (!filters.status || ticket.status === filters.status) &&
         (!filters.assignee || ticket.assignedTo === filters.assignee) &&
-        (!filters.type || ticket.type === filters.type) &&
         (!filters.search || 
           ticket.ticketId.toLowerCase().includes(filters.search.toLowerCase()) ||
           ticket.issueDescription.toLowerCase().includes(filters.search.toLowerCase()) ||
@@ -316,9 +331,9 @@ const TicketDashboard = () => {
         aVal = new Date(aVal);
         bVal = new Date(bVal);
       } else if (sortField === 'status') {
-        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2 };
-        aVal = statusOrder[aVal] || 3;
-        bVal = statusOrder[bVal] || 3;
+        const statusOrder = { 'Open': 0, 'In Progress': 1, 'Resolved': 2, 'Closed': 3 };
+        aVal = statusOrder[aVal] || 4;
+        bVal = statusOrder[bVal] || 4;
       }
       
       if (sortDirection === 'asc') {
@@ -336,6 +351,7 @@ const TicketDashboard = () => {
       case 'Open': return '🔴';
       case 'In Progress': return '🟡';
       case 'Resolved': return '🟢';
+      case 'Closed': return '✅';
       default: return '❓';
     }
   };
@@ -345,12 +361,13 @@ const TicketDashboard = () => {
       case 'Open': return '#ef4444';
       case 'In Progress': return '#f59e0b';
       case 'Resolved': return '#10b981';
+      case 'Closed': return '#6b7280';
       default: return '#6b7280';
     }
   };
 
   const clearAllFilters = () => {
-    setFilters({ date: '', outlet: '', status: '', assignee: '', type: '', search: '' });
+    setFilters({ date: '', outlet: '', status: '', assignee: '', search: '' });
   };
 
   const handleImageError = () => {
@@ -358,11 +375,17 @@ const TicketDashboard = () => {
   };
 
   const filteredTickets = getFilteredAndSortedTickets();
+  const tabTickets = getTicketsByTab();
+  
+  // Calculate stats for all tickets
   const stats = {
-    total: tickets.length,
+    total: tickets.filter(t => t.status !== 'Closed').length,
     open: tickets.filter(t => t.status === 'Open').length,
     inProgress: tickets.filter(t => t.status === 'In Progress').length,
     resolved: tickets.filter(t => t.status === 'Resolved').length,
+    closed: tickets.filter(t => t.status === 'Closed').length,
+    orders: tickets.filter(t => t.type === 'Order' && t.status !== 'Closed').length,
+    complaints: tickets.filter(t => t.type === 'Complaint' && t.status !== 'Closed').length,
     avgDaysPending: tickets.length > 0 ? 
       Math.round(tickets.reduce((sum, t) => sum + t.daysPending, 0) / tickets.length) : 0,
   };
@@ -412,6 +435,29 @@ const TicketDashboard = () => {
           <div className="stat-number">{stats.resolved}</div>
           <div className="stat-label">Resolved</div>
         </div>
+        <div className="stat-card">
+          <div className="stat-number">{stats.closed}</div>
+          <div className="stat-label">Closed</div>
+        </div>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <span className="tab-icon">{tab.icon}</span>
+            <span className="tab-label">{tab.label}</span>
+            <span className="tab-count">
+              ({tab.id === 'orders' ? stats.orders : 
+                tab.id === 'complaints' ? stats.complaints : 
+                stats.closed})
+            </span>
+          </button>
+        ))}
       </div>
 
       {tickets.length > 0 && (
@@ -445,30 +491,20 @@ const TicketDashboard = () => {
               ))}
             </select>
           </div>
-          <div className="filter-group">
-            <label>Type</label>
-            <select
-              value={filters.type}
-              onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
-            >
-              <option value="">All Types</option>
-              {filterOptions.types.map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <label>Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-            >
-              <option value="">All Statuses</option>
-              {filterOptions.statuses.map(status => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
-          </div>
+          {activeTab !== 'closed' && (
+            <div className="filter-group">
+              <label>Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+              >
+                <option value="">All Statuses</option>
+                {filterOptions.statuses.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="filter-group">
             <label>Assignee</label>
             <select
@@ -493,16 +529,16 @@ const TicketDashboard = () => {
       )}
 
       <div className="tickets-table-container">
-        {!error && tickets.length === 0 ? (
+        {!error && tabTickets.length === 0 ? (
           <div className="no-data">
             <div className="no-data-icon">🎫</div>
-            <h3>No active tickets found</h3>
-            <p>No active ticket data is available. Closed tickets are hidden from this view.</p>
+            <h3>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} tickets found</h3>
+            <p>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} ticket data is available.</p>
             <button onClick={loadTicketData} className="refresh-btn">
               🔄 Refresh Data
             </button>
           </div>
-        ) : filteredTickets.length === 0 && tickets.length > 0 ? (
+        ) : filteredTickets.length === 0 && tabTickets.length > 0 ? (
           <div className="no-data">
             <div className="no-data-icon">🔍</div>
             <h3>No tickets match your filters</h3>
@@ -527,9 +563,6 @@ const TicketDashboard = () => {
                 <th onClick={() => handleSort('submittedBy')} className="sortable">
                   Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th onClick={() => handleSort('type')} className="sortable">
-                  Type {sortField === 'type' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
                 <th>Issue Description</th>
                 <th onClick={() => handleSort('status')} className="sortable">
                   Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -537,9 +570,9 @@ const TicketDashboard = () => {
                 <th onClick={() => handleSort('daysPending')} className="sortable">
                   Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
                 </th>
-                <th>Assigned To / Action</th>
+                {activeTab !== 'closed' && <th>Assigned To / Action</th>}
                 <th>Action Taken</th>
-                <th>Status Management</th>
+                {activeTab !== 'closed' && <th>Status Management</th>}
               </tr>
             </thead>
             <tbody>
@@ -552,11 +585,6 @@ const TicketDashboard = () => {
                   <td className="ticket-date">{formatDate(ticket.date)}</td>
                   <td className="ticket-outlet">{ticket.outlet}</td>
                   <td className="ticket-submitter">{ticket.submittedBy}</td>
-                  <td className="ticket-type">
-                    <span className={`type-badge ${ticket.type?.toLowerCase()}`}>
-                      {ticket.type === 'Complaint' ? '🔴' : ticket.type === 'Order' ? '📦' : '❓'} {ticket.type}
-                    </span>
-                  </td>
                   <td className="ticket-description">
                     <div className="description-text">{ticket.issueDescription}</div>
                     {ticket.imageLink && (
@@ -591,35 +619,37 @@ const TicketDashboard = () => {
                       {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
                     </span>
                   </td>
-                  <td className="ticket-assignment">
-                    {ticket.status === 'Open' ? (
-                      <div className="assignment-inline">
-                        <select
-                          value={assignmentInputs[ticket.ticketId] || ''}
-                          onChange={(e) => setAssignmentInputs(prev => ({
-                            ...prev,
-                            [ticket.ticketId]: e.target.value
-                          }))}
-                          disabled={assignmentLoading[ticket.ticketId]}
-                          className="assign-select-inline"
-                        >
-                          <option value="">Select assignee...</option>
-                          {ASSIGNEE_OPTIONS.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
-                          disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
-                          className="assign-btn-inline"
-                        >
-                          {assignmentLoading[ticket.ticketId] ? '...' : 'Assign'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
-                    )}
-                  </td>
+                  {activeTab !== 'closed' && (
+                    <td className="ticket-assignment">
+                      {ticket.status === 'Open' ? (
+                        <div className="assignment-inline">
+                          <select
+                            value={assignmentInputs[ticket.ticketId] || ''}
+                            onChange={(e) => setAssignmentInputs(prev => ({
+                              ...prev,
+                              [ticket.ticketId]: e.target.value
+                            }))}
+                            disabled={assignmentLoading[ticket.ticketId]}
+                            className="assign-select-inline"
+                          >
+                            <option value="">Select assignee...</option>
+                            {ASSIGNEE_OPTIONS.map(name => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
+                            disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
+                            className="assign-btn-inline"
+                          >
+                            {assignmentLoading[ticket.ticketId] ? '...' : 'Assign'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                      )}
+                    </td>
+                  )}
                   <td className="ticket-action-taken">
                     <textarea
                       value={actionInputs[ticket.ticketId] || ''}
@@ -629,36 +659,39 @@ const TicketDashboard = () => {
                       }))}
                       placeholder="Describe action taken..."
                       className="action-taken-textarea"
+                      readOnly={activeTab === 'closed'}
                     />
                   </td>
-                  <td className="ticket-status-management">
-                    <div className="status-management-inline">
-                      <select
-                        value={statusInputs[ticket.ticketId] || ticket.status}
-                        onChange={(e) => setStatusInputs(prev => ({
-                          ...prev,
-                          [ticket.ticketId]: e.target.value
-                        }))}
-                        className="status-select"
-                      >
-                        {STATUS_OPTIONS.map(status => (
-                          <option key={status} value={status}>{status}</option>
-                        ))}
-                        <option value="Closed">Close Ticket</option>
-                      </select>
-                      <button
-                        onClick={() => updateTicketStatus(
-                          ticket.ticketId, 
-                          statusInputs[ticket.ticketId], 
-                          actionInputs[ticket.ticketId]
-                        )}
-                        disabled={statusLoading[ticket.ticketId]}
-                        className="status-update-btn"
-                      >
-                        {statusLoading[ticket.ticketId] ? '...' : 'Update'}
-                      </button>
-                    </div>
-                  </td>
+                  {activeTab !== 'closed' && (
+                    <td className="ticket-status-management">
+                      <div className="status-management-inline">
+                        <select
+                          value={statusInputs[ticket.ticketId] || ticket.status}
+                          onChange={(e) => setStatusInputs(prev => ({
+                            ...prev,
+                            [ticket.ticketId]: e.target.value
+                          }))}
+                          className="status-select"
+                        >
+                          {STATUS_OPTIONS.map(status => (
+                            <option key={status} value={status}>{status}</option>
+                          ))}
+                          <option value="Closed">Close Ticket</option>
+                        </select>
+                        <button
+                          onClick={() => updateTicketStatus(
+                            ticket.ticketId, 
+                            statusInputs[ticket.ticketId], 
+                            actionInputs[ticket.ticketId]
+                          )}
+                          disabled={statusLoading[ticket.ticketId]}
+                          className="status-update-btn"
+                        >
+                          {statusLoading[ticket.ticketId] ? '...' : 'Update'}
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
