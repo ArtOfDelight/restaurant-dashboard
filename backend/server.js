@@ -3473,7 +3473,7 @@ app.use((req, res) => {
       swiggy: '/api/swiggy-dashboard-data?period=[7 Day|1 Day]',
       health: '/health',
       root: '/',
-      sendBroadcast: '/api/send-broadcast (POST)',
+      sendBroadcast: '/api/send-broadcast',
       broadcastHistory: '/api/broadcast-history'
     },
     timestamp: new Date().toISOString(),
