@@ -1,17 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
 const TelegramBroadcast = () => {
   const [message, setMessage] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
-  const [botToken, setBotToken] = useState('8045705611:AAEB8j3V_uyJbb_2uTmNE438xO1Y7G01yZM');
   const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState([]);
   const [broadcastHistory, setBroadcastHistory] = useState([]);
-
-  const chatIds = {
-    'Nishat': '700113654',
-    'Jatin': '1225343546',
-  };
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   const allUsers = [
     'Ajay', 'Jin', 'Kim', 'Nishat', 'Sailo', 'Minthang', 'Mangboi', 'Zansung',
@@ -21,6 +18,28 @@ const TelegramBroadcast = () => {
     'Henry Khongsai', 'Prajesha', 'Sang', 'Obed', 'Thangboi', 'Jangnu',
     'Chong', 'Hoi', 'Sibtain', 'Biraj Bhai', 'Jangminlun', 'Ismael'
   ];
+
+  // Hardcoded chat IDs (same as original)
+  const chatIds = {
+    'Nishat': '700113654',
+    'Jatin': '1225343546',
+  };
+
+  // Fetch broadcast history on mount
+  useEffect(() => {
+    fetchBroadcastHistory();
+  }, []);
+
+  const fetchBroadcastHistory = async () => {
+    try {
+      const response = await axios.get('/api/broadcast-history');
+      setBroadcastHistory(response.data.broadcasts || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching broadcast history:', err);
+      setError('Failed to load broadcast history');
+    }
+  };
 
   const handleUserSelect = (event) => {
     const value = event.target.value;
@@ -35,99 +54,54 @@ const TelegramBroadcast = () => {
     setSelectedUsers(selectedUsers.filter(user => user !== userToRemove));
   };
 
-  const sendToTelegram = async (chatId, text, broadcastId) => {
-    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: text,
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: 'Understood',
-                  callback_data: `acknowledge_${broadcastId}_${chatId}`,
-                },
-              ],
-            ],
-          },
-        }),
-      });
-
-      const result = await response.json();
-      return { success: response.ok, data: result, chatId };
-    } catch (error) {
-      return { success: false, error: error.message, chatId };
-    }
-  };
-
   const handleSend = async () => {
-    if (!message.trim() || selectedUsers.length === 0 || !botToken.trim()) {
-      alert('Please fill in all fields: bot token, message, and select at least one user');
+    if (!message.trim() || selectedUsers.length === 0) {
+      setError('Please fill in all fields: message and select at least one user');
       return;
     }
 
     setSending(true);
     setSendResults([]);
+    setError(null);
+    setSuccess(null);
 
-    const broadcastId = Date.now().toString(); // Unique ID for the broadcast
-    const timestamp = new Date().toLocaleString();
-    const results = [];
-    const broadcastRecipients = [];
+    const recipients = selectedUsers
+      .filter(user => chatIds[user])
+      .map(user => ({ user, chatId: chatIds[user] }));
 
-    for (const user of selectedUsers) {
-      const chatId = chatIds[user];
-      if (chatId) {
-        const result = await sendToTelegram(chatId, message, broadcastId);
-        results.push({ user, ...result });
-        broadcastRecipients.push({ user, chatId, status: 'Sent' });
-      } else {
-        results.push({
-          user,
-          success: false,
-          error: 'Chat ID not configured',
-          chatId: 'N/A',
-        });
-        broadcastRecipients.push({ user, chatId: 'N/A', status: 'Failed' });
-      }
+    if (recipients.length === 0) {
+      setError('No valid recipients with chat IDs selected');
+      setSending(false);
+      return;
     }
 
-    // Store the broadcast in memory
-    setBroadcastHistory([
-      ...broadcastHistory,
-      {
-        id: broadcastId,
+    try {
+      const response = await axios.post('/api/send-broadcast', {
         message,
-        recipients: broadcastRecipients,
-        timestamp,
-      },
-    ]);
+        recipients,
+      });
 
-    setSendResults(results);
-    setSending(false);
-  };
-
-  // Simulate acknowledgment (in a real app, this would be handled via a Telegram bot webhook or polling)
-  const simulateAcknowledge = (broadcastId, chatId) => {
-    setBroadcastHistory((prevHistory) =>
-      prevHistory.map((broadcast) =>
-        broadcast.id === broadcastId
-          ? {
-              ...broadcast,
-              recipients: broadcast.recipients.map((recipient) =>
-                recipient.chatId === chatId
-                  ? { ...recipient, status: 'Acknowledged' }
-                  : recipient
-              ),
-            }
-          : broadcast
-      )
-    );
+      setSuccess(`Broadcast sent to ${response.data.recipients} recipient${response.data.recipients !== 1 ? 's' : ''}!`);
+      setSendResults(recipients.map(r => ({
+        user: r.user,
+        success: true,
+        chatId: r.chatId,
+      })));
+      setMessage('');
+      setSelectedUsers([]);
+      fetchBroadcastHistory(); // Refresh history
+    } catch (err) {
+      console.error('Error sending broadcast:', err);
+      setError('Failed to send broadcast: ' + (err.response?.data?.error || err.message));
+      setSendResults(recipients.map(r => ({
+        user: r.user,
+        success: false,
+        error: err.response?.data?.error || err.message,
+        chatId: r.chatId,
+      })));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -161,19 +135,32 @@ const TelegramBroadcast = () => {
           }}
         />
 
-        <div className="filter-group">
-          <label htmlFor="botToken">Telegram Bot Token</label>
-          <input
-            type="password"
-            id="botToken"
-            value={botToken}
-            onChange={(e) => setBotToken(e.target.value)}
-            placeholder="Enter your Telegram bot token"
-            className="filter-group input"
-          />
-        </div>
+        {error && (
+          <div
+            style={{
+              color: 'var(--color-open)',
+              marginBottom: '20px',
+              fontSize: '0.9rem',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        {success && (
+          <div
+            style={{
+              color: 'var(--color-resolved)',
+              marginBottom: '20px',
+              fontSize: '0.9rem',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            }}
+          >
+            {success}
+          </div>
+        )}
 
-        <div className="filter-group" style={{ marginTop: '25px' }}>
+        <div className="filter-group">
           <label htmlFor="message">Broadcast Message</label>
           <textarea
             id="message"
@@ -243,8 +230,7 @@ const TelegramBroadcast = () => {
                     borderRadius: '12px',
                     color: 'var(--text-primary)',
                     fontSize: '0.8rem',
-                    fontFamily:
-                      "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                   }}
                 >
                   {user}
@@ -265,12 +251,8 @@ const TelegramBroadcast = () => {
                       border: 'none',
                       fontSize: '0.9rem',
                     }}
-                    onMouseOver={(e) =>
-                      (e.target.style.color = 'var(--text-secondary)')
-                    }
-                    onMouseOut={(e) =>
-                      (e.target.style.color = 'var(--text-primary)')
-                    }
+                    onMouseOver={(e) => (e.target.style.color = 'var(--text-secondary)')}
+                    onMouseOut={(e) => (e.target.style.color = 'var(--text-primary)')}
                   >
                     ×
                   </button>
@@ -282,12 +264,7 @@ const TelegramBroadcast = () => {
 
         <button
           onClick={handleSend}
-          disabled={
-            sending ||
-            !message.trim() ||
-            selectedUsers.length === 0 ||
-            !botToken.trim()
-          }
+          disabled={sending || !message.trim() || selectedUsers.length === 0}
           className="assign-btn-inline"
           style={{
             marginTop: '25px',
@@ -309,8 +286,7 @@ const TelegramBroadcast = () => {
                 fontWeight: '600',
                 color: 'var(--text-primary)',
                 marginBottom: '15px',
-                fontFamily:
-                  "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               }}
             >
               Send Results:
@@ -322,12 +298,8 @@ const TelegramBroadcast = () => {
                   style={{
                     padding: '12px',
                     borderRadius: '12px',
-                    border: `1px solid ${
-                      result.success ? 'var(--color-resolved)' : 'var(--color-open)'
-                    }`,
-                    background: result.success
-                      ? 'rgba(16, 185, 129, 0.1)'
-                      : 'rgba(239, 68, 68, 0.1)',
+                    border: `1px solid ${result.success ? 'var(--color-resolved)' : 'var(--color-open)'}`,
+                    background: result.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
                     boxShadow: 'var(--shadow-dark)',
                   }}
                 >
@@ -342,8 +314,7 @@ const TelegramBroadcast = () => {
                       style={{
                         fontWeight: '600',
                         color: 'var(--text-primary)',
-                        fontFamily:
-                          "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
                     >
                       {result.user}
@@ -351,11 +322,8 @@ const TelegramBroadcast = () => {
                     <span
                       style={{
                         fontSize: '0.8rem',
-                        color: result.success
-                          ? 'var(--color-resolved)'
-                          : 'var(--color-open)',
-                        fontFamily:
-                          "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        color: result.success ? 'var(--color-resolved)' : 'var(--color-open)',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
                     >
                       {result.success ? '✓ Sent' : '✗ Failed'}
@@ -367,8 +335,7 @@ const TelegramBroadcast = () => {
                         fontSize: '0.8rem',
                         color: 'var(--color-open)',
                         marginTop: '8px',
-                        fontFamily:
-                          "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
                     >
                       Error: {result.error}
@@ -388,8 +355,7 @@ const TelegramBroadcast = () => {
                 fontWeight: '600',
                 color: 'var(--text-primary)',
                 marginBottom: '15px',
-                fontFamily:
-                  "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               }}
             >
               Broadcast History:
@@ -412,19 +378,17 @@ const TelegramBroadcast = () => {
                       marginBottom: '12px',
                       fontSize: '0.85rem',
                       color: 'var(--text-secondary)',
-                      fontFamily:
-                        "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
-                    <strong>Timestamp:</strong> {broadcast.timestamp}
+                    <strong>Timestamp:</strong> {new Date(broadcast.timestamp).toLocaleString()}
                   </div>
                   <div
                     style={{
                       marginBottom: '12px',
                       fontSize: '0.85rem',
                       color: 'var(--text-primary)',
-                      fontFamily:
-                        "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
                     <strong>Message:</strong> {broadcast.message}
@@ -433,8 +397,7 @@ const TelegramBroadcast = () => {
                     style={{
                       fontSize: '0.85rem',
                       color: 'var(--text-primary)',
-                      fontFamily:
-                        "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
                     <strong>Recipients:</strong>
@@ -456,44 +419,23 @@ const TelegramBroadcast = () => {
                             padding: '8px 12px',
                             borderRadius: '8px',
                             border: `1px solid ${
-                              recipient.status === 'Acknowledged'
-                                ? 'var(--color-resolved)'
-                                : 'var(--border-light)'
+                              recipient.status === 'Acknowledged' ? 'var(--color-resolved)' : 'var(--border-light)'
                             }`,
                             background:
-                              recipient.status === 'Acknowledged'
-                                ? 'rgba(16, 185, 129, 0.1)'
-                                : 'var(--surface-light)',
+                              recipient.status === 'Acknowledged' ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface-light)',
                           }}
                         >
                           <span>{recipient.user} ({recipient.chatId})</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span
-                              style={{
-                                color:
-                                  recipient.status === 'Acknowledged'
-                                    ? 'var(--color-resolved)'
-                                    : 'var(--text-secondary)',
-                                fontSize: '0.8rem',
-                                fontFamily:
-                                  "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                              }}
-                            >
-                              {recipient.status}
-                            </span>
-                            {recipient.status !== 'Acknowledged' &&
-                              recipient.chatId !== 'N/A' && (
-                                <button
-                                  onClick={() =>
-                                    simulateAcknowledge(broadcast.id, recipient.chatId)
-                                  }
-                                  className="assign-btn-inline"
-                                  style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                                >
-                                  Simulate Acknowledge
-                                </button>
-                              )}
-                          </div>
+                          <span
+                            style={{
+                              color: recipient.status === 'Acknowledged' ? 'var(--color-resolved)' : 'var(--text-secondary)',
+                              fontSize: '0.8rem',
+                              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                            }}
+                          >
+                            {recipient.status}
+                            {recipient.acknowledgedAt && ` (at ${new Date(recipient.acknowledgedAt).toLocaleString()})`}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -521,8 +463,7 @@ const TelegramBroadcast = () => {
               color: 'var(--text-primary)',
               marginBottom: '12px',
               fontSize: '1rem',
-              fontFamily:
-                "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             }}
           >
             Configuration Notes:
@@ -533,21 +474,14 @@ const TelegramBroadcast = () => {
               color: 'var(--text-secondary)',
               listStyleType: 'disc',
               paddingLeft: '20px',
-              fontFamily:
-                "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             }}
           >
             <li>Currently configured: Nishat (700113654), Jatin (1225343546)</li>
             <li>To add more chat IDs, update the chatIds object in the code</li>
-            <li>Your bot token is required to send messages</li>
-            <li>Users without chat IDs will show an error when sending</li>
-            <li>
-              Broadcast history is stored in memory for the session (not
-              persistent)
-            </li>
-            <li>
-              Acknowledgments require server-side integration with Telegram API
-            </li>
+            <li>Users without chat IDs will be excluded from broadcasts</li>
+            <li>Broadcast history and acknowledgments are stored in Google Sheets</li>
+            <li>Users acknowledge messages by clicking 'Understood' in Telegram</li>
           </ul>
         </div>
       </div>
