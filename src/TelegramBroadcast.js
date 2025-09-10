@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Send, Users, MessageCircle } from 'lucide-react';
 
 const TelegramBroadcast = () => {
   const [message, setMessage] = useState('');
@@ -8,17 +7,11 @@ const TelegramBroadcast = () => {
   const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState([]);
 
-  // Current chat IDs mapping (you can add more later)
   const chatIds = {
     'Nishat': '700113654',
     'Jatin': '1225343546',
-    // Add more chat IDs here later:
-    // 'Ajay': 'CHAT_ID',
-    // 'Jin': 'CHAT_ID',
-    // etc.
   };
 
-  // All user names for dropdown
   const allUsers = [
     'Ajay', 'Jin', 'Kim', 'Nishat', 'Sailo', 'Minthang', 'Mangboi', 'Zansung',
     'Margaret', 'Kai', 'Risat', 'Thai', 'Jatin', 'Boikho', 'Jimmy', 'Kaiku',
@@ -92,15 +85,31 @@ const TelegramBroadcast = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <div className="flex items-center gap-2 mb-6">
-        <MessageCircle className="h-6 w-6 text-blue-500" />
-        <h2 className="text-2xl font-bold text-gray-800">Telegram Broadcast</h2>
+    <div style={{
+      maxWidth: '672px',
+      margin: '0 auto',
+      padding: '24px',
+      backgroundColor: '#ffffff',
+      borderRadius: '8px',
+      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="#3b82f6">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1f2937' }}>
+          Telegram Broadcast
+        </h2>
       </div>
 
-      {/* Bot Token Input */}
-      <div className="mb-4">
-        <label htmlFor="botToken" className="block text-sm font-medium text-gray-700 mb-2">
+      <div style={{ marginBottom: '16px' }}>
+        <label htmlFor="botToken" style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: '500',
+          color: '#374151',
+          marginBottom: '8px'
+        }}>
           Telegram Bot Token
         </label>
         <input
@@ -109,13 +118,27 @@ const TelegramBroadcast = () => {
           value={botToken}
           onChange={(e) => setBotToken(e.target.value)}
           placeholder="Enter your Telegram bot token"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            outline: 'none',
+            transition: 'border-color 0.2s'
+          }}
+          onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+          onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
         />
       </div>
 
-      {/* Message Input */}
-      <div className="mb-4">
-        <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-2">
+      <div style={{ marginBottom: '16px' }}>
+        <label htmlFor="message" style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: '500',
+          color: '#374151',
+          marginBottom: '8px'
+        }}>
           Broadcast Message
         </label>
         <textarea
@@ -124,20 +147,44 @@ const TelegramBroadcast = () => {
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Type your broadcast message here..."
           rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            outline: 'none',
+            resize: 'none',
+            transition: 'border-color 0.2s'
+          }}
+          onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+          onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
         />
       </div>
 
-      {/* User Selection */}
-      <div className="mb-4">
-        <label htmlFor="userSelect" className="block text-sm font-medium text-gray-700 mb-2">
+      <div style={{ marginBottom: '16px' }}>
+        <label htmlFor="userSelect" style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: '500',
+          color: '#374151',
+          marginBottom: '8px'
+        }}>
           Select Recipients
         </label>
         <select
           id="userSelect"
           onChange={handleUserSelect}
           value=""
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            outline: 'none',
+            transition: 'border-color 0.2s'
+          }}
+          onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+          onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
         >
           <option value="">Choose users to add...</option>
           {allUsers.map(user => (
@@ -148,24 +195,38 @@ const TelegramBroadcast = () => {
         </select>
       </div>
 
-      {/* Selected Users */}
       {selectedUsers.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Users className="h-4 w-4 text-gray-600" />
-            <span className="text-sm font-medium text-gray-700">Selected Recipients:</span>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#4b5563">
+              <path d="M15 19a3 3 0 0 1-6 0H3a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3h-6zM12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+            </svg>
+            <span style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+              Selected Recipients:
+            </span>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             {selectedUsers.map(user => (
               <span
                 key={user}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded-full"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  backgroundColor: '#dbeafe',
+                  color: '#1e40af',
+                  fontSize: '14px',
+                  borderRadius: '9999px'
+                }}
               >
                 {user}
-                {!chatIds[user] && <span className="text-red-500 text-xs">(No ID)</span>}
+                {!chatIds[user] && <span style={{ color: '#dc2626', fontSize: '12px' }}>(No ID)</span>}
                 <button
                   onClick={() => removeUser(user)}
-                  className="ml-1 text-blue-600 hover:text-blue-800"
+                  style={{ marginLeft: '4px', color: '#1e40af', cursor: 'pointer' }}
+                  onMouseOver={(e) => e.target.style.color = '#1e3a8a'}
+                  onMouseOut={(e) => e.target.style.color = '#1e40af'}
                 >
                   ×
                 </button>
@@ -175,34 +236,64 @@ const TelegramBroadcast = () => {
         </div>
       )}
 
-      {/* Send Button */}
       <button
         onClick={handleSend}
         disabled={sending || !message.trim() || selectedUsers.length === 0 || !botToken.trim()}
-        className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-md flex items-center justify-center gap-2 transition-colors"
+        style={{
+          width: '100%',
+          backgroundColor: sending || !message.trim() || selectedUsers.length === 0 || !botToken.trim() ? '#9ca3af' : '#3b82f6',
+          color: '#ffffff',
+          fontWeight: '500',
+          padding: '8px 16px',
+          borderRadius: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          cursor: sending || !message.trim() || selectedUsers.length === 0 || !botToken.trim() ? 'not-allowed' : 'pointer',
+          transition: 'background-color 0.2s'
+        }}
+        onMouseOver={(e) => {
+          if (!sending && message.trim() && selectedUsers.length > 0 && botToken.trim()) {
+            e.target.style.backgroundColor = '#2563eb';
+          }
+        }}
+        onMouseOut={(e) => {
+          if (!sending && message.trim() && selectedUsers.length > 0 && botToken.trim()) {
+            e.target.style.backgroundColor = '#3b82f6';
+          }
+        }}
       >
-        <Send className="h-4 w-4" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffffff">
+          <path d="M2.01 21L23 12 2.01 3v7l15 2-15 2z"/>
+        </svg>
         {sending ? 'Sending...' : `Send to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}`}
       </button>
 
-      {/* Results */}
       {sendResults.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-lg font-medium text-gray-800 mb-3">Send Results:</h3>
-          <div className="space-y-2">
+        <div style={{ marginTop: '24px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: '500', color: '#1f2937', marginBottom: '12px' }}>
+            Send Results:
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {sendResults.map((result, index) => (
               <div
                 key={index}
-                className={`p-3 rounded-md ${result.success ? 'bg-green-100 border-green-200' : 'bg-red-100 border-red-200'} border`}
+                style={{
+                  padding: '12px',
+                  borderRadius: '4px',
+                  border: `1px solid ${result.success ? '#dcfce7' : '#fee2e2'}`,
+                  backgroundColor: result.success ? '#f0fdf4' : '#fef2f2'
+                }}
               >
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">{result.user}</span>
-                  <span className={`text-sm ${result.success ? 'text-green-600' : 'text-red-600'}`}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '500' }}>{result.user}</span>
+                  <span style={{ fontSize: '14px', color: result.success ? '#16a34a' : '#dc2626' }}>
                     {result.success ? '✓ Sent' : '✗ Failed'}
                   </span>
                 </div>
                 {!result.success && (
-                  <p className="text-sm text-red-600 mt-1">
+                  <p style={{ fontSize: '14px', color: '#dc2626', marginTop: '4px' }}>
                     Error: {result.error}
                   </p>
                 )}
@@ -212,14 +303,21 @@ const TelegramBroadcast = () => {
         </div>
       )}
 
-      {/* Configuration Note */}
-      <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-        <h4 className="font-medium text-yellow-800 mb-2">Configuration Notes:</h4>
-        <ul className="text-sm text-yellow-700 space-y-1">
-          <li>• Currently configured: Nishat (700113654), Jatin (1225343546)</li>
-          <li>• To add more chat IDs, update the chatIds object in the code</li>
-          <li>• Your bot token is required to send messages</li>
-          <li>• Users without chat IDs will show an error when sending</li>
+      <div style={{
+        marginTop: '24px',
+        padding: '16px',
+        backgroundColor: '#fefce8',
+        border: '1px solid #fef08a',
+        borderRadius: '4px'
+      }}>
+        <h4 style={{ fontWeight: '500', color: '#713f12', marginBottom: '8px' }}>
+          Configuration Notes:
+        </h4>
+        <ul style={{ fontSize: '14px', color: '#854d0e', listStyleType: 'disc', paddingLeft: '20px' }}>
+          <li>Currently configured: Nishat (700113654), Jatin (1225343546)</li>
+          <li>To add more chat IDs, update the chatIds object in the code</li>
+          <li>Your bot token is required to send messages</li>
+          <li>Users without chat IDs will show an error when sending</li>
         </ul>
       </div>
     </div>
