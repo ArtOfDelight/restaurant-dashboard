@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const TelegramBroadcast = () => {
   // API Base URL - Update this if your backend URL changes
-  const API_BASE_URL = 'https://restaurant-dashboard-nqbi.onrender.com';
+  const API_BASE_URL = 'https://restaurant-dashboard-nqbi.onrender.com/';
   
   const [message, setMessage] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -545,93 +545,147 @@ const TelegramBroadcast = () => {
               Broadcast History ({broadcastHistory.length} broadcasts):
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {broadcastHistory.map((broadcast, index) => (
-                <div
-                  key={broadcast.id || index}
-                  style={{
-                    padding: '20px',
-                    borderRadius: '12px',
-                    border: '1px solid #333',
-                    background: '#1a1a1a',
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                    backdropFilter: 'blur(15px)',
-                  }}
-                >
+              {broadcastHistory.map((broadcast, index) => {
+                const acknowledgedCount = broadcast.recipients?.filter(r => r.status === 'Acknowledged').length || 0;
+                const totalCount = broadcast.recipients?.length || 0;
+                const pendingCount = totalCount - acknowledgedCount;
+                
+                return (
                   <div
+                    key={broadcast.id || index}
                     style={{
-                      marginBottom: '12px',
-                      fontSize: '0.85rem',
-                      color: '#999',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      padding: '20px',
+                      borderRadius: '12px',
+                      border: '1px solid #333',
+                      background: '#1a1a1a',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                      backdropFilter: 'blur(15px)',
                     }}
                   >
-                    <strong>ID:</strong> {broadcast.id || 'N/A'} | <strong>Timestamp:</strong> {formatTimestamp(broadcast.timestamp)}
-                  </div>
-                  <div
-                    style={{
-                      marginBottom: '12px',
-                      fontSize: '0.85rem',
-                      color: '#fff',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                    }}
-                  >
-                    <strong>Message:</strong> {broadcast.message || 'No message'}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '0.85rem',
-                      color: '#fff',
-                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                    }}
-                  >
-                    <strong>Recipients ({broadcast.recipients?.length || 0}):</strong>
-                    {broadcast.recipients && broadcast.recipients.length > 0 ? (
+                    <div
+                      style={{
+                        marginBottom: '12px',
+                        fontSize: '0.85rem',
+                        color: '#999',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      }}
+                    >
+                      <strong>ID:</strong> {broadcast.id || 'N/A'} | <strong>Timestamp:</strong> {formatTimestamp(broadcast.timestamp)}
+                    </div>
+                    <div
+                      style={{
+                        marginBottom: '12px',
+                        fontSize: '0.85rem',
+                        color: '#fff',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      }}
+                    >
+                      <strong>Message:</strong> {broadcast.message || 'No message'}
+                    </div>
+                    
+                    {/* Acknowledgment Summary */}
+                    {totalCount > 0 && (
                       <div
                         style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
-                          marginTop: '8px',
+                          marginBottom: '15px',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: '#2a2a2a',
+                          border: '1px solid #444',
+                          fontSize: '0.8rem',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                         }}
                       >
-                        {broadcast.recipients.map((recipient, recipientIndex) => (
-                          <div
-                            key={recipientIndex}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              padding: '8px 12px',
-                              borderRadius: '8px',
-                              border: `1px solid ${
-                                recipient.status === 'Acknowledged' ? '#10b981' : '#333'
-                              }`,
-                              background:
-                                recipient.status === 'Acknowledged' ? 'rgba(16, 185, 129, 0.1)' : '#2a2a2a',
-                            }}
-                          >
-                            <span>{recipient.user || 'Unknown'} ({recipient.chatId || 'No ID'})</span>
-                            <span
-                              style={{
-                                color: recipient.status === 'Acknowledged' ? '#10b981' : '#999',
-                                fontSize: '0.8rem',
-                                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                              }}
-                            >
-                              {recipient.status || 'Unknown'}
-                              {recipient.acknowledgedAt && ` (at ${formatTimestamp(recipient.acknowledgedAt)})`}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: '8px', color: '#999' }}>
-                        No recipients data
+                        <span style={{ color: '#10b981' }}>✓ {acknowledgedCount} Acknowledged</span>
+                        {pendingCount > 0 && (
+                          <>
+                            <span style={{ color: '#666', margin: '0 8px' }}>•</span>
+                            <span style={{ color: '#f59e0b' }}>⏳ {pendingCount} Pending</span>
+                          </>
+                        )}
+                        <span style={{ color: '#666', margin: '0 8px' }}>•</span>
+                        <span style={{ color: '#999' }}>Total: {totalCount}</span>
                       </div>
                     )}
+                    
+                    <div
+                      style={{
+                        fontSize: '0.85rem',
+                        color: '#fff',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      }}
+                    >
+                      <strong>Recipients ({totalCount}):</strong>
+                      {broadcast.recipients && broadcast.recipients.length > 0 ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                            marginTop: '8px',
+                          }}
+                        >
+                          {broadcast.recipients.map((recipient, recipientIndex) => {
+                            const status = recipient.status === 'Acknowledged' ? 'Acknowledged' : 'Pending';
+                            const isAcknowledged = status === 'Acknowledged';
+                            
+                            return (
+                              <div
+                                key={recipientIndex}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  border: `1px solid ${isAcknowledged ? '#10b981' : '#f59e0b'}`,
+                                  background: isAcknowledged ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                }}
+                              >
+                                <span>{recipient.user || 'Unknown'} ({recipient.chatId || 'No ID'})</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      background: isAcknowledged ? '#10b981' : '#f59e0b',
+                                      color: '#000',
+                                      fontSize: '0.7rem',
+                                      fontWeight: '600',
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.5px',
+                                    }}
+                                  >
+                                    {isAcknowledged ? '✓' : '⏳'} {status}
+                                  </span>
+                                  {recipient.acknowledgedAt && (
+                                    <span
+                                      style={{
+                                        color: '#999',
+                                        fontSize: '0.7rem',
+                                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                                      }}
+                                    >
+                                      {formatTimestamp(recipient.acknowledgedAt)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: '8px', color: '#999' }}>
+                          No recipients data
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -674,6 +728,9 @@ const TelegramBroadcast = () => {
             <li>Users acknowledge messages by clicking 'Understood' in Telegram</li>
             <li>Bot status is checked automatically and can be refreshed manually</li>
             <li>Broadcasts are disabled when bot is disconnected</li>
+            <li>Image uploads: Max 20MB, supports JPG, PNG, GIF, WebP formats</li>
+            <li>Can send text-only, image-only, or image with caption</li>
+            <li>Images are converted to base64 and sent via Telegram's sendPhoto API</li>
             <li>API Base URL: {API_BASE_URL}</li>
           </ul>
         </div>

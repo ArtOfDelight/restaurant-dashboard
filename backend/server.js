@@ -3291,26 +3291,28 @@ app.post('/api/send-broadcast', async (req, res) => {
       });
     }
 
-    const { message, recipients } = req.body;
+    const { message, image, imageName, recipients } = req.body;
     
-    if (!message || !recipients || recipients.length === 0) {
+    // Validate that either message or image is provided
+    if (!message && !image) {
       return res.status(400).json({
         success: false,
-        error: 'Message and recipients are required'
+        error: 'Either message or image is required'
+      });
+    }
+
+    if (!recipients || recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Recipients are required'
       });
     }
 
     console.log(`Sending broadcast to ${recipients.length} recipients`);
     
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
-    }
+    // Initialize Google Services and broadcast tab...
+    // (keep your existing initialization code)
 
-    await initializeBroadcastTab();
-    
     const broadcastId = `BROADCAST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
     
@@ -3321,11 +3323,7 @@ app.post('/api/send-broadcast', async (req, res) => {
       const recipient = recipients[i];
       
       try {
-        console.log(`Sending message to ${recipient.user} (${recipient.chatId})`);
-        
-        if (!recipient.chatId || recipient.chatId === 'undefined' || recipient.chatId === 'null') {
-          throw new Error(`Invalid chat ID for user ${recipient.user}`);
-        }
+        console.log(`Sending to ${recipient.user} (${recipient.chatId})`);
         
         const keyboard = {
           inline_keyboard: [[
@@ -3336,10 +3334,23 @@ app.post('/api/send-broadcast', async (req, res) => {
           ]]
         };
         
-        await bot.sendMessage(recipient.chatId, message, {
-          reply_markup: keyboard,
-          parse_mode: 'HTML'
-        });
+        if (image) {
+          // Handle image sending
+          const base64Data = image.replace(/^data:image\/[a-z]+;base64,/, '');
+          const imageBuffer = Buffer.from(base64Data, 'base64');
+          
+          await bot.sendPhoto(recipient.chatId, imageBuffer, {
+            caption: message || undefined, // Use message as caption if provided
+            reply_markup: keyboard,
+            parse_mode: 'HTML'
+          });
+        } else {
+          // Handle text-only sending (your existing code)
+          await bot.sendMessage(recipient.chatId, message, {
+            reply_markup: keyboard,
+            parse_mode: 'HTML'
+          });
+        }
         
         results.push({
           user: recipient.user,
@@ -3347,22 +3358,23 @@ app.post('/api/send-broadcast', async (req, res) => {
           success: true
         });
         successCount++;
-        console.log(`Sent to ${recipient.user}`);
         
+        // Log to Google Sheets (update to include image info)
         try {
           await sheets.spreadsheets.values.append({
             spreadsheetId: BROADCAST_SPREADSHEET_ID,
-            range: `${BROADCAST_TAB}!A:G`,
+            range: `${BROADCAST_TAB}!A:H`, // Added column for image info
             valueInputOption: 'RAW',
             resource: {
               values: [[
                 broadcastId,
-                message,
+                message || '[Image]',
                 timestamp,
                 recipient.user,
                 recipient.chatId.toString(),
                 'Sent',
-                ''
+                '',
+                image ? imageName || 'image' : '' // New column for image info
               ]]
             }
           });
@@ -3370,6 +3382,7 @@ app.post('/api/send-broadcast', async (req, res) => {
           console.error(`Warning: Failed to log to sheets for ${recipient.user}:`, sheetError.message);
         }
         
+        // Rate limiting
         if (i < recipients.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
@@ -3393,7 +3406,8 @@ app.post('/api/send-broadcast', async (req, res) => {
       recipients: successCount,
       totalRecipients: recipients.length,
       results,
-      timestamp
+      timestamp,
+      hasImage: !!image
     });
     
   } catch (error) {
