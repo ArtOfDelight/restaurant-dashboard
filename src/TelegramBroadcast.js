@@ -707,8 +707,44 @@ const TelegramBroadcast = () => {
         )}
 
         {!loading && broadcastHistory.length === 0 && (
-          <div style={{ marginTop: '35px', color: '#999' }}>
-            No broadcast history available. Send your first broadcast to get started!
+          <div style={{ marginTop: '35px' }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: '15px'
+            }}>
+              <div style={{ color: '#999' }}>
+                No broadcast history available. Send your first broadcast to get started!
+              </div>
+              <button
+                onClick={fetchBroadcastHistory}
+                disabled={loading}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  backgroundColor: loading ? '#555' : '#3b82f6',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#fff',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontWeight: '600'
+                }}
+                onMouseOver={(e) => {
+                  if (!loading) {
+                    e.target.style.backgroundColor = '#2563eb';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (!loading) {
+                    e.target.style.backgroundColor = '#3b82f6';
+                  }
+                }}
+              >
+                {loading ? '↻ Refreshing...' : '↻ Refresh'}
+              </button>
+            </div>
           </div>
         )}
 

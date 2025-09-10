@@ -3310,8 +3310,15 @@ app.post('/api/send-broadcast', async (req, res) => {
 
     console.log(`Sending broadcast to ${recipients.length} recipients`);
     
-    // Initialize Google Services and broadcast tab...
-    // (keep your existing initialization code)
+    // Initialize Google Services - THIS WAS MISSING!
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    await initializeBroadcastTab();
 
     const broadcastId = `BROADCAST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = new Date().toISOString();
@@ -3345,7 +3352,7 @@ app.post('/api/send-broadcast', async (req, res) => {
             parse_mode: 'HTML'
           });
         } else {
-          // Handle text-only sending (your existing code)
+          // Handle text-only sending
           await bot.sendMessage(recipient.chatId, message, {
             reply_markup: keyboard,
             parse_mode: 'HTML'
@@ -3359,11 +3366,11 @@ app.post('/api/send-broadcast', async (req, res) => {
         });
         successCount++;
         
-        // Log to Google Sheets (update to include image info)
+        // Log to Google Sheets
         try {
           await sheets.spreadsheets.values.append({
             spreadsheetId: BROADCAST_SPREADSHEET_ID,
-            range: `${BROADCAST_TAB}!A:H`, // Added column for image info
+            range: `${BROADCAST_TAB}!A:H`,
             valueInputOption: 'RAW',
             resource: {
               values: [[
@@ -3374,7 +3381,7 @@ app.post('/api/send-broadcast', async (req, res) => {
                 recipient.chatId.toString(),
                 'Sent',
                 '',
-                image ? imageName || 'image' : '' // New column for image info
+                image ? imageName || 'image' : ''
               ]]
             }
           });
@@ -3418,7 +3425,6 @@ app.post('/api/send-broadcast', async (req, res) => {
     });
   }
 });
-
 // Get broadcast history
 app.get('/api/broadcast-history', async (req, res) => {
   try {
