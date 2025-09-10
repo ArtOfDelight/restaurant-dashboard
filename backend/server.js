@@ -1964,6 +1964,257 @@ function generateSwiggyFallbackInsights(data, period) {
   };
 }
 
+// === EMPLOYEE DASHBOARD SPECIFIC FUNCTIONS ===
+
+// === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
+async function mapEmployeeDataWithGemini(headers, sampleRows) {
+  if (!GEMINI_API_KEY) {
+    console.warn('Gemini API key not configured for employee mapping');
+    return null;
+  }
+
+  try {
+    const prompt = `You are analyzing an employee performance dashboard spreadsheet. Identify the correct column mapping.
+
+Expected columns in the data:
+- Employee Name (text)
+- Type (text - values like "counter", "kitchen", etc.)
+- High Rated orders for 7 days (number)
+- High Rated orders for 28 days (number)
+- Low Rated orders for 7 days (number)
+- Low Rated orders for 28 days (number)
+- Total Orders for 7 days (number)
+- Total Orders for 28 days (number)
+- High Rated % for 7 days (percentage)
+- High Rated % for 28 days (percentage)
+- Low Rated % for 7 days (percentage)
+- Low Rated % for 28 days (percentage)
+- IGCC for 7 days (number)
+- IGCC for 28 days (number)
+
+Headers found in spreadsheet:
+${JSON.stringify(headers)}
+
+Sample data rows:
+${JSON.stringify(sampleRows)}
+
+Analyze the headers and sample data to determine the correct column index for each field.
+The Type column should contain values like "counter", "kitchen", etc.
+
+Return ONLY a JSON object mapping field names to column indices, like:
+{
+  "employee_name": 0,
+  "type": 1,
+  "high_rated_7_days": 2,
+  "high_rated_28_days": 3,
+  "low_rated_7_days": 4,
+  "low_rated_28_days": 5,
+  "total_orders_7_days": 6,
+  "total_orders_28_days": 7,
+  "high_rated_percent_7_days": 8,
+  "high_rated_percent_28_days": 9,
+  "low_rated_percent_7_days": 10,
+  "low_rated_percent_28_days": 11,
+  "igcc_7_days": 12,
+  "igcc_28_days": 13
+}`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 500,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      console.log('Gemini column mapping response received');
+      
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const mapping = JSON.parse(jsonMatch[0]);
+          console.log('✅ Employee column mapping generated:', mapping);
+          return mapping;
+        }
+      } catch (parseError) {
+        console.error('Failed to parse Gemini mapping response:', parseError);
+      }
+    }
+
+  } catch (error) {
+    console.error('Gemini employee mapping error:', error.message);
+  }
+
+  return null;
+}
+
+// Employee data processing function with intelligent mapping, filtering, and sorting
+async function processEmployeeSheetData(rawData, requestedPeriod = '7 Days') {
+  console.log(`Processing Employee data for period: ${requestedPeriod}`);
+  
+  if (!rawData || rawData.length === 0) {
+    console.log('No data found in Employee sheet');
+    return [];
+  }
+
+  // Find the header row
+  let headerRowIndex = -1;
+  for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+    const row = rawData[i];
+    if (row && row[0] && row[0].toString().toLowerCase().includes('employee')) {
+      headerRowIndex = i;
+      console.log(`Found header row at index ${i}`);
+      break;
+    }
+  }
+
+  if (headerRowIndex === -1) {
+    console.log('Could not find header row in Employee sheet');
+    return [];
+  }
+
+  const headers = rawData[headerRowIndex];
+  console.log('Employee headers:', headers);
+
+  // Get sample data rows for intelligent mapping
+  const sampleRows = [];
+  for (let i = headerRowIndex + 1; i < Math.min(headerRowIndex + 4, rawData.length); i++) {
+    if (rawData[i] && rawData[i][0]) {
+      sampleRows.push(rawData[i]);
+    }
+  }
+
+  // Try to get intelligent mapping from Gemini
+  let columnMapping = await mapEmployeeDataWithGemini(headers, sampleRows);
+  
+  // Fallback to default mapping if Gemini fails
+  if (!columnMapping) {
+    console.log('Using default column mapping');
+    // Try to find Type column index
+    let typeIndex = headers.findIndex(h => h && h.toString().toLowerCase().includes('type'));
+    if (typeIndex === -1) typeIndex = 1; // Default to column 1
+    
+    columnMapping = {
+      employee_name: 0,
+      type: typeIndex,
+      high_rated_7_days: 2,
+      high_rated_28_days: 3,
+      low_rated_7_days: 4,
+      low_rated_28_days: 5,
+      total_orders_7_days: 6,
+      total_orders_28_days: 7,
+      high_rated_percent_7_days: 8,
+      high_rated_percent_28_days: 9,
+      low_rated_percent_7_days: 10,
+      low_rated_percent_28_days: 11,
+      igcc_7_days: 12,
+      igcc_28_days: 13
+    };
+  }
+
+  const processedData = [];
+  
+  // Process each data row after headers
+  for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    
+    if (!row || !row[columnMapping.employee_name] || row[columnMapping.employee_name].toString().trim() === '') {
+      continue; // Skip empty rows
+    }
+    
+    const employeeName = getCellValue(row, columnMapping.employee_name, '').trim();
+    
+    // Skip if employee name is empty or is "overall"
+    if (!employeeName || employeeName.toLowerCase() === 'overall' || employeeName.toLowerCase() === 'total') {
+      console.log(`Skipping row ${i + 1}: ${employeeName || 'empty'}`);
+      continue;
+    }
+    
+    // Get the type value
+    const employeeType = getCellValue(row, columnMapping.type, '').trim().toLowerCase();
+    
+    console.log(`Processing employee: ${employeeName} (${employeeType}) at row ${i + 1}`);
+    
+    // Map data using the intelligent column mapping
+    const employeeData = {
+      employee_name: employeeName,
+      type: employeeType,
+      high_rated_7_days: parseEmployeeValue(row[columnMapping.high_rated_7_days]),
+      high_rated_28_days: parseEmployeeValue(row[columnMapping.high_rated_28_days]),
+      low_rated_7_days: parseEmployeeValue(row[columnMapping.low_rated_7_days]),
+      low_rated_28_days: parseEmployeeValue(row[columnMapping.low_rated_28_days]),
+      total_orders_7_days: parseEmployeeValue(row[columnMapping.total_orders_7_days]),
+      total_orders_28_days: parseEmployeeValue(row[columnMapping.total_orders_28_days]),
+      high_rated_percent_7_days: parseEmployeeValue(row[columnMapping.high_rated_percent_7_days]),
+      high_rated_percent_28_days: parseEmployeeValue(row[columnMapping.high_rated_percent_28_days]),
+      low_rated_percent_7_days: parseEmployeeValue(row[columnMapping.low_rated_percent_7_days]),
+      low_rated_percent_28_days: parseEmployeeValue(row[columnMapping.low_rated_percent_28_days]),
+      igcc_7_days: parseEmployeeValue(row[columnMapping.igcc_7_days]),
+      igcc_28_days: parseEmployeeValue(row[columnMapping.igcc_28_days])
+    };
+    
+    // Calculate additional metrics
+    const totalOrders = requestedPeriod === '7 Days' ? employeeData.total_orders_7_days : employeeData.total_orders_28_days;
+    const highRated = requestedPeriod === '7 Days' ? employeeData.high_rated_7_days : employeeData.high_rated_28_days;
+    const lowRated = requestedPeriod === '7 Days' ? employeeData.low_rated_7_days : employeeData.low_rated_28_days;
+    const highRatedPercent = requestedPeriod === '7 Days' ? employeeData.high_rated_percent_7_days : employeeData.high_rated_percent_28_days;
+    const lowRatedPercent = requestedPeriod === '7 Days' ? employeeData.low_rated_percent_7_days : employeeData.low_rated_percent_28_days;
+    const igcc = requestedPeriod === '7 Days' ? employeeData.igcc_7_days : employeeData.igcc_28_days;
+
+    // Add current period data for easier access
+    employeeData.current_period = {
+      total_orders: totalOrders,
+      high_rated: highRated,
+      low_rated: lowRated,
+      high_rated_percent: highRatedPercent,
+      low_rated_percent: lowRatedPercent,
+      igcc: igcc,
+      performance_score: totalOrders > 0 ? (highRatedPercent - lowRatedPercent) : 0
+    };
+    
+    processedData.push(employeeData);
+  }
+  
+  // Sort by high_rated_percent in descending order
+  const sortField = requestedPeriod === '7 Days' ? 'high_rated_percent_7_days' : 'high_rated_percent_28_days';
+  processedData.sort((a, b) => b[sortField] - a[sortField]);
+  
+  console.log(`✅ Processed ${processedData.length} employees for ${requestedPeriod}, sorted by ${sortField} (descending)`);
+  
+  return processedData;
+}
+
+// Helper function to parse employee values
+function parseEmployeeValue(val) {
+  if (!val && val !== 0) return 0;
+  const str = val.toString().trim();
+  
+  // Handle error values
+  if (str === '#DIV/0!' || str === '#N/A' || str === '#VALUE!' || str === '') return 0;
+  
+  // Remove percentage signs and clean the string
+  const cleanStr = str.replace(/%/g, '').replace(/,/g, '').trim();
+  
+  const num = parseFloat(cleanStr);
+  return isNaN(num) ? 0 : num;
+}
 // === SWIGGY DASHBOARD API ENDPOINTS ===
 
 // Swiggy dashboard data endpoint
@@ -2203,6 +2454,120 @@ app.get('/api/debug-swiggy', async (req, res) => {
       error: error.message,
       spreadsheetId: '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs',
       sheetName: 'Swiggy Dashboard - AOD',
+    });
+  }
+});
+
+// === EMPLOYEE DASHBOARD API ENDPOINTS ===
+
+// Employee Dashboard data endpoint with intelligent mapping
+app.get('/api/employee-data', async (req, res) => {
+  try {
+    const period = req.query.period || '7 Days';
+    console.log(`👥 Employee data requested for period: ${period}`);
+
+    if (!['7 Days', '28 Days'].includes(period)) {
+      res.set('Content-Type', 'application/json');
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid period. Must be one of: 7 Days, 28 Days',
+      });
+    }
+
+    if (!sheets) {
+      const initialized = await initializeGoogleSheets();
+      if (!initialized) {
+        res.set('Content-Type', 'application/json');
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to initialize Google Sheets',
+        });
+      }
+    }
+
+    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
+
+    console.log(`Fetching Employee data for ${period} from: ${EMPLOYEE_SPREADSHEET_ID}`);
+
+    const sheetResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      range: `${EMPLOYEE_SHEET_NAME}!A:Z`,
+    });
+
+    console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
+
+    // Process employee data with intelligent mapping
+    const processedData = await processEmployeeSheetData(sheetResponse.data.values, period);
+
+    console.log(`✅ Successfully processed Employee data for ${period}:`, {
+      employees: processedData.length,
+      sample: processedData[0] || {},
+      usingAI: !!GEMINI_API_KEY
+    });
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: processedData,
+      metadata: {
+        spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+        sheetName: EMPLOYEE_SHEET_NAME,
+        period: period,
+        rowCount: sheetResponse.data.values ? sheetResponse.data.values.length : 0,
+        intelligentMapping: !!GEMINI_API_KEY
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching Employee data:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details',
+    });
+  }
+});
+
+// Debug Employee endpoint
+app.get('/api/debug-employee', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleSheets();
+    }
+
+    const EMPLOYEE_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const EMPLOYEE_SHEET_NAME = 'EmployeeDashboard';
+
+    console.log(`🔍 Debug: Fetching raw Employee data from ${EMPLOYEE_SPREADSHEET_ID}`);
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      range: `${EMPLOYEE_SHEET_NAME}!A1:Z50`,
+    });
+
+    const rawData = response.data.values || [];
+    console.log(`Debug: Retrieved ${rawData.length} rows`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: EMPLOYEE_SPREADSHEET_ID,
+      sheetName: EMPLOYEE_SHEET_NAME,
+      rawData: rawData.slice(0, 20),
+      totalRows: rawData.length,
+      firstRow: rawData[0] || null,
+      headers: rawData.find(row => row && row[0] && row[0].toString().toLowerCase().includes('employee')) || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching debug Employee data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
+      sheetName: 'EmployeeDashboard',
     });
   }
 });
@@ -2837,6 +3202,10 @@ app.listen(PORT, () => {
   console.log('   Column Structure: A-K (Ticket ID → Type)');
   console.log('   Enhanced filtering and categorization support');
   console.log('   Closed tickets hidden from UI but kept in sheets');
+  console.log('');
+  console.log('👥 Employee endpoints:');
+  console.log(`   GET  /api/employee-data?period=[7 Days|28 Days]      - Fetch employee performance data`);
+  console.log(`   GET  /api/debug-employee                             - Debug employee data structure`);
   console.log('');
   console.log('🎯 Ready to serve requests with enhanced ticket management!');
 });
