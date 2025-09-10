@@ -1,8 +1,9 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import logo from './ggg.png';
 
-// Import Dashboard directly since it's the main component
+// Import Dashboard and TelegramBroadcast directly
 import Dashboard from './Dashboard';
+import TelegramBroadcast from './TelegramBroadcast';
 
 // Lazy load other components for better performance
 const ChecklistDashboard = lazy(() => 
@@ -14,12 +15,6 @@ const ChecklistDashboard = lazy(() =>
 const TicketDashboard = lazy(() => 
   import('./TicketDashboard').catch(() => ({ 
     default: () => <MissingComponent componentName="TICKET DASHBOARD" fileName="TicketDashboard" />
-  }))
-);
-
-const TelegramBroadcast = lazy(() => 
-  import('./TelegramBroadcast').catch(() => ({ 
-    default: () => <MissingComponent componentName="TELEGRAM BROADCAST" fileName="TelegramBroadcast" />
   }))
 );
 
@@ -267,7 +262,7 @@ class ErrorBoundary extends React.Component {
 
 // Main App Component
 function App() {
-  const [currentView, setCurrentView] = useState('checklist'); // CHANGED: Now defaults to checklist
+  const [currentView, setCurrentView] = useState('checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Navigation configuration - Updated to include tickets and broadcast
@@ -304,7 +299,7 @@ function App() {
       broadcast: <TelegramBroadcast />
     };
 
-    const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />; // CHANGED: Default fallback to ChecklistDashboard
+    const CurrentComponent = viewComponents[currentView] || <ChecklistDashboard />;
 
     return (
       <ErrorBoundary key={currentView}>
@@ -451,7 +446,7 @@ function App() {
           
           ::-webkit-scrollbar-thumb {
             background: var(--border-light);
-            border-radius: 4px;
+            borderRadius: 4px;
           }
           
           ::-webkit-scrollbar-thumb:hover {
