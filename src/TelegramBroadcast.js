@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
 const TelegramBroadcast = () => {
   const [message, setMessage] = useState('');
@@ -9,6 +8,7 @@ const TelegramBroadcast = () => {
   const [broadcastHistory, setBroadcastHistory] = useState([]);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const allUsers = [
     'Ajay', 'Jin', 'Kim', 'Nishat', 'Sailo', 'Minthang', 'Mangboi', 'Zansung',
@@ -31,14 +31,44 @@ const TelegramBroadcast = () => {
   }, []);
 
   const fetchBroadcastHistory = async () => {
+    setLoading(true);
     try {
-      const response = await axios.get('/api/broadcast-history');
-      setBroadcastHistory(response.data.broadcasts || []);
+      const response = await fetch('/api/broadcast-history');
+      const data = await response.json();
+      
+      console.log('API Response:', data); // Debug log
+      
+      // Handle both data.broadcasts and data directly
+      const broadcasts = data.broadcasts || data || [];
+      
+      // Ensure broadcasts is an array
+      const broadcastArray = Array.isArray(broadcasts) ? broadcasts : [];
+      
+      setBroadcastHistory(broadcastArray);
       setError(null);
+      console.log('Processed broadcasts:', broadcastArray); // Debug log
     } catch (err) {
       console.error('Error fetching broadcast history:', err);
-      setError('Failed to load broadcast history');
+      setError('Failed to load broadcast history: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // Helper function to format timestamp
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return 'Unknown time';
+    
+    // Try to parse as a Date
+    const date = new Date(timestamp);
+    
+    // Check if it's a valid date
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleString();
+    }
+    
+    // If not a valid date, return as is (for cases like "12:00")
+    return timestamp;
   };
 
   const handleUserSelect = (event) => {
@@ -76,12 +106,24 @@ const TelegramBroadcast = () => {
     }
 
     try {
-      const response = await axios.post('/api/send-broadcast', {
-        message,
-        recipients,
+      const response = await fetch('/api/send-broadcast', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message,
+          recipients,
+        }),
       });
 
-      setSuccess(`Broadcast sent to ${response.data.recipients} recipient${response.data.recipients !== 1 ? 's' : ''}!`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send broadcast');
+      }
+
+      setSuccess(`Broadcast sent to ${data.recipients} recipient${data.recipients !== 1 ? 's' : ''}!`);
       setSendResults(recipients.map(r => ({
         user: r.user,
         success: true,
@@ -92,11 +134,11 @@ const TelegramBroadcast = () => {
       fetchBroadcastHistory(); // Refresh history
     } catch (err) {
       console.error('Error sending broadcast:', err);
-      setError('Failed to send broadcast: ' + (err.response?.data?.error || err.message));
+      setError('Failed to send broadcast: ' + err.message);
       setSendResults(recipients.map(r => ({
         user: r.user,
         success: false,
-        error: err.response?.data?.error || err.message,
+        error: err.message,
         chatId: r.chatId,
       })));
     } finally {
@@ -112,13 +154,13 @@ const TelegramBroadcast = () => {
 
       <div
         style={{
-          background: 'var(--surface-dark)',
-          border: '1px solid var(--border-light)',
+          background: '#1a1a1a',
+          border: '1px solid #333',
           borderRadius: '20px',
           padding: '30px',
           marginBottom: '35px',
           backdropFilter: 'blur(15px)',
-          boxShadow: 'var(--shadow-dark)',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
           position: 'relative',
           overflow: 'hidden',
         }}
@@ -130,7 +172,7 @@ const TelegramBroadcast = () => {
             left: '0',
             right: '0',
             height: '2px',
-            background: 'var(--primary-gradient)',
+            background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
             opacity: '0.8',
           }}
         />
@@ -138,25 +180,33 @@ const TelegramBroadcast = () => {
         {error && (
           <div
             style={{
-              color: 'var(--color-open)',
+              color: '#ef4444',
               marginBottom: '20px',
               fontSize: '0.9rem',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              padding: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              borderRadius: '8px',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
             }}
           >
-            {error}
+            ⚠️ {error}
           </div>
         )}
         {success && (
           <div
             style={{
-              color: 'var(--color-resolved)',
+              color: '#10b981',
               marginBottom: '20px',
               fontSize: '0.9rem',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              padding: '10px',
+              background: 'rgba(16, 185, 129, 0.1)',
+              borderRadius: '8px',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
             }}
           >
-            {success}
+            ✅ {success}
           </div>
         )}
 
@@ -168,7 +218,16 @@ const TelegramBroadcast = () => {
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your broadcast message here..."
             rows={4}
-            className="action-taken-textarea"
+            style={{
+              width: '100%',
+              padding: '10px',
+              borderRadius: '8px',
+              border: '1px solid #333',
+              background: '#2a2a2a',
+              color: '#fff',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              resize: 'vertical',
+            }}
           />
         </div>
 
@@ -178,7 +237,14 @@ const TelegramBroadcast = () => {
             id="userSelect"
             onChange={handleUserSelect}
             value=""
-            className="status-select"
+            style={{
+              width: '100%',
+              padding: '10px',
+              borderRadius: '8px',
+              border: '1px solid #333',
+              background: '#2a2a2a',
+              color: '#fff',
+            }}
           >
             <option value="">Choose users to add...</option>
             <option value="all">Select All</option>
@@ -208,7 +274,7 @@ const TelegramBroadcast = () => {
                 style={{
                   fontSize: '0.85rem',
                   fontWeight: '600',
-                  color: 'var(--text-primary)',
+                  color: '#fff',
                   textTransform: 'uppercase',
                   letterSpacing: '1.2px',
                 }}
@@ -225,10 +291,10 @@ const TelegramBroadcast = () => {
                     alignItems: 'center',
                     gap: '4px',
                     padding: '6px 12px',
-                    background: 'var(--surface-light)',
-                    border: '1px solid var(--border-light)',
+                    background: '#2a2a2a',
+                    border: '1px solid #333',
                     borderRadius: '12px',
-                    color: 'var(--text-primary)',
+                    color: '#fff',
                     fontSize: '0.8rem',
                     fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                   }}
@@ -236,7 +302,7 @@ const TelegramBroadcast = () => {
                   {user}
                   {!chatIds[user] && (
                     <span
-                      style={{ color: 'var(--color-open)', fontSize: '0.75rem' }}
+                      style={{ color: '#ef4444', fontSize: '0.75rem' }}
                     >
                       (No ID)
                     </span>
@@ -245,14 +311,14 @@ const TelegramBroadcast = () => {
                     onClick={() => removeUser(user)}
                     style={{
                       marginLeft: '4px',
-                      color: 'var(--text-primary)',
+                      color: '#fff',
                       cursor: 'pointer',
                       background: 'none',
                       border: 'none',
                       fontSize: '0.9rem',
                     }}
-                    onMouseOver={(e) => (e.target.style.color = 'var(--text-secondary)')}
-                    onMouseOut={(e) => (e.target.style.color = 'var(--text-primary)')}
+                    onMouseOver={(e) => (e.target.style.color = '#999')}
+                    onMouseOut={(e) => (e.target.style.color = '#fff')}
                   >
                     ×
                   </button>
@@ -265,7 +331,6 @@ const TelegramBroadcast = () => {
         <button
           onClick={handleSend}
           disabled={sending || !message.trim() || selectedUsers.length === 0}
-          className="assign-btn-inline"
           style={{
             marginTop: '25px',
             width: '100%',
@@ -273,6 +338,15 @@ const TelegramBroadcast = () => {
             alignItems: 'center',
             justifyContent: 'center',
             gap: '8px',
+            padding: '12px',
+            borderRadius: '8px',
+            background: sending || !message.trim() || selectedUsers.length === 0 
+              ? '#555' 
+              : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+            color: '#fff',
+            border: 'none',
+            cursor: sending || !message.trim() || selectedUsers.length === 0 ? 'not-allowed' : 'pointer',
+            fontWeight: '600',
           }}
         >
           {sending ? 'Sending...' : `Send to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}`}
@@ -284,7 +358,7 @@ const TelegramBroadcast = () => {
               style={{
                 fontSize: '1.3rem',
                 fontWeight: '600',
-                color: 'var(--text-primary)',
+                color: '#fff',
                 marginBottom: '15px',
                 fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               }}
@@ -298,9 +372,9 @@ const TelegramBroadcast = () => {
                   style={{
                     padding: '12px',
                     borderRadius: '12px',
-                    border: `1px solid ${result.success ? 'var(--color-resolved)' : 'var(--color-open)'}`,
+                    border: `1px solid ${result.success ? '#10b981' : '#ef4444'}`,
                     background: result.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                    boxShadow: 'var(--shadow-dark)',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
                   }}
                 >
                   <div
@@ -313,7 +387,7 @@ const TelegramBroadcast = () => {
                     <span
                       style={{
                         fontWeight: '600',
-                        color: 'var(--text-primary)',
+                        color: '#fff',
                         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
                     >
@@ -322,7 +396,7 @@ const TelegramBroadcast = () => {
                     <span
                       style={{
                         fontSize: '0.8rem',
-                        color: result.success ? 'var(--color-resolved)' : 'var(--color-open)',
+                        color: result.success ? '#10b981' : '#ef4444',
                         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
                     >
@@ -333,7 +407,7 @@ const TelegramBroadcast = () => {
                     <p
                       style={{
                         fontSize: '0.8rem',
-                        color: 'var(--color-open)',
+                        color: '#ef4444',
                         marginTop: '8px',
                         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       }}
@@ -347,29 +421,42 @@ const TelegramBroadcast = () => {
           </div>
         )}
 
-        {broadcastHistory.length > 0 && (
+        {/* Debug section - remove this after confirming data is loading */}
+        {loading && (
+          <div style={{ marginTop: '35px', color: '#999' }}>
+            Loading broadcast history...
+          </div>
+        )}
+
+        {!loading && broadcastHistory.length === 0 && (
+          <div style={{ marginTop: '35px', color: '#999' }}>
+            No broadcast history available. Send your first broadcast to get started!
+          </div>
+        )}
+
+        {!loading && broadcastHistory.length > 0 && (
           <div style={{ marginTop: '35px' }}>
             <h3
               style={{
                 fontSize: '1.3rem',
                 fontWeight: '600',
-                color: 'var(--text-primary)',
+                color: '#fff',
                 marginBottom: '15px',
                 fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               }}
             >
-              Broadcast History:
+              Broadcast History ({broadcastHistory.length} broadcasts):
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {broadcastHistory.map((broadcast) => (
+              {broadcastHistory.map((broadcast, index) => (
                 <div
-                  key={broadcast.id}
+                  key={broadcast.id || index}
                   style={{
                     padding: '20px',
                     borderRadius: '12px',
-                    border: '1px solid var(--border-light)',
-                    background: 'var(--surface-dark)',
-                    boxShadow: 'var(--shadow-dark)',
+                    border: '1px solid #333',
+                    background: '#1a1a1a',
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
                     backdropFilter: 'blur(15px)',
                   }}
                 >
@@ -377,68 +464,74 @@ const TelegramBroadcast = () => {
                     style={{
                       marginBottom: '12px',
                       fontSize: '0.85rem',
-                      color: 'var(--text-secondary)',
+                      color: '#999',
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
-                    <strong>Timestamp:</strong> {new Date(broadcast.timestamp).toLocaleString()}
+                    <strong>ID:</strong> {broadcast.id || 'N/A'} | <strong>Timestamp:</strong> {formatTimestamp(broadcast.timestamp)}
                   </div>
                   <div
                     style={{
                       marginBottom: '12px',
                       fontSize: '0.85rem',
-                      color: 'var(--text-primary)',
+                      color: '#fff',
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
-                    <strong>Message:</strong> {broadcast.message}
+                    <strong>Message:</strong> {broadcast.message || 'No message'}
                   </div>
                   <div
                     style={{
                       fontSize: '0.85rem',
-                      color: 'var(--text-primary)',
+                      color: '#fff',
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                     }}
                   >
-                    <strong>Recipients:</strong>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        marginTop: '8px',
-                      }}
-                    >
-                      {broadcast.recipients.map((recipient, index) => (
-                        <div
-                          key={index}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            border: `1px solid ${
-                              recipient.status === 'Acknowledged' ? 'var(--color-resolved)' : 'var(--border-light)'
-                            }`,
-                            background:
-                              recipient.status === 'Acknowledged' ? 'rgba(16, 185, 129, 0.1)' : 'var(--surface-light)',
-                          }}
-                        >
-                          <span>{recipient.user} ({recipient.chatId})</span>
-                          <span
+                    <strong>Recipients ({broadcast.recipients?.length || 0}):</strong>
+                    {broadcast.recipients && broadcast.recipients.length > 0 ? (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          marginTop: '8px',
+                        }}
+                      >
+                        {broadcast.recipients.map((recipient, recipientIndex) => (
+                          <div
+                            key={recipientIndex}
                             style={{
-                              color: recipient.status === 'Acknowledged' ? 'var(--color-resolved)' : 'var(--text-secondary)',
-                              fontSize: '0.8rem',
-                              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: `1px solid ${
+                                recipient.status === 'Acknowledged' ? '#10b981' : '#333'
+                              }`,
+                              background:
+                                recipient.status === 'Acknowledged' ? 'rgba(16, 185, 129, 0.1)' : '#2a2a2a',
                             }}
                           >
-                            {recipient.status}
-                            {recipient.acknowledgedAt && ` (at ${new Date(recipient.acknowledgedAt).toLocaleString()})`}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                            <span>{recipient.user || 'Unknown'} ({recipient.chatId || 'No ID'})</span>
+                            <span
+                              style={{
+                                color: recipient.status === 'Acknowledged' ? '#10b981' : '#999',
+                                fontSize: '0.8rem',
+                                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                              }}
+                            >
+                              {recipient.status || 'Unknown'}
+                              {recipient.acknowledgedAt && ` (at ${formatTimestamp(recipient.acknowledgedAt)})`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: '8px', color: '#999' }}>
+                        No recipients data
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -450,17 +543,17 @@ const TelegramBroadcast = () => {
           style={{
             marginTop: '35px',
             padding: '20px',
-            background: 'var(--surface-dark)',
-            border: '1px solid var(--border-light)',
+            background: '#1a1a1a',
+            border: '1px solid #333',
             borderRadius: '12px',
-            boxShadow: 'var(--shadow-dark)',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
             backdropFilter: 'blur(15px)',
           }}
         >
           <h4
             style={{
               fontWeight: '600',
-              color: 'var(--text-primary)',
+              color: '#fff',
               marginBottom: '12px',
               fontSize: '1rem',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
@@ -471,7 +564,7 @@ const TelegramBroadcast = () => {
           <ul
             style={{
               fontSize: '0.85rem',
-              color: 'var(--text-secondary)',
+              color: '#999',
               listStyleType: 'disc',
               paddingLeft: '20px',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
