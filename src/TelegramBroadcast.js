@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const TelegramBroadcast = () => {
   // API Base URL - Update this if your backend URL changes
-  const API_BASE_URL = 'https://restaurant-dashboard-nqbtonrender.com';
+  const API_BASE_URL = 'https://restaurant-dashboard-nqbi.onrender.com';
   
   const [message, setMessage] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
