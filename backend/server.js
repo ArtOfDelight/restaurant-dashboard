@@ -260,6 +260,8 @@ async function getUserChatId(employeeName) {
 // Handle ticket approval from Telegram
 async function handleTicketApproval(ticketId, action, chatId) {
   try {
+    console.log(`Processing ticket ${action} for ticket ${ticketId} from chat ${chatId}`);
+    
     const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
     const TICKET_TAB = 'Tickets';
 
@@ -299,7 +301,7 @@ async function handleTicketApproval(ticketId, action, chatId) {
       
       // Notify assignee that ticket was approved
       const assigneeChatId = await getUserChatId(ticketDetails.assignedTo);
-      if (assigneeChatId) {
+      if (assigneeChatId && ticketBot) {
         const assigneeMessage = `🎉 TICKET APPROVED & CLOSED
 
 📋 Ticket ID: ${ticketId}
@@ -308,25 +310,37 @@ async function handleTicketApproval(ticketId, action, chatId) {
 
 Your resolution has been approved. Great work!`;
 
-        await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
+        try {
+          await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
+          console.log(`Approval notification sent to ${ticketDetails.assignedTo}`);
+        } catch (notifyError) {
+          console.error(`Failed to notify assignee about approval: ${notifyError.message}`);
+        }
       }
-    } else {
+    } else if (action === 'reject') {
       newStatus = 'Open';
       responseMessage = `❌ Ticket ${ticketId} has been rejected and reopened. Please check the dashboard for details.`;
       
       // Notify assignee that ticket was rejected
       const assigneeChatId = await getUserChatId(ticketDetails.assignedTo);
-      if (assigneeChatId) {
+      if (assigneeChatId && ticketBot) {
         const assigneeMessage = `🔄 TICKET REJECTED - NEEDS REWORK
 
 📋 Ticket ID: ${ticketId}
 🏪 Outlet: ${ticketDetails.outlet}
 ❌ Status: Rejected by ${ticketDetails.submittedBy}
 
-Please review and provide a better resolution.`;
+Please review and provide a better resolution. The ticket has been reopened and needs your attention.`;
 
-        await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
+        try {
+          await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
+          console.log(`Rejection notification sent to ${ticketDetails.assignedTo}`);
+        } catch (notifyError) {
+          console.error(`Failed to notify assignee about rejection: ${notifyError.message}`);
+        }
       }
+    } else {
+      throw new Error(`Invalid action: ${action}. Expected 'approve' or 'reject'.`);
     }
 
     // Update ticket status
@@ -339,12 +353,13 @@ Please review and provide a better resolution.`;
       }
     });
 
-    console.log(`Ticket ${ticketId} ${action === 'approve' ? 'approved' : 'rejected'} by user ${chatId}`);
+    console.log(`Ticket ${ticketId} ${action === 'approve' ? 'approved and closed' : 'rejected and reopened'} by user ${chatId}`);
     return responseMessage;
 
   } catch (error) {
     console.error('Error handling ticket approval:', error.message);
-    throw error;
+    console.error('Full error:', error);
+    return `Error processing ${action} for ticket ${ticketId}. Please try again or contact support.`;
   }
 }
 
@@ -3687,10 +3702,6 @@ ${ticketDetails.issueDescription}
                 text: '✅ Acknowledge',
                 callback_data: `ack_ticket_${ticketId}_${assigneeChatId}`
               },
-              {
-                text: '🔗 Open Dashboard',
-                url: process.env.FRONTEND_URL || 'http://localhost:3000'
-              }
             ]
           ]
         };
