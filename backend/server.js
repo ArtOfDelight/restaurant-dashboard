@@ -2637,6 +2637,463 @@ function generateSwiggyFallbackInsights(data, period) {
   };
 }
 
+// === PRODUCT ANALYSIS SPECIFIC FUNCTIONS ===
+
+// Helper function to create empty product data structure
+function createEmptyProductDataStructure() {
+  return {
+    products: [],
+    summary: {
+      totalProducts: 0,
+      totalZomatoOrders: 0,
+      totalSwiggyOrders: 0,
+      totalZomatoComplaints: 0,
+      totalSwiggyComplaints: 0,
+      avgComplaintRate: 0
+    }
+  };
+}
+
+// Process product data from multiple sheets
+async function processProductAnalysisData(spreadsheetId) {
+  console.log('Processing product analysis data from multiple sheets');
+  
+  try {
+    // Fetch all four sheets in parallel
+    const [zomatoOrdersResponse, swiggyReviewResponse, zomatoComplaintsResponse, swiggyComplaintsResponse] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `zomato_orders!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `swiggy_review!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `zomato complaints!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `swiggy complaints!A:Z`,
+      })
+    ]);
+
+    // Process each sheet
+    const zomatoOrders = processZomatoOrdersData(zomatoOrdersResponse.data.values);
+    const swiggyOrders = processSwiggyReviewData(swiggyReviewResponse.data.values);
+    const zomatoComplaints = processZomatoComplaintsData(zomatoComplaintsResponse.data.values);
+    const swiggyComplaints = processSwiggyComplaintsData(swiggyComplaintsResponse.data.values);
+
+    // Combine data by product name
+    const productMap = new Map();
+
+    // Add Zomato orders
+    zomatoOrders.forEach(product => {
+      const key = product.name.toLowerCase().trim();
+      if (!productMap.has(key)) {
+        productMap.set(key, {
+          name: product.name,
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          zomatoComplaints: 0,
+          swiggyComplaints: 0,
+          avgRating: 0,
+          platform: 'Both'
+        });
+      }
+      const existing = productMap.get(key);
+      existing.zomatoOrders = product.orders || 0;
+      existing.avgRating = Math.max(existing.avgRating, product.rating || 0);
+    });
+
+    // Add Swiggy orders
+    swiggyOrders.forEach(product => {
+      const key = product.name.toLowerCase().trim();
+      if (!productMap.has(key)) {
+        productMap.set(key, {
+          name: product.name,
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          zomatoComplaints: 0,
+          swiggyComplaints: 0,
+          avgRating: 0,
+          platform: 'Both'
+        });
+      }
+      const existing = productMap.get(key);
+      existing.swiggyOrders = product.orders || 0;
+      existing.avgRating = Math.max(existing.avgRating, product.rating || 0);
+    });
+
+    // Add Zomato complaints
+    zomatoComplaints.forEach(complaint => {
+      const key = complaint.productName.toLowerCase().trim();
+      if (productMap.has(key)) {
+        const existing = productMap.get(key);
+        existing.zomatoComplaints = complaint.count || 0;
+      }
+    });
+
+    // Add Swiggy complaints
+    swiggyComplaints.forEach(complaint => {
+      const key = complaint.productName.toLowerCase().trim();
+      if (productMap.has(key)) {
+        const existing = productMap.get(key);
+        existing.swiggyComplaints = complaint.count || 0;
+      }
+    });
+
+    // Convert to array and calculate summary
+    const products = Array.from(productMap.values());
+    
+    const summary = {
+      totalProducts: products.length,
+      totalZomatoOrders: products.reduce((sum, p) => sum + (p.zomatoOrders || 0), 0),
+      totalSwiggyOrders: products.reduce((sum, p) => sum + (p.swiggyOrders || 0), 0),
+      totalZomatoComplaints: products.reduce((sum, p) => sum + (p.zomatoComplaints || 0), 0),
+      totalSwiggyComplaints: products.reduce((sum, p) => sum + (p.swiggyComplaints || 0), 0),
+      avgComplaintRate: 0
+    };
+
+    const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
+    const totalComplaints = summary.totalZomatoComplaints + summary.totalSwiggyComplaints;
+    summary.avgComplaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+
+    console.log(`Processed ${products.length} products with ${totalOrders} total orders and ${totalComplaints} complaints`);
+
+    return { products, summary };
+
+  } catch (error) {
+    console.error('Error processing product analysis data:', error);
+    return createEmptyProductDataStructure();
+  }
+}
+
+// Process Zomato orders data
+function processZomatoOrdersData(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  // Find column indices (adapt based on your actual sheet structure)
+  const productNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('product'));
+  const ordersIndex = headers.findIndex(h => h && h.toLowerCase().includes('orders'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  return dataRows.map(row => ({
+    name: getCellValue(row, productNameIndex) || getCellValue(row, 0), // Fallback to first column
+    orders: parseFloat(getCellValue(row, ordersIndex) || getCellValue(row, 1)) || 0, // Fallback to second column
+    rating: parseFloat(getCellValue(row, ratingIndex) || getCellValue(row, 2)) || 0 // Fallback to third column
+  })).filter(product => product.name && product.name.trim() !== '');
+}
+
+// Process Swiggy review data
+function processSwiggyReviewData(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  // Find column indices (adapt based on your actual sheet structure)
+  const productNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('product'));
+  const ordersIndex = headers.findIndex(h => h && h.toLowerCase().includes('orders'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  return dataRows.map(row => ({
+    name: getCellValue(row, productNameIndex) || getCellValue(row, 0),
+    orders: parseFloat(getCellValue(row, ordersIndex) || getCellValue(row, 1)) || 0,
+    rating: parseFloat(getCellValue(row, ratingIndex) || getCellValue(row, 2)) || 0
+  })).filter(product => product.name && product.name.trim() !== '');
+}
+
+// Process Zomato complaints data
+function processZomatoComplaintsData(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  // Find column indices
+  const productNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('product'));
+  const complaintCountIndex = headers.findIndex(h => h && (h.toLowerCase().includes('count') || h.toLowerCase().includes('complaints')));
+  
+  return dataRows.map(row => ({
+    productName: getCellValue(row, productNameIndex) || getCellValue(row, 0),
+    count: parseFloat(getCellValue(row, complaintCountIndex) || getCellValue(row, 1)) || 0
+  })).filter(complaint => complaint.productName && complaint.productName.trim() !== '');
+}
+
+// Process Swiggy complaints data
+function processSwiggyComplaintsData(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  // Find column indices
+  const productNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('product'));
+  const complaintCountIndex = headers.findIndex(h => h && (h.toLowerCase().includes('count') || h.toLowerCase().includes('complaints')));
+  
+  return dataRows.map(row => ({
+    productName: getCellValue(row, productNameIndex) || getCellValue(row, 0),
+    count: parseFloat(getCellValue(row, complaintCountIndex) || getCellValue(row, 1)) || 0
+  })).filter(complaint => complaint.productName && complaint.productName.trim() !== '');
+}
+
+// AI-powered product insights generation
+async function generateProductInsightsWithGemini(data) {
+  if (!GEMINI_API_KEY) {
+    return generateProductFallbackInsights(data);
+  }
+
+  try {
+    console.log(`Generating product AI insights for ${data.products.length} products`);
+    
+    // Find top and bottom performers
+    const sortedByOrders = data.products
+      .map(p => ({
+        ...p,
+        totalOrders: (p.zomatoOrders || 0) + (p.swiggyOrders || 0),
+        totalComplaints: (p.zomatoComplaints || 0) + (p.swiggyComplaints || 0)
+      }))
+      .filter(p => p.totalOrders > 0)
+      .sort((a, b) => b.totalOrders - a.totalOrders);
+
+    const topPerformers = sortedByOrders.slice(0, 5);
+    const problemProducts = sortedByOrders
+      .filter(p => p.totalOrders > 10) // Only consider products with significant orders
+      .map(p => ({
+        ...p,
+        complaintRate: p.totalOrders > 0 ? (p.totalComplaints / p.totalOrders * 100) : 0
+      }))
+      .filter(p => p.complaintRate > 2) // More than 2% complaint rate
+      .sort((a, b) => b.complaintRate - a.complaintRate)
+      .slice(0, 5);
+
+    const prompt = `You are analyzing restaurant product performance data. Provide insights on menu optimization and quality control.
+
+SUMMARY DATA:
+- Total Products: ${data.summary.totalProducts}
+- Total Orders: ${data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders}
+- Total Complaints: ${data.summary.totalZomatoComplaints + data.summary.totalSwiggyComplaints}
+- Average Complaint Rate: ${data.summary.avgComplaintRate.toFixed(2)}%
+
+TOP 5 PERFORMERS (by order volume):
+${topPerformers.map(p => `${p.name}: ${p.totalOrders} orders, ${p.avgRating.toFixed(1)} rating, ${p.totalComplaints} complaints`).join('\n')}
+
+PRODUCTS WITH HIGH COMPLAINT RATES:
+${problemProducts.map(p => `${p.name}: ${p.complaintRate.toFixed(2)}% complaint rate (${p.totalComplaints}/${p.totalOrders})`).join('\n')}
+
+PLATFORM COMPARISON:
+- Zomato: ${data.summary.totalZomatoOrders} orders, ${data.summary.totalZomatoComplaints} complaints
+- Swiggy: ${data.summary.totalSwiggyOrders} orders, ${data.summary.totalSwiggyComplaints} complaints
+
+Provide a JSON response with:
+{
+  "keyFindings": ["3-5 key insights about product performance patterns"],
+  "recommendations": ["3-5 specific actionable recommendations for menu optimization"],
+  "topPerformers": [{"name": "product name", "totalOrders": number, "avgRating": number, "totalComplaints": number}],
+  "problemProducts": [{"name": "product name", "complaintRate": number, "totalOrders": number, "totalComplaints": number}],
+  "platformInsights": ["2-3 insights comparing Zomato vs Swiggy performance"]
+}
+
+Focus on actionable business insights for menu optimization, quality control, and customer satisfaction improvement.`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1000,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const insights = JSON.parse(jsonMatch[0]);
+          return {
+            ...insights,
+            confidence: 0.85,
+            generatedAt: new Date().toISOString()
+          };
+        }
+      } catch (parseError) {
+        console.log('JSON parsing failed for product insights, using fallback');
+      }
+    }
+
+    throw new Error('No valid AI response');
+
+  } catch (error) {
+    console.error('Product AI insight generation error:', error.message);
+    return generateProductFallbackInsights(data);
+  }
+}
+
+// Fallback insights for product data
+function generateProductFallbackInsights(data) {
+  const totalOrders = data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders;
+  const totalComplaints = data.summary.totalZomatoComplaints + data.summary.totalSwiggyComplaints;
+  const avgComplaintRate = data.summary.avgComplaintRate;
+  
+  // Find top and problem products
+  const sortedByOrders = data.products
+    .map(p => ({
+      ...p,
+      totalOrders: (p.zomatoOrders || 0) + (p.swiggyOrders || 0),
+      totalComplaints: (p.zomatoComplaints || 0) + (p.swiggyComplaints || 0)
+    }))
+    .filter(p => p.totalOrders > 0)
+    .sort((a, b) => b.totalOrders - a.totalOrders);
+
+  const topPerformers = sortedByOrders.slice(0, 3);
+  const problemProducts = sortedByOrders
+    .map(p => ({
+      ...p,
+      complaintRate: p.totalOrders > 0 ? (p.totalComplaints / p.totalOrders * 100) : 0
+    }))
+    .filter(p => p.complaintRate > 2)
+    .sort((a, b) => b.complaintRate - a.complaintRate)
+    .slice(0, 3);
+
+  return {
+    keyFindings: [
+      `${data.summary.totalProducts} products analyzed with ${totalOrders} total orders`,
+      `Average complaint rate of ${avgComplaintRate.toFixed(2)}% ${avgComplaintRate > 3 ? 'indicates quality issues' : 'shows good quality control'}`,
+      `Top performer "${topPerformers[0]?.name || 'N/A'}" has ${topPerformers[0]?.totalOrders || 0} orders`,
+      `${problemProducts.length} products have complaint rates above 2% threshold`
+    ],
+    recommendations: [
+      avgComplaintRate > 3 ? 'Immediate quality control review needed for high-complaint products' : 'Maintain current quality standards',
+      'Focus on replicating success factors from top-performing products',
+      problemProducts.length > 0 ? `Priority review needed for: ${problemProducts.slice(0, 2).map(p => p.name).join(', ')}` : 'Monitor complaint trends regularly',
+      'Analyze platform-specific feedback patterns for targeted improvements'
+    ],
+    topPerformers: topPerformers,
+    problemProducts: problemProducts,
+    platformInsights: [
+      `Zomato: ${data.summary.totalZomatoOrders} orders with ${(data.summary.totalZomatoComplaints / Math.max(data.summary.totalZomatoOrders, 1) * 100).toFixed(2)}% complaint rate`,
+      `Swiggy: ${data.summary.totalSwiggyOrders} orders with ${(data.summary.totalSwiggyComplaints / Math.max(data.summary.totalSwiggyOrders, 1) * 100).toFixed(2)}% complaint rate`
+    ],
+    confidence: 0.75,
+    generatedAt: new Date().toISOString(),
+    source: 'fallback-analysis'
+  };
+}
+
+// Analyze specific product with AI
+async function analyzeProductWithGemini(productName, data) {
+  if (!GEMINI_API_KEY) {
+    return generateProductAnalysisFallback(productName, data);
+  }
+
+  try {
+    const product = data.products.find(p => p.name.toLowerCase() === productName.toLowerCase());
+    if (!product) {
+      return `Product "${productName}" not found in the analysis data.`;
+    }
+
+    const totalOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
+    const totalComplaints = (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0);
+    const complaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+
+    const prompt = `Analyze this specific restaurant menu item performance:
+
+PRODUCT: ${product.name}
+PERFORMANCE METRICS:
+- Zomato Orders: ${product.zomatoOrders || 0}
+- Swiggy Orders: ${product.swiggyOrders || 0}
+- Total Orders: ${totalOrders}
+- Zomato Complaints: ${product.zomatoComplaints || 0}
+- Swiggy Complaints: ${product.swiggyComplaints || 0}
+- Complaint Rate: ${complaintRate.toFixed(2)}%
+- Average Rating: ${product.avgRating?.toFixed(1) || 'N/A'}
+
+BENCHMARKS:
+- Good complaint rate: <2%
+- Concerning complaint rate: >5%
+- Strong order volume: >100 orders
+- Excellent rating: >4.5
+
+Provide a concise 2-3 sentence analysis focusing on:
+1. Performance assessment (excellent/good/concerning/poor)
+2. Main strengths or issues identified
+3. Specific actionable recommendation`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 200
+        }
+      },
+      { timeout: 15000 }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      return response.data.candidates[0].content.parts[0].text.trim();
+    }
+
+    throw new Error('No AI response');
+
+  } catch (error) {
+    console.error('Product AI analysis error:', error.message);
+    return generateProductAnalysisFallback(productName, data);
+  }
+}
+
+// Fallback analysis for specific product
+function generateProductAnalysisFallback(productName, data) {
+  const product = data.products.find(p => p.name.toLowerCase() === productName.toLowerCase());
+  if (!product) {
+    return `Product "${productName}" not found in the analysis data.`;
+  }
+
+  const totalOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
+  const totalComplaints = (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0);
+  const complaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+
+  let performance = 'average';
+  if (complaintRate > 5) performance = 'concerning';
+  else if (complaintRate < 2 && totalOrders > 100) performance = 'excellent';
+  else if (totalOrders > 50 && complaintRate < 3) performance = 'good';
+
+  let analysis = `${product.name} shows ${performance} performance with ${totalOrders} total orders and ${complaintRate.toFixed(2)}% complaint rate.`;
+  
+  if (complaintRate > 5) {
+    analysis += ` High complaint rate indicates quality issues requiring immediate attention.`;
+  } else if (totalOrders > 100 && complaintRate < 2) {
+    analysis += ` Strong order volume with low complaints suggests this is a customer favorite to promote.`;
+  } else if (totalOrders < 20) {
+    analysis += ` Low order volume may indicate poor visibility or customer appeal - consider marketing or recipe improvements.`;
+  }
+
+  return analysis;
+}
+
+
 // === EMPLOYEE DASHBOARD SPECIFIC FUNCTIONS ===
 
 // === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
@@ -3245,6 +3702,169 @@ app.get('/api/debug-employee', async (req, res) => {
   }
 });
 
+// === PRODUCT ANALYSIS API ENDPOINTS ===
+
+// Product analysis data endpoint
+app.get('/api/product-analysis-data', async (req, res) => {
+  try {
+    console.log('Product analysis data requested');
+    
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+
+    console.log(`Fetching product data from: ${PRODUCT_SPREADSHEET_ID}`);
+    
+    const processedData = await processProductAnalysisData(PRODUCT_SPREADSHEET_ID);
+    
+    console.log(`Successfully processed product data:`, {
+      products: processedData.products.length,
+      totalOrders: processedData.summary.totalZomatoOrders + processedData.summary.totalSwiggyOrders,
+      totalComplaints: processedData.summary.totalZomatoComplaints + processedData.summary.totalSwiggyComplaints
+    });
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: processedData,
+      aiEnabled: !!GEMINI_API_KEY,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching product analysis data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details',
+    });
+  }
+});
+
+// Product-specific AI insights endpoint
+app.post('/api/product-generate-insights', async (req, res) => {
+  try {
+    const { data, analysisType } = req.body;
+    
+    console.log(`Generating product AI insights for ${data.products.length} products`);
+    
+    const insights = await generateProductInsightsWithGemini(data, analysisType);
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      insights,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error generating product insights:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Analyze specific product endpoint
+app.post('/api/analyze-product', async (req, res) => {
+  try {
+    const { productName, data } = req.body;
+    
+    console.log(`Analyzing product: ${productName}`);
+    
+    const analysis = await analyzeProductWithGemini(productName, data);
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      analysis,
+      product: productName,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error analyzing product:', error.message);
+    res.set('Content-Type', 'application/json');
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Debug product data endpoint
+app.get('/api/debug-product-analysis', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+
+    console.log(`Debug: Fetching raw product data from ${PRODUCT_SPREADSHEET_ID}`);
+
+    // Fetch all sheets to debug
+    const [zomatoOrders, swiggyReview, zomatoComplaints, swiggyComplaints] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: PRODUCT_SPREADSHEET_ID,
+        range: `zomato_orders!A1:Z20`,
+      }).catch(e => ({ data: { values: null }, error: e.message })),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: PRODUCT_SPREADSHEET_ID,
+        range: `swiggy_review!A1:Z20`,
+      }).catch(e => ({ data: { values: null }, error: e.message })),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: PRODUCT_SPREADSHEET_ID,
+        range: `zomato complaints!A1:Z20`,
+      }).catch(e => ({ data: { values: null }, error: e.message })),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: PRODUCT_SPREADSHEET_ID,
+        range: `swiggy complaints!A1:Z20`,
+      }).catch(e => ({ data: { values: null }, error: e.message }))
+    ]);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      spreadsheetId: PRODUCT_SPREADSHEET_ID,
+      sheets: {
+        zomato_orders: {
+          data: zomatoOrders.data.values?.slice(0, 10) || null,
+          error: zomatoOrders.error || null,
+          headers: zomatoOrders.data.values?.[0] || null
+        },
+        swiggy_review: {
+          data: swiggyReview.data.values?.slice(0, 10) || null,
+          error: swiggyReview.error || null,
+          headers: swiggyReview.data.values?.[0] || null
+        },
+        zomato_complaints: {
+          data: zomatoComplaints.data.values?.slice(0, 10) || null,
+          error: zomatoComplaints.error || null,
+          headers: zomatoComplaints.data.values?.[0] || null
+        },
+        swiggy_complaints: {
+          data: swiggyComplaints.data.values?.slice(0, 10) || null,
+          error: swiggyComplaints.error || null,
+          headers: swiggyComplaints.data.values?.[0] || null
+        }
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching debug product data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs',
+    });
+  }
+});
+
 // === TICKET MANAGEMENT ENDPOINTS ===
 
 // Helper function to calculate days pending
@@ -3261,6 +3881,8 @@ function calculateDaysPending(dateString) {
     return 0;
   }
 }
+
+
 
 // Transform function for ticket data - UPDATED WITH TYPE COLUMN
 function transformTicketData(rawTickets) {
@@ -4531,12 +5153,14 @@ app.get('/health', async (req, res) => {
   });
 });
 
+
+
 // Root endpoint
 app.get('/', (req, res) => {
   res.set('Content-Type', 'application/json');
   res.json({
     message: 'AOD Dashboard API Server with Fixed Telegram Bot',
-    version: '2.5.0',
+    version: '2.6.0',
     status: 'Running',
     telegramBotStatus: bot ? 'Connected' : 'Not Connected',
     features: [
@@ -4550,7 +5174,8 @@ app.get('/', (req, res) => {
       'Comprehensive debugging endpoints',
       'Employee performance dashboard',
       'Swiggy-specific analytics',
-      'High-rated order tracking'
+      'High-rated order tracking',
+      'Product analysis across Zomato and Swiggy platforms'
     ],
     endpoints: {
       dashboard: {
@@ -4590,6 +5215,13 @@ app.get('/', (req, res) => {
         data: '/api/employee-data?period=[7 Days|28 Days]',
         debug: '/api/debug-employee',
         description: 'Employee performance dashboard with intelligent mapping'
+      },
+      product: {
+        data: '/api/product-analysis-data',
+        insights: '/api/product-generate-insights (POST)',
+        productAnalysis: '/api/analyze-product (POST)',
+        debug: '/api/debug-product-analysis',
+        description: 'Product performance analysis across Zomato and Swiggy with AI insights'
       },
       highRated: {
         data: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
