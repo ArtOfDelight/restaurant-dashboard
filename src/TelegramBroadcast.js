@@ -37,6 +37,26 @@ const TelegramBroadcast = () => {
     fetchBroadcastHistory();
   }, []);
 
+  // Fix: Add the missing refreshPage function
+  const refreshPage = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    
+    try {
+      // Refresh both bot status and broadcast history
+      await Promise.all([
+        checkBotStatus(),
+        fetchBroadcastHistory()
+      ]);
+    } catch (err) {
+      console.error('Error refreshing page:', err);
+      setError('Failed to refresh data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const checkBotStatus = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/health`);
