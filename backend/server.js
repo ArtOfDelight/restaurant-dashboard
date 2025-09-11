@@ -4389,7 +4389,43 @@ app.get('/api/broadcast-history', async (req, res) => {
     });
   }
 });
-
+app.get('/api/bot-status', async (req, res) => {
+  const botTests = {};
+  
+  // Test original bot
+  if (bot) {
+    try {
+      const me = await bot.getMe();
+      botTests.originalBot = { status: 'Connected', username: me.username };
+    } catch (error) {
+      botTests.originalBot = { status: 'Error', error: error.message };
+    }
+  } else {
+    botTests.originalBot = { status: 'Not Initialized' };
+  }
+  
+  // Test ticket bot  
+  if (ticketBot) {
+    try {
+      const me = await ticketBot.getMe();
+      botTests.ticketBot = { status: 'Connected', username: me.username };
+    } catch (error) {
+      botTests.ticketBot = { status: 'Error', error: error.message };
+    }
+  } else {
+    botTests.ticketBot = { status: 'Not Initialized' };
+  }
+  
+  res.json({
+    success: true,
+    bots: botTests,
+    environment: {
+      telegramToken: !!TELEGRAM_BOT_TOKEN,
+      coToken: !!CO_BOT_TOKEN,
+      telegramEnabled: ENABLE_TELEGRAM_BOT
+    }
+  });
+});
 
 // === AI API ENDPOINTS ===
 
@@ -4599,9 +4635,17 @@ app.use((req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+// Start server with bot initialization
+app.listen(PORT, async () => {
   console.log(`AOD Dashboard API Server running on http://localhost:${PORT}`);
+  
+  // Initialize all services including bots
   console.log('');
+  console.log('🚀 Initializing services...');
+  await initializeServicesWithTickets();
+  console.log('✅ Service initialization complete');
+  console.log('');
+  
   console.log('Dashboard endpoints:');
   console.log(`   GET  /api/dashboard-data?period=[28 Day|7 Day|1 Day] - Fetch performance data`);
   console.log(`   POST /api/generate-insights                           - Generate AI insights`);
@@ -4615,6 +4659,8 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/ticket-data                               - Fetch all tickets with type classification`);
   console.log(`   POST /api/assign-ticket                             - Assign tickets to team members`);
   console.log(`   POST /api/update-ticket-status                      - Update status and action taken`);
+  console.log(`   POST /api/assign-ticket-with-notification           - Assign with Telegram notification`);
+  console.log(`   POST /api/update-ticket-status-with-notification    - Update with Telegram notification`);
   console.log(`   GET  /api/debug-tickets                             - Debug ticket structure`);
   console.log('');
   console.log('Checklist endpoints:');
@@ -4637,6 +4683,13 @@ app.listen(PORT, () => {
   console.log(`   GET  /api/high-rated-data-gemini?period=[7 Days|28 Day] - Fetch high rated data`);
   console.log(`   GET  /api/debug-high-rated                          - Debug high rated data structure`);
   console.log('');
+  console.log('Telegram User Management endpoints:');
+  console.log(`   POST /api/register-telegram-user                    - Register employee Telegram mapping`);
+  console.log(`   GET  /api/telegram-user-mappings                    - Get all user mappings`);
+  console.log(`   POST /api/debug-assignment                          - Debug ticket assignment process`);
+  console.log(`   POST /api/restart-bots                              - Manually restart Telegram bots`);
+  console.log(`   GET  /api/bot-status                                - Check bot connection status`);
+  console.log('');
   console.log('Utility endpoints:');
   console.log(`   GET  /health                                        - Health check`);
   console.log(`   GET  /                                              - API info`);
@@ -4647,8 +4700,10 @@ app.listen(PORT, () => {
   console.log(`   Checklist Sheet: ${CHECKLIST_SPREADSHEET_ID ? 'Configured' : 'Missing'}`);
   console.log(`   Gemini 1.5 Flash API: ${GEMINI_API_KEY ? 'Configured' : 'Missing'}`);
   console.log(`   Telegram Bot: ${TELEGRAM_BOT_TOKEN ? 'Configured' : 'Missing'}`);
+  console.log(`   CO Bot Token: ${CO_BOT_TOKEN ? 'Configured' : 'Missing'}`);
   console.log(`   Telegram Bot Enabled: ${ENABLE_TELEGRAM_BOT ? 'Yes' : 'No'}`);
   console.log(`   Bot Status: ${bot ? 'Connected' : 'Not Connected'}`);
+  console.log(`   Ticket Bot Status: ${ticketBot ? 'Connected' : 'Not Connected'}`);
   console.log(`   Service Account: ${authClient ? 'Connected' : 'Not Connected'}`);
   console.log('');
   console.log('Telegram Bot Updates (FIXED):');
@@ -4657,6 +4712,13 @@ app.listen(PORT, () => {
   console.log('   NEW: Environment-based bot enabling/disabling');
   console.log('   NEW: Automatic conflict recovery mechanism');
   console.log('   NEW: Proper graceful shutdown for all processes');
+  console.log('   NEW: Enhanced ticket workflow with notifications');
+  console.log('   NEW: User mapping and Chat ID management');
   console.log('');
-  console.log('Ready to serve requests with stable Telegram functionality!');
+  console.log('Ticket Notification Workflow:');
+  console.log('   1. Assign ticket → Employee gets instant Telegram notification');
+  console.log('   2. Mark as "Resolved" → Ticket creator gets approval request');
+  console.log('   3. Approve/Reject directly from Telegram → Auto close/reopen');
+  console.log('');
+  console.log('Ready to serve requests with full Telegram functionality!');
 });
