@@ -3702,6 +3702,10 @@ ${ticketDetails.issueDescription}
                 text: '✅ Acknowledge',
                 callback_data: `ack_ticket_${ticketId}_${assigneeChatId}`
               },
+              {
+                text: '🔗 Open Dashboard',
+                url: process.env.FRONTEND_URL || 'https://restaurant-dashboard-1-tlsa.onrender.com'
+              }
             ]
           ]
         };
@@ -3855,12 +3859,7 @@ Please review the resolution and approve if the issue is fixed.`;
                 callback_data: `reject_ticket_${ticketId}_${creatorChatId}`
               }
             ],
-            [
-              {
-                text: '🔗 Open Dashboard',
-                url: process.env.FRONTEND_URL || 'http://localhost:3000'
-              }
-            ]
+
           ]
         };
 
