@@ -3986,6 +3986,97 @@ app.get('/api/telegram-user-mappings', async (req, res) => {
     });
   }
 });
+
+// Add this enhanced debug endpoint to your server.js
+
+app.post('/api/debug-assignment', async (req, res) => {
+  try {
+    const { assignedTo } = req.body;
+    
+    console.log(`🔍 DEBUGGING ASSIGNMENT FOR: "${assignedTo}"`);
+    
+    // Check bot status
+    const botStatus = {
+      originalBot: !!bot,
+      ticketBot: !!ticketBot,
+      coToken: !!CO_BOT_TOKEN,
+      telegramEnabled: ENABLE_TELEGRAM_BOT
+    };
+    
+    console.log('Bot Status:', botStatus);
+    
+    // Test getUserChatId function directly
+    let chatIdResult = null;
+    let getUserError = null;
+    
+    try {
+      chatIdResult = await getUserChatId(assignedTo);
+      console.log(`getUserChatId result: ${chatIdResult}`);
+    } catch (error) {
+      getUserError = error.message;
+      console.error('getUserChatId error:', error);
+    }
+    
+    // Test direct Google Sheets access
+    let directSheetsResult = null;
+    let sheetsError = null;
+    
+    try {
+      await initializeUserMappingTab();
+      
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${USER_MAPPING_TAB}!A:C`
+      });
+
+      const rows = response.data.values || [];
+      directSheetsResult = {
+        totalRows: rows.length,
+        headers: rows[0] || [],
+        dataRows: rows.slice(1).map(row => ({
+          name: row[0] || '',
+          chatId: row[1] || '',
+          username: row[2] || '',
+          matchesSearch: row[0] && row[0].toLowerCase().trim() === assignedTo.toLowerCase().trim()
+        }))
+      };
+    } catch (error) {
+      sheetsError = error.message;
+      console.error('Direct sheets access error:', error);
+    }
+    
+    res.json({
+      success: true,
+      debugInfo: {
+        searchName: assignedTo,
+        botStatus,
+        getUserChatId: {
+          result: chatIdResult,
+          error: getUserError
+        },
+        directSheetsAccess: {
+          result: directSheetsResult,
+          error: sheetsError
+        },
+        environment: {
+          checklistSpreadsheetId: CHECKLIST_SPREADSHEET_ID,
+          userMappingTab: USER_MAPPING_TAB,
+          coTokenSet: !!CO_BOT_TOKEN,
+          telegramEnabled: ENABLE_TELEGRAM_BOT
+        }
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Debug assignment error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // === TELEGRAM BROADCAST ENDPOINTS ===
 
 // Send broadcast message
