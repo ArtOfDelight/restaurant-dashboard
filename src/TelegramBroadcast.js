@@ -25,10 +25,49 @@ const TelegramBroadcast = () => {
     'Chong', 'Hoi', 'Sibtain', 'Biraj Bhai', 'Jangminlun', 'Ismael'
   ];
 
-  // Hardcoded chat IDs (same as original)
+  // Hardcoded chat IDs - updated with all available IDs from sign-in alerts
   const chatIds = {
-    'Nishat': '700113654',
     'Jatin': '1225343546',
+    'Nishat': '700113654',
+    'Jangnu': '8400579657',
+    'Thai': '8433870410',
+    'Hoi': '8324448967',
+    'Margaret': '7396448359',
+    'Len Kipgen': '8043563257',
+    'Ismael': '8274977654',
+    'Henry Kom': '7834312007',
+    'Mang Khogin Haokip': '7956138483',
+    'Chong': '7640224130',
+    'Sang': '7271784467',
+    'Mangboi': '5797297006',
+    'Jin': '7653545568',
+    'Thangboi': '7433782718',
+    'Minthang': '7846028575',
+    'Zansung': '8090423149',
+    'Jimmy': '7723630977',
+    'Jangminlun': '6544050111',
+    'Guang': '7166706276',
+    'Mimin': '7570430343',
+    'Henry Khongsai': '7983568192',
+    'Risat': '5071738313',
+    'Sailo': '8137803384',
+    'William': '7639147592',
+    'Kai': '5911348182',
+    // Users without chat IDs yet - they'll need to sign in first
+    'Ajay': '',
+    'Kim': '',
+    'Boikho': '',
+    'Kaiku': '',
+    'Pau': '',
+    'Puia': '',
+    'Lamgouhao': '',
+    'Charna': '',
+    'Jonathan': '',
+    'Jona': '',
+    'Prajesha': '',
+    'Obed': '',
+    'Sibtain': '',
+    'Biraj Bhai': ''
   };
 
   // Check bot status and fetch broadcast history on mount
