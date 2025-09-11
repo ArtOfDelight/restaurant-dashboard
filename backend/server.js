@@ -4389,43 +4389,7 @@ app.get('/api/broadcast-history', async (req, res) => {
     });
   }
 });
-app.get('/api/bot-status', async (req, res) => {
-  const botTests = {};
-  
-  // Test original bot
-  if (bot) {
-    try {
-      const me = await bot.getMe();
-      botTests.originalBot = { status: 'Connected', username: me.username };
-    } catch (error) {
-      botTests.originalBot = { status: 'Error', error: error.message };
-    }
-  } else {
-    botTests.originalBot = { status: 'Not Initialized' };
-  }
-  
-  // Test ticket bot  
-  if (ticketBot) {
-    try {
-      const me = await ticketBot.getMe();
-      botTests.ticketBot = { status: 'Connected', username: me.username };
-    } catch (error) {
-      botTests.ticketBot = { status: 'Error', error: error.message };
-    }
-  } else {
-    botTests.ticketBot = { status: 'Not Initialized' };
-  }
-  
-  res.json({
-    success: true,
-    bots: botTests,
-    environment: {
-      telegramToken: !!TELEGRAM_BOT_TOKEN,
-      coToken: !!CO_BOT_TOKEN,
-      telegramEnabled: ENABLE_TELEGRAM_BOT
-    }
-  });
-});
+
 
 // === AI API ENDPOINTS ===
 
