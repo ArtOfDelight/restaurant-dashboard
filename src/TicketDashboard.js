@@ -6,14 +6,15 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
 
-// Status options (including Closed since closed tickets are now shown in their own tab)
+// Status options
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
 // Tab configuration
 const TABS = [
   { id: 'orders', label: 'Orders', icon: '📦' },
   { id: 'complaints', label: 'Complaints', icon: '🔴' },
-  { id: 'closed', label: 'Closed Tickets', icon: '✅' }
+  { id: 'closed', label: 'Closed Tickets', icon: '✅' },
+  { id: 'users', label: 'Telegram Users', icon: '👥' }
 ];
 
 // Helper functions
@@ -80,7 +81,7 @@ const transformTicketData = (rawTickets) => {
       status: safeRow[7] || 'Open',
       assignedTo: safeRow[8] || '',
       actionTaken: safeRow[9] || '',
-      type: safeRow[10] || 'Unknown', // New field for ticket type
+      type: safeRow[10] || 'Unknown',
       daysPending: calculateDaysPending(safeRow[1] || '')
     };
   }).filter(ticket => {
@@ -88,9 +89,214 @@ const transformTicketData = (rawTickets) => {
                        ticket.submittedBy !== 'Unknown User' || 
                        ticket.date || 
                        ticket.ticketId.startsWith('TKT-') === false;
-    // No longer filtering out closed tickets - they'll be shown in the closed tab
     return hasAnyData;
   });
+};
+
+// User Management Component
+const UserManagement = () => {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newUser, setNewUser] = useState({
+    employeeName: '',
+    chatId: '',
+    username: ''
+  });
+  const [saving, setSaving] = useState(false);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/telegram-user-mappings`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setUsers(data.mappings);
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const handleAddUser = async () => {
+    if (!newUser.employeeName || !newUser.chatId) {
+      alert('Employee name and Chat ID are required');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/api/register-telegram-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newUser),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`User ${newUser.employeeName} registered successfully!`);
+        setNewUser({ employeeName: '', chatId: '', username: '' });
+        loadUsers();
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error adding user:', error);
+      alert('Failed to add user. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="loading">Loading users...</div>;
+  }
+
+  return (
+    <div className="user-management">
+      <h2>Telegram User Management</h2>
+      <div className="user-management-description">
+        <p>Register employees with their Telegram Chat IDs to enable automatic ticket notifications.</p>
+        <div className="chat-id-help">
+          <h4>How to get Chat ID:</h4>
+          <ol>
+            <li>Open Telegram and search for <strong>@userinfobot</strong></li>
+            <li>Start a chat with the bot</li>
+            <li>Send any message (like "/start")</li>
+            <li>The bot will reply with your Chat ID</li>
+            <li>Copy the number and paste it below</li>
+          </ol>
+        </div>
+      </div>
+      
+      <div className="add-user-form">
+        <h3>Add New User</h3>
+        <div className="user-form">
+          <div className="form-group">
+            <label>Employee Name</label>
+            <select
+              value={newUser.employeeName}
+              onChange={(e) => setNewUser(prev => ({ ...prev, employeeName: e.target.value }))}
+            >
+              <option value="">Select Employee</option>
+              {ASSIGNEE_OPTIONS.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="form-group">
+            <label>Telegram Chat ID</label>
+            <input
+              type="text"
+              value={newUser.chatId}
+              onChange={(e) => setNewUser(prev => ({ ...prev, chatId: e.target.value }))}
+              placeholder="e.g., 123456789"
+            />
+            <small>Get your Chat ID by messaging @userinfobot on Telegram</small>
+          </div>
+          
+          <div className="form-group">
+            <label>Telegram Username (Optional)</label>
+            <input
+              type="text"
+              value={newUser.username}
+              onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))}
+              placeholder="e.g., @username"
+            />
+          </div>
+          
+          <button onClick={handleAddUser} disabled={saving} className="save-btn">
+            {saving ? 'Saving...' : 'Add User'}
+          </button>
+        </div>
+      </div>
+
+      <div className="users-list">
+        <h3>Registered Users ({users.length})</h3>
+        {users.length === 0 ? (
+          <div className="no-users">
+            <p>No users registered yet. Add users above to enable Telegram notifications.</p>
+            <div className="setup-steps">
+              <h4>Setup Process:</h4>
+              <ol>
+                <li>Employee gets their Chat ID from @userinfobot</li>
+                <li>Admin adds employee and Chat ID using the form above</li>
+                <li>Employee will now receive notifications when tickets are assigned</li>
+                <li>Employee can approve/reject resolutions directly from Telegram</li>
+              </ol>
+            </div>
+          </div>
+        ) : (
+          <table className="users-table">
+            <thead>
+              <tr>
+                <th>Employee Name</th>
+                <th>Chat ID</th>
+                <th>Username</th>
+                <th>Status</th>
+                <th>Notifications</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user, index) => (
+                <tr key={index}>
+                  <td>{user.employeeName}</td>
+                  <td><code>{user.chatId}</code></td>
+                  <td>{user.username || 'Not provided'}</td>
+                  <td>
+                    <span className={`status-badge ${user.chatId ? 'active' : 'inactive'}`}>
+                      {user.chatId ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="notification-status">
+                      {user.chatId ? '🔔 Enabled' : '🔕 Disabled'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="workflow-info">
+        <h3>Telegram Workflow</h3>
+        <div className="workflow-steps">
+          <div className="workflow-step">
+            <div className="step-number">1</div>
+            <div className="step-content">
+              <h4>Assignment</h4>
+              <p>When you assign a ticket → Employee gets instant Telegram notification with ticket details</p>
+            </div>
+          </div>
+          <div className="workflow-step">
+            <div className="step-number">2</div>
+            <div className="step-content">
+              <h4>Resolution</h4>
+              <p>When employee marks as "Resolved" → Ticket creator gets notification asking for approval</p>
+            </div>
+          </div>
+          <div className="workflow-step">
+            <div className="step-number">3</div>
+            <div className="step-content">
+              <h4>Approval</h4>
+              <p>Creator can approve/reject directly from Telegram → Ticket automatically closes or reopens</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // Main Ticket Dashboard Component
@@ -105,7 +311,7 @@ const TicketDashboard = () => {
   const [actionInputs, setActionInputs] = useState({});
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
-  const [activeTab, setActiveTab] = useState('orders'); // New state for active tab
+  const [activeTab, setActiveTab] = useState('orders');
   const [filters, setFilters] = useState({
     date: '',
     outlet: '',
@@ -189,6 +395,7 @@ const TicketDashboard = () => {
     return () => clearInterval(interval);
   }, [loadTicketData]);
 
+  // Enhanced assignment with Telegram notification
   const assignTicket = async (ticketId, assigneeName) => {
     if (!assigneeName.trim()) {
       alert('Please select an assignee');
@@ -198,7 +405,7 @@ const TicketDashboard = () => {
     setAssignmentLoading(prev => ({ ...prev, [ticketId]: true }));
 
     try {
-      const response = await fetch(`${API_URL}/api/assign-ticket`, {
+      const response = await fetch(`${API_URL}/api/assign-ticket-with-notification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -222,7 +429,12 @@ const TicketDashboard = () => {
         
         setAssignmentInputs(prev => ({ ...prev, [ticketId]: '' }));
         setStatusInputs(prev => ({ ...prev, [ticketId]: 'In Progress' }));
-        alert(`Ticket ${ticketId} has been assigned to ${assigneeName.trim()}`);
+        
+        const notificationStatus = result.notificationSent ? 
+          ' 📱 Telegram notification sent!' : 
+          ' ⚠️ No Telegram Chat ID found for this user';
+        
+        alert(`Ticket ${ticketId} assigned to ${assigneeName.trim()}.${notificationStatus}`);
       } else {
         throw new Error(result.error || 'Assignment failed');
       }
@@ -234,11 +446,12 @@ const TicketDashboard = () => {
     }
   };
 
+  // Enhanced status update with Telegram notification
   const updateTicketStatus = async (ticketId, newStatus, actionTaken = '') => {
     setStatusLoading(prev => ({ ...prev, [ticketId]: true }));
 
     try {
-      const response = await fetch(`${API_URL}/api/update-ticket-status`, {
+      const response = await fetch(`${API_URL}/api/update-ticket-status-with-notification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,7 +466,6 @@ const TicketDashboard = () => {
       const result = await response.json();
 
       if (result.success) {
-        // Update the ticket status instead of removing it
         setTickets(prevTickets => 
           prevTickets.map(ticket => 
             ticket.ticketId === ticketId 
@@ -263,11 +475,14 @@ const TicketDashboard = () => {
         );
         
         if (newStatus === 'Closed') {
-          // Switch to closed tab when ticket is closed
           setActiveTab('closed');
           alert(`Ticket ${ticketId} has been closed and moved to the Closed Tickets tab`);
         } else {
-          alert(`Ticket ${ticketId} status updated to ${newStatus}`);
+          const notificationStatus = newStatus === 'Resolved' && result.notificationSent ? 
+            ' 📱 Approval request sent to ticket creator!' : 
+            newStatus === 'Resolved' ? ' ⚠️ No Telegram Chat ID found for ticket creator' : '';
+          
+          alert(`Ticket ${ticketId} status updated to ${newStatus}.${notificationStatus}`);
         }
         
         setStatusInputs(prev => ({ ...prev, [ticketId]: newStatus }));
@@ -300,6 +515,8 @@ const TicketDashboard = () => {
         return tickets.filter(ticket => ticket.type === 'Complaint' && ticket.status !== 'Closed');
       case 'closed':
         return tickets.filter(ticket => ticket.status === 'Closed');
+      case 'users':
+        return []; // No tickets for user management tab
       default:
         return tickets;
     }
@@ -402,10 +619,15 @@ const TicketDashboard = () => {
   return (
     <div className="ticket-dashboard">
       <div className="ticket-header">
-        <h1>Ticket Management System</h1>
-        <button onClick={loadTicketData} className="refresh-btn">
-          🔄 Refresh
-        </button>
+        <h1>Ticket Management System with Telegram Integration</h1>
+        <div className="header-actions">
+          <button onClick={loadTicketData} className="refresh-btn">
+            🔄 Refresh
+          </button>
+          <div className="telegram-status">
+            <span className="telegram-indicator">📱 Telegram Bot Active</span>
+          </div>
+        </div>
       </div>
 
       {error && (
@@ -451,253 +673,267 @@ const TicketDashboard = () => {
           >
             <span className="tab-icon">{tab.icon}</span>
             <span className="tab-label">{tab.label}</span>
-            <span className="tab-count">
-              ({tab.id === 'orders' ? stats.orders : 
-                tab.id === 'complaints' ? stats.complaints : 
-                stats.closed})
-            </span>
+            {tab.id !== 'users' && (
+              <span className="tab-count">
+                ({tab.id === 'orders' ? stats.orders : 
+                  tab.id === 'complaints' ? stats.complaints : 
+                  stats.closed})
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {tickets.length > 0 && (
-        <div className="ticket-filters">
-          <div className="filter-group">
-            <label>Search</label>
-            <input
-              type="text"
-              placeholder="Search tickets..."
-              value={filters.search}
-              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-            />
-          </div>
-          <div className="filter-group">
-            <label>Date</label>
-            <input
-              type="date"
-              value={filters.date}
-              onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
-            />
-          </div>
-          <div className="filter-group">
-            <label>Outlet</label>
-            <select
-              value={filters.outlet}
-              onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
-            >
-              <option value="">All Outlets</option>
-              {filterOptions.outlets.map(outlet => (
-                <option key={outlet} value={outlet}>{outlet}</option>
-              ))}
-            </select>
-          </div>
-          {activeTab !== 'closed' && (
-            <div className="filter-group">
-              <label>Status</label>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-              >
-                <option value="">All Statuses</option>
-                {filterOptions.statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+      {/* User Management Tab */}
+      {activeTab === 'users' && <UserManagement />}
+
+      {/* Ticket Management Tabs */}
+      {activeTab !== 'users' && (
+        <>
+          {tickets.length > 0 && (
+            <div className="ticket-filters">
+              <div className="filter-group">
+                <label>Search</label>
+                <input
+                  type="text"
+                  placeholder="Search tickets..."
+                  value={filters.search}
+                  onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={filters.date}
+                  onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Outlet</label>
+                <select
+                  value={filters.outlet}
+                  onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
+                >
+                  <option value="">All Outlets</option>
+                  {filterOptions.outlets.map(outlet => (
+                    <option key={outlet} value={outlet}>{outlet}</option>
+                  ))}
+                </select>
+              </div>
+              {activeTab !== 'closed' && (
+                <div className="filter-group">
+                  <label>Status</label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  >
+                    <option value="">All Statuses</option>
+                    {filterOptions.statuses.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="filter-group">
+                <label>Assignee</label>
+                <select
+                  value={filters.assignee}
+                  onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
+                >
+                  <option value="">All Assignees</option>
+                  {filterOptions.assignees.map(assignee => (
+                    <option key={assignee} value={assignee}>{assignee}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
-          <div className="filter-group">
-            <label>Assignee</label>
-            <select
-              value={filters.assignee}
-              onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
-            >
-              <option value="">All Assignees</option>
-              {filterOptions.assignees.map(assignee => (
-                <option key={assignee} value={assignee}>{assignee}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
 
-      {Object.values(filters).some(filter => filter !== '') && (
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <button onClick={clearAllFilters} className="clear-filters-btn">
-            🧹 Clear All Filters
-          </button>
-        </div>
-      )}
+          {Object.values(filters).some(filter => filter !== '') && (
+            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+              <button onClick={clearAllFilters} className="clear-filters-btn">
+                🧹 Clear All Filters
+              </button>
+            </div>
+          )}
 
-      <div className="tickets-table-container">
-        {!error && tabTickets.length === 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">🎫</div>
-            <h3>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} tickets found</h3>
-            <p>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} ticket data is available.</p>
-            <button onClick={loadTicketData} className="refresh-btn">
-              🔄 Refresh Data
-            </button>
-          </div>
-        ) : filteredTickets.length === 0 && tabTickets.length > 0 ? (
-          <div className="no-data">
-            <div className="no-data-icon">🔍</div>
-            <h3>No tickets match your filters</h3>
-            <p>Try adjusting or clearing your filters above.</p>
-            <button onClick={clearAllFilters} className="clear-filters-btn">
-              🧹 Clear Filters
-            </button>
-          </div>
-        ) : (
-          <table className="tickets-table">
-            <thead>
-              <tr>
-                <th onClick={() => handleSort('ticketId')} className="sortable">
-                  Ticket ID {sortField === 'ticketId' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                <th onClick={() => handleSort('date')} className="sortable">
-                  Date {sortField === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                <th onClick={() => handleSort('outlet')} className="sortable">
-                  Outlet {sortField === 'outlet' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                <th onClick={() => handleSort('submittedBy')} className="sortable">
-                  Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                <th>Issue Description</th>
-                <th onClick={() => handleSort('status')} className="sortable">
-                  Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                <th onClick={() => handleSort('daysPending')} className="sortable">
-                  Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
-                </th>
-                {activeTab !== 'closed' && <th>Assigned To / Action</th>}
-                <th>Action Taken</th>
-                {activeTab !== 'closed' && <th>Status Management</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTickets.map(ticket => (
-                <tr 
-                  key={ticket.ticketId} 
-                  className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}
-                >
-                  <td className="ticket-id">#{ticket.ticketId}</td>
-                  <td className="ticket-date">{formatDate(ticket.date)}</td>
-                  <td className="ticket-outlet">{ticket.outlet}</td>
-                  <td className="ticket-submitter">{ticket.submittedBy}</td>
-                  <td className="ticket-description">
-                    <div className="description-text">{ticket.issueDescription}</div>
-                    {ticket.imageLink && (
-                      <button 
-                        className="image-btn" 
-                        onClick={() => {
-                          // Convert Google Drive link to proxy URL
-                          let imageUrl = ticket.imageLink;
-                          const driveMatch = ticket.imageLink.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
-                          if (driveMatch) {
-                            imageUrl = `${API_URL}/api/image-proxy/${driveMatch[1]}`;
-                          }
-                          setSelectedImage(imageUrl);
-                          setImageError(false);
-                        }}
-                        title="View attached image"
-                      >
-                        📎 View Image
-                      </button>
-                    )}
-                  </td>
-                  <td className="ticket-status">
-                    <span 
-                      className="status-badge"
-                      style={{ backgroundColor: getStatusColor(ticket.status) }}
+          <div className="tickets-table-container">
+            {!error && tabTickets.length === 0 ? (
+              <div className="no-data">
+                <div className="no-data-icon">🎫</div>
+                <h3>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} tickets found</h3>
+                <p>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} ticket data is available.</p>
+                <button onClick={loadTicketData} className="refresh-btn">
+                  🔄 Refresh Data
+                </button>
+              </div>
+            ) : filteredTickets.length === 0 && tabTickets.length > 0 ? (
+              <div className="no-data">
+                <div className="no-data-icon">🔍</div>
+                <h3>No tickets match your filters</h3>
+                <p>Try adjusting or clearing your filters above.</p>
+                <button onClick={clearAllFilters} className="clear-filters-btn">
+                  🧹 Clear Filters
+                </button>
+              </div>
+            ) : (
+              <table className="tickets-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => handleSort('ticketId')} className="sortable">
+                      Ticket ID {sortField === 'ticketId' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('date')} className="sortable">
+                      Date {sortField === 'date' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('outlet')} className="sortable">
+                      Outlet {sortField === 'outlet' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('submittedBy')} className="sortable">
+                      Submitted By {sortField === 'submittedBy' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th>Issue Description</th>
+                    <th onClick={() => handleSort('status')} className="sortable">
+                      Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th onClick={() => handleSort('daysPending')} className="sortable">
+                      Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    {activeTab !== 'closed' && <th>Assigned To / Action</th>}
+                    <th>Action Taken</th>
+                    {activeTab !== 'closed' && <th>Status Management</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTickets.map(ticket => (
+                    <tr 
+                      key={ticket.ticketId} 
+                      className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}
                     >
-                      {getStatusIcon(ticket.status)} {ticket.status}
-                    </span>
-                  </td>
-                  <td className="ticket-pending">
-                    <span className={ticket.daysPending > 7 ? 'high-priority' : ticket.daysPending > 3 ? 'medium-priority' : 'low-priority'}>
-                      {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
-                    </span>
-                  </td>
-                  {activeTab !== 'closed' && (
-                    <td className="ticket-assignment">
-                      {ticket.status === 'Open' ? (
-                        <div className="assignment-inline">
-                          <select
-                            value={assignmentInputs[ticket.ticketId] || ''}
-                            onChange={(e) => setAssignmentInputs(prev => ({
-                              ...prev,
-                              [ticket.ticketId]: e.target.value
-                            }))}
-                            disabled={assignmentLoading[ticket.ticketId]}
-                            className="assign-select-inline"
+                      <td className="ticket-id">#{ticket.ticketId}</td>
+                      <td className="ticket-date">{formatDate(ticket.date)}</td>
+                      <td className="ticket-outlet">{ticket.outlet}</td>
+                      <td className="ticket-submitter">{ticket.submittedBy}</td>
+                      <td className="ticket-description">
+                        <div className="description-text">{ticket.issueDescription}</div>
+                        {ticket.imageLink && (
+                          <button 
+                            className="image-btn" 
+                            onClick={() => {
+                              let imageUrl = ticket.imageLink;
+                              const driveMatch = ticket.imageLink.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+                              if (driveMatch) {
+                                imageUrl = `${API_URL}/api/image-proxy/${driveMatch[1]}`;
+                              }
+                              setSelectedImage(imageUrl);
+                              setImageError(false);
+                            }}
+                            title="View attached image"
                           >
-                            <option value="">Select assignee...</option>
-                            {ASSIGNEE_OPTIONS.map(name => (
-                              <option key={name} value={name}>{name}</option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
-                            disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
-                            className="assign-btn-inline"
-                          >
-                            {assignmentLoading[ticket.ticketId] ? '...' : 'Assign'}
+                            📎 View Image
                           </button>
-                        </div>
-                      ) : (
-                        <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                        )}
+                      </td>
+                      <td className="ticket-status">
+                        <span 
+                          className="status-badge"
+                          style={{ backgroundColor: getStatusColor(ticket.status) }}
+                        >
+                          {getStatusIcon(ticket.status)} {ticket.status}
+                        </span>
+                      </td>
+                      <td className="ticket-pending">
+                        <span className={ticket.daysPending > 7 ? 'high-priority' : ticket.daysPending > 3 ? 'medium-priority' : 'low-priority'}>
+                          {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
+                        </span>
+                      </td>
+                      {activeTab !== 'closed' && (
+                        <td className="ticket-assignment">
+                          {ticket.status === 'Open' ? (
+                            <div className="assignment-inline">
+                              <select
+                                value={assignmentInputs[ticket.ticketId] || ''}
+                                onChange={(e) => setAssignmentInputs(prev => ({
+                                  ...prev,
+                                  [ticket.ticketId]: e.target.value
+                                }))}
+                                disabled={assignmentLoading[ticket.ticketId]}
+                                className="assign-select-inline"
+                              >
+                                <option value="">Select assignee...</option>
+                                {ASSIGNEE_OPTIONS.map(name => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
+                                disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
+                                className="assign-btn-inline telegram-btn"
+                                title="Assigns ticket and sends Telegram notification"
+                              >
+                                {assignmentLoading[ticket.ticketId] ? '...' : '📱 Assign'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                          )}
+                        </td>
                       )}
-                    </td>
-                  )}
-                  <td className="ticket-action-taken">
-                    <textarea
-                      value={actionInputs[ticket.ticketId] || ''}
-                      onChange={(e) => setActionInputs(prev => ({
-                        ...prev,
-                        [ticket.ticketId]: e.target.value
-                      }))}
-                      placeholder="Describe action taken..."
-                      className="action-taken-textarea"
-                      readOnly={activeTab === 'closed'}
-                    />
-                  </td>
-                  {activeTab !== 'closed' && (
-                    <td className="ticket-status-management">
-                      <div className="status-management-inline">
-                        <select
-                          value={statusInputs[ticket.ticketId] || ticket.status}
-                          onChange={(e) => setStatusInputs(prev => ({
+                      <td className="ticket-action-taken">
+                        <textarea
+                          value={actionInputs[ticket.ticketId] || ''}
+                          onChange={(e) => setActionInputs(prev => ({
                             ...prev,
                             [ticket.ticketId]: e.target.value
                           }))}
-                          className="status-select"
-                        >
-                          {STATUS_OPTIONS.map(status => (
-                            <option key={status} value={status}>{status}</option>
-                          ))}
-                          <option value="Closed">Close Ticket</option>
-                        </select>
-                        <button
-                          onClick={() => updateTicketStatus(
-                            ticket.ticketId, 
-                            statusInputs[ticket.ticketId], 
-                            actionInputs[ticket.ticketId]
-                          )}
-                          disabled={statusLoading[ticket.ticketId]}
-                          className="status-update-btn"
-                        >
-                          {statusLoading[ticket.ticketId] ? '...' : 'Update'}
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                          placeholder="Describe action taken..."
+                          className="action-taken-textarea"
+                          readOnly={activeTab === 'closed'}
+                        />
+                      </td>
+                      {activeTab !== 'closed' && (
+                        <td className="ticket-status-management">
+                          <div className="status-management-inline">
+                            <select
+                              value={statusInputs[ticket.ticketId] || ticket.status}
+                              onChange={(e) => setStatusInputs(prev => ({
+                                ...prev,
+                                [ticket.ticketId]: e.target.value
+                              }))}
+                              className="status-select"
+                            >
+                              {STATUS_OPTIONS.map(status => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
+                              <option value="Closed">Close Ticket</option>
+                            </select>
+                            <button
+                              onClick={() => updateTicketStatus(
+                                ticket.ticketId, 
+                                statusInputs[ticket.ticketId], 
+                                actionInputs[ticket.ticketId]
+                              )}
+                              disabled={statusLoading[ticket.ticketId]}
+                              className={`status-update-btn ${statusInputs[ticket.ticketId] === 'Resolved' ? 'telegram-btn' : ''}`}
+                              title={statusInputs[ticket.ticketId] === 'Resolved' ? 
+                                'Updates status and sends approval request to ticket creator' : 
+                                'Updates ticket status'}
+                            >
+                              {statusLoading[ticket.ticketId] ? '...' : 
+                               statusInputs[ticket.ticketId] === 'Resolved' ? '📱 Update' : 'Update'}
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
 
       {selectedImage && (
         <div className="image-modal" onClick={() => setSelectedImage(null)}>

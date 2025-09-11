@@ -30,6 +30,12 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ENABLE_TELEGRAM_BOT = process.env.ENABLE_TELEGRAM_BOT !== 'false'; // Default to true unless explicitly disabled
 const BROADCAST_SPREADSHEET_ID = process.env.CHECKLIST_SPREADSHEET_ID || '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
 const BROADCAST_TAB = 'Broadcasts';
+// ADD these new lines (don't replace existing ones):
+const CO_BOT_TOKEN = process.env.CO_BOT_TOKEN;
+let ticketBot = null; // Separate bot instance for ticket management
+// Add this line
+const USER_MAPPING_TAB = 'UserTelegramMapping';
+
 
 let bot = null;
 let isShuttingDown = false;
@@ -165,6 +171,183 @@ async function initializeBroadcastTab() {
   }
 }
 
+// Add these functions after initializeBroadcastTab()
+
+// Initialize User Mapping tab
+async function initializeUserMappingTab() {
+  try {
+    if (!sheets) {
+      console.error('Google Sheets not initialized');
+      throw new Error('Google Sheets service not available');
+    }
+
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      ranges: [],
+      includeGridData: false,
+    });
+
+    const sheetExists = response.data.sheets.some(sheet => 
+      sheet.properties.title === USER_MAPPING_TAB
+    );
+
+    if (!sheetExists) {
+      console.log(`Creating ${USER_MAPPING_TAB} tab`);
+      
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: USER_MAPPING_TAB,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${USER_MAPPING_TAB}!A1:C1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['Employee Name', 'Telegram Chat ID', 'Telegram Username']],
+        },
+      });
+
+      console.log(`Created ${USER_MAPPING_TAB} tab with headers`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error initializing User Mapping tab:', error.message);
+    throw error;
+  }
+}
+
+// Get user's Telegram Chat ID from mapping
+async function getUserChatId(employeeName) {
+  try {
+    await initializeUserMappingTab();
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${USER_MAPPING_TAB}!A:C`
+    });
+
+    const rows = response.data.values || [];
+    
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[0] && row[0].toLowerCase().trim() === employeeName.toLowerCase().trim()) {
+        return row[1]; // Return Chat ID
+      }
+    }
+    
+    console.warn(`No Telegram Chat ID found for employee: ${employeeName}`);
+    return null;
+  } catch (error) {
+    console.error('Error getting user chat ID:', error.message);
+    return null;
+  }
+}
+
+// Handle ticket approval from Telegram
+async function handleTicketApproval(ticketId, action, chatId) {
+  try {
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Get ticket details
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:K`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    let targetRow = -1;
+    let ticketDetails = null;
+
+    for (let i = 1; i < ticketsData.length; i++) {
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1;
+        ticketDetails = {
+          ticketId: ticketsData[i][0],
+          outlet: ticketsData[i][2],
+          submittedBy: ticketsData[i][3],
+          assignedTo: ticketsData[i][8],
+          actionTaken: ticketsData[i][9]
+        };
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      throw new Error(`Ticket ${ticketId} not found`);
+    }
+
+    let newStatus, responseMessage;
+    
+    if (action === 'approve') {
+      newStatus = 'Closed';
+      responseMessage = `✅ Ticket ${ticketId} has been approved and closed. Thank you!`;
+      
+      // Notify assignee that ticket was approved
+      const assigneeChatId = await getUserChatId(ticketDetails.assignedTo);
+      if (assigneeChatId) {
+        const assigneeMessage = `🎉 TICKET APPROVED & CLOSED
+
+📋 Ticket ID: ${ticketId}
+🏪 Outlet: ${ticketDetails.outlet}
+✅ Status: Approved by ${ticketDetails.submittedBy}
+
+Your resolution has been approved. Great work!`;
+
+        await bot.sendMessage(assigneeChatId, assigneeMessage);
+      }
+    } else {
+      newStatus = 'Open';
+      responseMessage = `❌ Ticket ${ticketId} has been rejected and reopened. Please check the dashboard for details.`;
+      
+      // Notify assignee that ticket was rejected
+      const assigneeChatId = await getUserChatId(ticketDetails.assignedTo);
+      if (assigneeChatId) {
+        const assigneeMessage = `🔄 TICKET REJECTED - NEEDS REWORK
+
+📋 Ticket ID: ${ticketId}
+🏪 Outlet: ${ticketDetails.outlet}
+❌ Status: Rejected by ${ticketDetails.submittedBy}
+
+Please review and provide a better resolution.`;
+
+        await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
+      }
+    }
+
+    // Update ticket status
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!H${targetRow}`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[newStatus]]
+      }
+    });
+
+    console.log(`Ticket ${ticketId} ${action === 'approve' ? 'approved' : 'rejected'} by user ${chatId}`);
+    return responseMessage;
+
+  } catch (error) {
+    console.error('Error handling ticket approval:', error.message);
+    throw error;
+  }
+}
+
 // Telegram Bot initialization with proper conflict resolution
 async function initializeTelegramBot() {
   if (!TELEGRAM_BOT_TOKEN) {
@@ -237,6 +420,62 @@ async function initializeTelegramBot() {
   }
 }
 
+// ADD this new function after initializeTelegramBot():
+async function initializeTicketBot() {
+  if (!CO_BOT_TOKEN) {
+    console.log('Ticket Bot Token not provided - ticket notifications disabled');
+    return null;
+  }
+
+  if (!ENABLE_TELEGRAM_BOT) {
+    console.log('Telegram bots disabled by environment variable');
+    return null;
+  }
+
+  try {
+    console.log('Initializing Ticket Bot...');
+    
+    // Clear any existing webhook for this bot
+    try {
+      const tempBot = new TelegramBot(CO_BOT_TOKEN);
+      await tempBot.deleteWebHook();
+      console.log('Cleared any existing webhooks for ticket bot');
+    } catch (webhookError) {
+      // Ignore webhook errors
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const newTicketBot = new TelegramBot(CO_BOT_TOKEN, {
+      polling: {
+        interval: 2000,
+        autoStart: false,
+        params: {
+          timeout: 20,
+        }
+      }
+    });
+
+    // Set up error handlers
+    newTicketBot.on('polling_error', (error) => {
+      console.log('Ticket bot polling error:', error.message);
+    });
+
+    newTicketBot.on('webhook_error', (error) => {
+      console.log('Ticket bot webhook error:', error.message);
+    });
+
+    await startPollingWithRetry(newTicketBot);
+    
+    console.log('Ticket Bot initialized successfully');
+    return newTicketBot;
+
+  } catch (error) {
+    console.error('Failed to initialize Ticket Bot:', error.message);
+    return null;
+  }
+}
+
 async function startPollingWithRetry(botInstance, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -267,94 +506,135 @@ async function restartBotPolling(botInstance) {
   }
 }
 
+// REPLACE the existing setupCallbackQueryHandler function with this:
 function setupCallbackQueryHandler(botInstance) {
   botInstance.on('callback_query', async (query) => {
     try {
       const { data, from, message } = query;
       
-      if (!data || !data.startsWith('ack_')) {
-        return;
-      }
+      if (!data) return;
       
-      const parts = data.split('_');
-      if (parts.length < 3) {
-        console.error('Invalid callback data format:', data);
-        return;
-      }
+      let responseText = '';
       
-      const broadcastId = parts[1];
-      const chatId = parts[2];
-      
-      console.log(`Acknowledgment received from ${from.first_name || from.username || 'Unknown'} for broadcast ${broadcastId}`);
-      
-      // Ensure Google Sheets is initialized
-      if (!sheets) {
-        const initialized = await initializeGoogleServices();
-        if (!initialized) {
-          throw new Error('Failed to initialize Google APIs');
+      if (data.startsWith('ack_ticket_')) {
+        // Handle ticket acknowledgment
+        const parts = data.split('_');
+        const ticketId = parts[2];
+        
+        responseText = `✅ Ticket ${ticketId} acknowledged. Please resolve and update the status in the dashboard.`;
+        
+        // Remove the button
+        try {
+          await botInstance.editMessageReplyMarkup(null, {
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id
+          });
+        } catch (editError) {
+          console.warn('Could not remove acknowledge button:', editError.message);
         }
-      }
-      
-      // Update Google Sheets
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: BROADCAST_SPREADSHEET_ID,
-          range: `${BROADCAST_TAB}!A:G`
-        });
         
-        const rows = response.data.values || [];
+      } else if (data.startsWith('approve_ticket_') || data.startsWith('reject_ticket_')) {
+        // Handle ticket approval/rejection
+        const parts = data.split('_');
+        const action = parts[0]; // 'approve' or 'reject'
+        const ticketId = parts[2];
+        const chatId = parts[3];
         
-        // Find the row to update
-        let rowFound = false;
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (row[0] === broadcastId && row[4] === chatId) {
-            // Update status and acknowledged time
-            await sheets.spreadsheets.values.update({
-              spreadsheetId: BROADCAST_SPREADSHEET_ID,
-              range: `${BROADCAST_TAB}!F${i + 1}:G${i + 1}`,
-              valueInputOption: 'RAW',
-              resource: {
-                values: [['Acknowledged', new Date().toISOString()]]
-              }
-            });
-            rowFound = true;
-            break;
+        responseText = await handleTicketApproval(ticketId, action, chatId);
+        
+        // Remove the approval buttons
+        try {
+          await botInstance.editMessageReplyMarkup(null, {
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id
+          });
+        } catch (editError) {
+          console.warn('Could not remove approval buttons:', editError.message);
+        }
+        
+      } else if (data.startsWith('ack_')) {
+        // Handle broadcast acknowledgment (existing functionality)
+        const parts = data.split('_');
+        if (parts.length < 3) {
+          console.error('Invalid callback data format:', data);
+          return;
+        }
+        
+        const broadcastId = parts[1];
+        const chatId = parts[2];
+        
+        console.log(`Acknowledgment received from ${from.first_name || from.username || 'Unknown'} for broadcast ${broadcastId}`);
+        
+        // Ensure Google Sheets is initialized
+        if (!sheets) {
+          const initialized = await initializeGoogleServices();
+          if (!initialized) {
+            throw new Error('Failed to initialize Google APIs');
           }
         }
         
-        if (!rowFound) {
-          console.warn(`Row not found for broadcast ${broadcastId} and chat ${chatId}`);
+        // Update Google Sheets
+        try {
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: BROADCAST_SPREADSHEET_ID,
+            range: `${BROADCAST_TAB}!A:G`
+          });
+          
+          const rows = response.data.values || [];
+          
+          // Find the row to update
+          let rowFound = false;
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (row[0] === broadcastId && row[4] === chatId) {
+              // Update status and acknowledged time
+              await sheets.spreadsheets.values.update({
+                spreadsheetId: BROADCAST_SPREADSHEET_ID,
+                range: `${BROADCAST_TAB}!F${i + 1}:G${i + 1}`,
+                valueInputOption: 'RAW',
+                resource: {
+                  values: [['Acknowledged', new Date().toISOString()]]
+                }
+              });
+              rowFound = true;
+              break;
+            }
+          }
+          
+          if (!rowFound) {
+            console.warn(`Row not found for broadcast ${broadcastId} and chat ${chatId}`);
+          }
+        } catch (sheetError) {
+          console.error('Error updating sheets:', sheetError.message);
         }
-      } catch (sheetError) {
-        console.error('Error updating sheets:', sheetError.message);
-      }
-      
-      // Edit the message to remove the button
-      try {
-        await botInstance.editMessageReplyMarkup(null, {
-          chat_id: query.message.chat.id,
-          message_id: query.message.message_id
-        });
-      } catch (editError) {
-        console.warn('Could not remove button:', editError.message);
+        
+        // Edit the message to remove the button
+        try {
+          await botInstance.editMessageReplyMarkup(null, {
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id
+          });
+        } catch (editError) {
+          console.warn('Could not remove button:', editError.message);
+        }
+        
+        responseText = 'Thank you! Message acknowledged.';
       }
       
       // Send confirmation to user
       await botInstance.answerCallbackQuery(query.id, {
-        text: 'Thank you! Message acknowledged.',
+        text: responseText,
         show_alert: false
       });
       
-      console.log(`Acknowledgment processed for ${from.first_name || from.username || 'Unknown'}`);
+      console.log(`Action processed for ${from.first_name || from.username || 'Unknown'}`);
       
     } catch (error) {
       console.error('Error handling callback query:', error.message);
       
-      // Still try to answer the callback to prevent "loading" state
       try {
         await botInstance.answerCallbackQuery(query.id, {
-          text: 'Error processing acknowledgment',
+          text: 'Error processing request',
           show_alert: false
         });
       } catch (answerError) {
@@ -365,6 +645,7 @@ function setupCallbackQueryHandler(botInstance) {
 }
 
 // Graceful shutdown function
+// UPDATE the gracefulShutdown function:
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -373,9 +654,15 @@ async function gracefulShutdown(signal) {
   
   try {
     if (bot) {
-      console.log('Stopping Telegram bot...');
+      console.log('Stopping original Telegram bot...');
       await bot.stopPolling();
-      console.log('Telegram bot stopped');
+      console.log('Original Telegram bot stopped');
+    }
+    
+    if (ticketBot) {
+      console.log('Stopping ticket Telegram bot...');
+      await ticketBot.stopPolling();
+      console.log('Ticket Telegram bot stopped');
     }
     
     console.log('Graceful shutdown complete');
@@ -385,7 +672,6 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }
 }
-
 // Process signal handlers
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
@@ -402,23 +688,31 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Initialize services on startup
-async function initializeServices() {
-  console.log('Initializing services...');
+// REPLACE the existing initializeServices function with this:
+async function initializeServicesWithTickets() {
+  console.log('Initializing services with ticket workflow...');
   
-  // Initialize Google Services
   const googleInitialized = await initializeGoogleServices();
   if (!googleInitialized) {
     console.error('Failed to initialize Google Services');
   }
   
-  // Initialize Telegram Bot
+  // Initialize original bot
   bot = await initializeTelegramBot();
   
-  console.log('Service initialization complete');
+  // Initialize separate ticket bot
+  ticketBot = await initializeTicketBot();
+  
+  // Initialize user mapping tab
+  try {
+    await initializeUserMappingTab();
+    console.log('User mapping tab initialized');
+  } catch (error) {
+    console.error('Failed to initialize user mapping tab:', error.message);
+  }
+  
+  console.log('Service initialization complete with ticket workflow');
 }
-
-// Start initialization
-initializeServices();
 
 // Helper function to create empty data structure for dashboard
 function createEmptyDataStructure() {
@@ -3279,6 +3573,419 @@ app.get('/api/debug-tickets', async (req, res) => {
   }
 });
 
+// Add these new endpoints after the existing ticket endpoints:
+
+// Enhanced ticket assignment with Telegram notification
+app.post('/api/assign-ticket-with-notification', async (req, res) => {
+  try {
+    const { ticketId, assignedTo } = req.body;
+    
+    if (!ticketId || !assignedTo) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ticketId or assignedTo in request body'
+      });
+    }
+
+    console.log(`Assigning ticket ${ticketId} to ${assignedTo} with Telegram notification`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Get ticket details first
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:K`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    let targetRow = -1;
+    let ticketDetails = null;
+
+    for (let i = 1; i < ticketsData.length; i++) {
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1;
+        ticketDetails = {
+          ticketId: ticketsData[i][0],
+          date: ticketsData[i][1],
+          outlet: ticketsData[i][2],
+          submittedBy: ticketsData[i][3],
+          issueDescription: ticketsData[i][4],
+          imageLink: ticketsData[i][5],
+          type: ticketsData[i][10] || 'General'
+        };
+        break;
+      }
+    }
+
+    if (targetRow === -1 || !ticketDetails) {
+      return res.status(404).json({
+        success: false,
+        error: `Ticket ${ticketId} not found`
+      });
+    }
+
+    // Update ticket in Google Sheets
+    const batchUpdateResponse = await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      resource: {
+        data: [
+          {
+            range: `${TICKET_TAB}!H${targetRow}`, // Status column
+            values: [['In Progress']]
+          },
+          {
+            range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column
+            values: [[assignedTo]]
+          }
+        ],
+        valueInputOption: 'RAW'
+      }
+    });
+
+    let notificationSent = false;
+
+    // Send Telegram notification to assignee
+    if (ticketBot) {
+      const assigneeChatId = await getUserChatId(assignedTo);
+      
+      if (assigneeChatId) {
+        const message = `🎫 NEW TICKET ASSIGNED TO YOU
+
+📋 Ticket ID: ${ticketDetails.ticketId}
+🏪 Outlet: ${ticketDetails.outlet}
+📅 Date: ${ticketDetails.date}
+👤 Reported by: ${ticketDetails.submittedBy}
+🏷️ Type: ${ticketDetails.type}
+
+📝 Issue Description:
+${ticketDetails.issueDescription}
+
+⚡ Please investigate and resolve this issue. Update the status in the dashboard when completed.`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Acknowledge',
+                callback_data: `ack_ticket_${ticketId}_${assigneeChatId}`
+              },
+              {
+                text: '🔗 Open Dashboard',
+                url: process.env.FRONTEND_URL || 'http://localhost:3000'
+              }
+            ]
+          ]
+        };
+
+        try {
+          await ticketBot.sendMessage(assigneeChatId, message, {
+            reply_markup: keyboard,
+            parse_mode: 'HTML'
+          });
+          
+          notificationSent = true;
+          console.log(`Telegram notification sent to ${assignedTo} (${assigneeChatId})`);
+        } catch (telegramError) {
+          console.error(`Failed to send Telegram notification: ${telegramError.message}`);
+        }
+      } else {
+        console.warn(`No Telegram Chat ID found for ${assignedTo}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      ticketId,
+      assignedTo,
+      status: 'In Progress',
+      updatedRow: targetRow,
+      notificationSent,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error assigning ticket with notification:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Enhanced status update with notification to ticket creator
+app.post('/api/update-ticket-status-with-notification', async (req, res) => {
+  try {
+    const { ticketId, status, actionTaken } = req.body;
+    
+    if (!ticketId || !status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ticketId or status in request body'
+      });
+    }
+
+    console.log(`Updating ticket ${ticketId} status to ${status} with notification`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Get ticket details
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:K`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    let targetRow = -1;
+    let ticketDetails = null;
+
+    for (let i = 1; i < ticketsData.length; i++) {
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1;
+        ticketDetails = {
+          ticketId: ticketsData[i][0],
+          date: ticketsData[i][1],
+          outlet: ticketsData[i][2],
+          submittedBy: ticketsData[i][3],
+          issueDescription: ticketsData[i][4],
+          assignedTo: ticketsData[i][8],
+          type: ticketsData[i][10] || 'General'
+        };
+        break;
+      }
+    }
+
+    if (targetRow === -1 || !ticketDetails) {
+      return res.status(404).json({
+        success: false,
+        error: `Ticket ${ticketId} not found`
+      });
+    }
+
+    // Update ticket status
+    const updateData = [
+      {
+        range: `${TICKET_TAB}!H${targetRow}`, // Status column
+        values: [[status]]
+      }
+    ];
+
+    if (actionTaken !== undefined) {
+      updateData.push({
+        range: `${TICKET_TAB}!J${targetRow}`, // Action Taken column
+        values: [[actionTaken]]
+      });
+    }
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      resource: {
+        data: updateData,
+        valueInputOption: 'RAW'
+      }
+    });
+
+    let notificationSent = false;
+
+    // Send notification to ticket creator when resolved
+    if (status === 'Resolved' && ticketBot) {
+      const creatorChatId = await getUserChatId(ticketDetails.submittedBy);
+      
+      if (creatorChatId) {
+        const message = `✅ TICKET RESOLVED - PLEASE REVIEW
+
+📋 Ticket ID: ${ticketDetails.ticketId}
+🏪 Outlet: ${ticketDetails.outlet}
+👨‍🔧 Resolved by: ${ticketDetails.assignedTo}
+
+📝 Original Issue:
+${ticketDetails.issueDescription}
+
+🔧 Action Taken:
+${actionTaken || 'No action description provided'}
+
+Please review the resolution and approve if the issue is fixed.`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text: '✅ Approve & Close',
+                callback_data: `approve_ticket_${ticketId}_${creatorChatId}`
+              },
+              {
+                text: '❌ Reject',
+                callback_data: `reject_ticket_${ticketId}_${creatorChatId}`
+              }
+            ],
+            [
+              {
+                text: '🔗 Open Dashboard',
+                url: process.env.FRONTEND_URL || 'http://localhost:3000'
+              }
+            ]
+          ]
+        };
+
+        try {
+          await ticketBot.sendMessage(creatorChatId, message, {
+            reply_markup: keyboard,
+            parse_mode: 'HTML'
+          });
+          
+          notificationSent = true;
+          console.log(`Resolution notification sent to ${ticketDetails.submittedBy} (${creatorChatId})`);
+        } catch (telegramError) {
+          console.error(`Failed to send resolution notification: ${telegramError.message}`);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      ticketId,
+      status,
+      actionTaken: actionTaken || '',
+      updatedRow: targetRow,
+      notificationSent,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error updating ticket status with notification:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// API endpoint to register user Telegram mapping
+app.post('/api/register-telegram-user', async (req, res) => {
+  try {
+    const { employeeName, chatId, username } = req.body;
+    
+    if (!employeeName || !chatId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee name and chat ID are required'
+      });
+    }
+
+    await initializeUserMappingTab();
+    
+    // Check if user already exists
+    const existingResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${USER_MAPPING_TAB}!A:C`
+    });
+
+    const rows = existingResponse.data.values || [];
+    let userExists = false;
+    let targetRow = -1;
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] && rows[i][0].toLowerCase().trim() === employeeName.toLowerCase().trim()) {
+        userExists = true;
+        targetRow = i + 1;
+        break;
+      }
+    }
+
+    if (userExists) {
+      // Update existing user
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${USER_MAPPING_TAB}!B${targetRow}:C${targetRow}`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[chatId, username || '']]
+        }
+      });
+    } else {
+      // Add new user
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${USER_MAPPING_TAB}!A:C`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[employeeName, chatId, username || '']]
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      message: userExists ? 'User mapping updated' : 'User mapping created',
+      employeeName,
+      chatId,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error registering Telegram user:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// API endpoint to get all user mappings
+app.get('/api/telegram-user-mappings', async (req, res) => {
+  try {
+    await initializeUserMappingTab();
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${USER_MAPPING_TAB}!A:C`
+    });
+
+    const rows = response.data.values || [];
+    const mappings = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0]) {
+        mappings.push({
+          employeeName: rows[i][0],
+          chatId: rows[i][1] || '',
+          username: rows[i][2] || ''
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      mappings,
+      count: mappings.length,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching user mappings:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 // === TELEGRAM BROADCAST ENDPOINTS ===
 
 // Send broadcast message
