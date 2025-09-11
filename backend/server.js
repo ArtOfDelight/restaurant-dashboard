@@ -308,7 +308,7 @@ async function handleTicketApproval(ticketId, action, chatId) {
 
 Your resolution has been approved. Great work!`;
 
-        await bot.sendMessage(assigneeChatId, assigneeMessage);
+        await ticketBot.sendMessage(assigneeChatId, assigneeMessage);
       }
     } else {
       newStatus = 'Open';
@@ -703,6 +703,17 @@ async function initializeServicesWithTickets() {
   // Initialize separate ticket bot
   ticketBot = await initializeTicketBot();
   
+  // SET UP CALLBACK HANDLERS ON BOTH BOTS
+  if (bot) {
+    setupCallbackQueryHandler(bot);
+    console.log('Callback handler set up on main bot');
+  }
+  
+  if (ticketBot) {
+    setupCallbackQueryHandler(ticketBot);
+    console.log('Callback handler set up on ticket bot');
+  }
+  
   // Initialize user mapping tab
   try {
     await initializeUserMappingTab();
@@ -713,7 +724,6 @@ async function initializeServicesWithTickets() {
   
   console.log('Service initialization complete with ticket workflow');
 }
-
 // Helper function to create empty data structure for dashboard
 function createEmptyDataStructure() {
   return {
