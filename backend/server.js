@@ -2640,6 +2640,193 @@ function generateSwiggyFallbackInsights(data, period) {
 // === ENHANCED PRODUCT ANALYSIS FUNCTIONS WITH CORRECT COLUMN MAPPING ===
 
 // Process Zomato orders data with correct column mapping
+
+// Main function to process product data from multiple sheets - ADD THIS
+async function processProductAnalysisData(spreadsheetId) {
+  console.log('Processing product analysis data from multiple sheets');
+  
+  try {
+    // Fetch all four sheets in parallel
+    const [zomatoOrdersResponse, swiggyReviewResponse, zomatoComplaintsResponse, swiggyComplaintsResponse] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `zomato_orders!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `swiggy_review!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `zomato complaints!A:Z`,
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: `swiggy complaints!A:Z`,
+      })
+    ]);
+
+    // Process each sheet using the enhanced functions
+    console.log('Processing Zomato orders...');
+    const zomatoOrders = processZomatoOrdersData(zomatoOrdersResponse.data.values);
+    
+    console.log('Processing Swiggy reviews...');
+    const swiggyOrders = processSwiggyReviewData(swiggyReviewResponse.data.values);
+    
+    console.log('Processing Zomato complaints...');
+    const zomatoComplaints = processZomatoComplaintsData(zomatoComplaintsResponse.data.values);
+    
+    console.log('Processing Swiggy complaints with Gemini...');
+    const swiggyComplaints = await processSwiggyComplaintsData(swiggyComplaintsResponse.data.values);
+
+    // Combine data by product name using fuzzy matching
+    const productMap = new Map();
+
+    // Helper function to normalize product names for better matching
+    const normalizeProductName = (name) => {
+      return name.toLowerCase()
+        .replace(/[^\w\s]/g, '') // Remove special characters
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+    };
+
+    // Helper function to find matching product or create new one
+    const findOrCreateProduct = (productName) => {
+      const normalized = normalizeProductName(productName);
+      
+      // First try exact match
+      if (productMap.has(normalized)) {
+        return productMap.get(normalized);
+      }
+      
+      // Try fuzzy matching with existing products
+      for (let [key, product] of productMap.entries()) {
+        const similarity = calculateSimilarity(normalized, key);
+        if (similarity > 0.8) { // 80% similarity threshold
+          console.log(`Matched "${productName}" with existing "${product.name}" (${(similarity * 100).toFixed(1)}% similarity)`);
+          return product;
+        }
+      }
+      
+      // Create new product
+      const newProduct = {
+        name: capitalizeWords(productName),
+        normalizedName: normalized,
+        zomatoOrders: 0,
+        swiggyOrders: 0,
+        zomatoComplaints: 0,
+        swiggyComplaints: 0,
+        avgRating: 0,
+        platform: 'Both'
+      };
+      productMap.set(normalized, newProduct);
+      return newProduct;
+    };
+
+    // Add Zomato orders
+    console.log(`Adding ${zomatoOrders.length} Zomato order items...`);
+    zomatoOrders.forEach(product => {
+      const existingProduct = findOrCreateProduct(product.name);
+      existingProduct.zomatoOrders = product.orders || 0;
+      existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+    });
+
+    // Add Swiggy orders
+    console.log(`Adding ${swiggyOrders.length} Swiggy order items...`);
+    swiggyOrders.forEach(product => {
+      const existingProduct = findOrCreateProduct(product.name);
+      existingProduct.swiggyOrders = product.orders || 0;
+      existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+    });
+
+    // Add Zomato complaints
+    console.log(`Adding ${zomatoComplaints.length} Zomato complaint items...`);
+    zomatoComplaints.forEach(complaint => {
+      const existingProduct = findOrCreateProduct(complaint.productName);
+      existingProduct.zomatoComplaints = complaint.count || 0;
+    });
+
+    // Add Swiggy complaints
+    console.log(`Adding ${swiggyComplaints.length} Swiggy complaint items...`);
+    swiggyComplaints.forEach(complaint => {
+      const existingProduct = findOrCreateProduct(complaint.productName);
+      existingProduct.swiggyComplaints = complaint.count || 0;
+    });
+
+    // Convert to array and calculate summary
+    const products = Array.from(productMap.values());
+    
+    // Filter out products with very low order counts (likely parsing errors)
+    const filteredProducts = products.filter(p => 
+      (p.zomatoOrders + p.swiggyOrders) >= 1
+    );
+    
+    const summary = {
+      totalProducts: filteredProducts.length,
+      totalZomatoOrders: filteredProducts.reduce((sum, p) => sum + (p.zomatoOrders || 0), 0),
+      totalSwiggyOrders: filteredProducts.reduce((sum, p) => sum + (p.swiggyOrders || 0), 0),
+      totalZomatoComplaints: filteredProducts.reduce((sum, p) => sum + (p.zomatoComplaints || 0), 0),
+      totalSwiggyComplaints: filteredProducts.reduce((sum, p) => sum + (p.swiggyComplaints || 0), 0),
+      avgComplaintRate: 0
+    };
+
+    const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
+    const totalComplaints = summary.totalZomatoComplaints + summary.totalSwiggyComplaints;
+    summary.avgComplaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+
+    console.log(`Successfully processed ${filteredProducts.length} products:`);
+    console.log(`- Total Orders: ${totalOrders}`);
+    console.log(`- Total Complaints: ${totalComplaints}`);
+    console.log(`- Average Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
+
+    return { products: filteredProducts, summary };
+
+  } catch (error) {
+    console.error('Error processing product analysis data:', error);
+    return createEmptyProductDataStructure();
+  }
+}
+
+// Helper function to calculate string similarity
+function calculateSimilarity(str1, str2) {
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+  
+  if (longer.length === 0) return 1.0;
+  
+  const editDistance = levenshteinDistance(longer, shorter);
+  return (longer.length - editDistance) / longer.length;
+}
+
+// Helper function to calculate Levenshtein distance
+function levenshteinDistance(str1, str2) {
+  const matrix = [];
+  
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  
+  return matrix[str2.length][str1.length];
+}
+
 function processZomatoOrdersData(rawData) {
   if (!rawData || rawData.length <= 1) return [];
   
