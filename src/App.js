@@ -36,6 +36,12 @@ const SwiggyDashboard = lazy(() =>
   }))
 );
 
+const ProductAnalysisDashboard = lazy(() => 
+  import('./ProductAnalysisDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="PRODUCT DASHBOARD" fileName="ProductAnalysisDashboard" />
+  }))
+);
+
 // Loading component
 const LoadingComponent = () => (
   <div style={{
@@ -265,10 +271,11 @@ function App() {
   const [currentView, setCurrentView] = useState('checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - Updated to include tickets and broadcast
+  // Navigation configuration - Updated to include product dashboard
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
+    { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
@@ -292,6 +299,7 @@ function App() {
     const viewComponents = {
       dashboard: <Dashboard />,
       swiggy: <SwiggyDashboard />,
+      product: <ProductAnalysisDashboard />,
       outlet: <HighRatedDashboard />,
       employee: <EmployeeDashboard />,
       checklist: <ChecklistDashboard />,
@@ -316,7 +324,7 @@ function App() {
     );
   };
 
-  // Create navigation button with enhanced styling
+  // Create navigation button with enhanced styling - Updated for better fit
   const createNavButton = (item, isActive) => {
     const { key, label, icon } = item;
     
@@ -326,34 +334,35 @@ function App() {
         : 'var(--surface-light)',
       color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
       border: isActive ? '2px solid var(--border-light)' : '1px solid var(--border-light)',
-      padding: '10px 18px',
-      borderRadius: '10px',
+      padding: '8px 12px', // Reduced padding for better fit
+      borderRadius: '8px', // Slightly smaller radius
       cursor: 'pointer',
       fontWeight: isActive ? '700' : '600',
-      fontSize: '0.85rem',
+      fontSize: '0.75rem', // Reduced font size
       transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-      transform: isActive ? 'translateY(-3px) scale(1.02)' : 'translateY(0) scale(1)',
+      transform: isActive ? 'translateY(-2px) scale(1.01)' : 'translateY(0) scale(1)', // Reduced scale
       boxShadow: isActive 
-        ? 'var(--shadow-glow), 0 8px 25px rgba(0, 0, 0, 0.3)' 
-        : '0 2px 10px rgba(0, 0, 0, 0.1)',
+        ? 'var(--shadow-glow), 0 6px 20px rgba(0, 0, 0, 0.3)' 
+        : '0 2px 8px rgba(0, 0, 0, 0.1)',
       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
       textTransform: 'uppercase',
-      letterSpacing: '1px',
+      letterSpacing: '0.5px', // Reduced letter spacing
       backdropFilter: 'blur(15px)',
       position: 'relative',
       overflow: 'hidden',
       display: 'flex',
       alignItems: 'center',
-      gap: '8px',
-      minWidth: '120px',
-      justifyContent: 'center'
+      gap: '6px', // Reduced gap
+      minWidth: '90px', // Reduced min width
+      justifyContent: 'center',
+      whiteSpace: 'nowrap'
     };
 
     const handleMouseEnter = (e) => {
       if (!isActive) {
         e.target.style.background = 'linear-gradient(135deg, var(--border-light) 0%, var(--surface-light) 100%)';
-        e.target.style.transform = 'translateY(-2px) scale(1.01)';
-        e.target.style.boxShadow = 'var(--shadow-glow), 0 6px 20px rgba(0, 0, 0, 0.2)';
+        e.target.style.transform = 'translateY(-1px) scale(1.005)'; // Reduced hover effect
+        e.target.style.boxShadow = 'var(--shadow-glow), 0 4px 15px rgba(0, 0, 0, 0.2)';
         e.target.style.color = 'var(--text-primary)';
       }
     };
@@ -362,7 +371,7 @@ function App() {
       if (!isActive) {
         e.target.style.background = 'var(--surface-light)';
         e.target.style.transform = 'translateY(0) scale(1)';
-        e.target.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+        e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
         e.target.style.color = 'var(--text-secondary)';
       }
     };
@@ -376,7 +385,7 @@ function App() {
         onMouseLeave={handleMouseLeave}
         disabled={isNavigating}
       >
-        <span style={{ fontSize: '1rem' }}>{icon}</span>
+        <span style={{ fontSize: '0.9rem' }}>{icon}</span>
         <span>{label}</span>
         {isActive && (
           <div style={{
@@ -393,18 +402,19 @@ function App() {
     );
   };
 
-  // Keyboard navigation - Updated to include tickets and broadcast
+  // Keyboard navigation - Updated to include product dashboard
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey) {
         const keyMap = {
           '1': 'dashboard',
           '2': 'swiggy', 
-          '3': 'outlet',
-          '4': 'employee',
-          '5': 'checklist',
-          '6': 'tickets',
-          '7': 'broadcast'
+          '3': 'product',
+          '4': 'outlet',
+          '5': 'employee',
+          '6': 'checklist',
+          '7': 'tickets',
+          '8': 'broadcast'
         };
         
         if (keyMap[e.key]) {
@@ -455,18 +465,18 @@ function App() {
         `}
       </style>
 
-      {/* Navigation Header */}
+      {/* Navigation Header - Updated for better responsiveness */}
       <nav style={{
         background: 'var(--surface-dark)',
         border: 'none',
-        padding: '15px 25px',
+        padding: '12px 20px', // Reduced padding
         display: 'flex',
-        gap: '20px',
+        gap: '15px', // Reduced gap
         justifyContent: 'space-between',
         alignItems: 'center',
         backdropFilter: 'blur(20px)',
         boxShadow: 'var(--shadow-dark), 0 1px 0 rgba(255, 255, 255, 0.05)',
-        marginBottom: '25px',
+        marginBottom: '20px', // Reduced margin
         position: 'sticky',
         top: '0px',
         zIndex: '1000',
@@ -474,17 +484,17 @@ function App() {
         backgroundOrigin: 'padding-box',
         backgroundClip: 'padding-box, border-box'
       }}>
-        {/* Logo Section - Text Removed */}
+        {/* Logo Section */}
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '15px' 
+          gap: '10px' // Reduced gap
         }}>
           <img
             src={logo}
             alt="Logo"
             style={{
-              height: '45px',
+              height: '35px', // Reduced height
               width: 'auto',
               backdropFilter: 'blur(10px)',
               transition: 'transform 0.3s ease'
@@ -494,27 +504,30 @@ function App() {
           />
         </div>
         
-        {/* Navigation Buttons */}
+        {/* Navigation Buttons - Updated layout for 8 items */}
         <div style={{ 
           display: 'flex', 
-          gap: '12px', 
+          gap: '8px', // Reduced gap between buttons
           flexWrap: 'wrap',
-          alignItems: 'center'
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: '1'
         }}>
           {navigationItems.map(item => 
             createNavButton(item, currentView === item.key)
           )}
         </div>
 
-        {/* Keyboard Shortcuts Indicator - Updated */}
+        {/* Keyboard Shortcuts Indicator - Updated for 8 shortcuts */}
         <div style={{
-          fontSize: '0.7rem',
+          fontSize: '0.65rem', // Reduced font size
           color: 'var(--text-muted)',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
           textAlign: 'right',
-          lineHeight: '1.2'
+          lineHeight: '1.2',
+          minWidth: '60px' // Ensure minimum width
         }}>
-          <div>ALT + 1-7</div>
+          <div>ALT + 1-8</div>
           <div>SHORTCUTS</div>
         </div>
       </nav>
@@ -522,8 +535,8 @@ function App() {
       {/* Status Bar */}
       <div style={{
         background: 'rgba(0, 0, 0, 0.5)',
-        padding: '8px 25px',
-        fontSize: '0.75rem',
+        padding: '6px 20px', // Reduced padding
+        fontSize: '0.7rem', // Reduced font size
         color: 'var(--text-muted)',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
         display: 'flex',
@@ -545,7 +558,7 @@ function App() {
 
       {/* Content Area */}
       <main style={{ 
-        padding: '0 25px',
+        padding: '0 20px', // Reduced padding
         paddingBottom: '50px',
         minHeight: 'calc(100vh - 200px)'
       }}>
@@ -556,17 +569,17 @@ function App() {
       <footer style={{
         background: 'var(--surface-dark)',
         borderTop: '1px solid var(--border-light)',
-        padding: '20px 25px',
+        padding: '15px 20px', // Reduced padding
         textAlign: 'center',
-        fontSize: '0.8rem',
+        fontSize: '0.75rem', // Reduced font size
         color: 'var(--text-muted)',
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
         <div>
-          DASHBOARD SUITE v2.1 • POWERED BY REACT & GOOGLE SHEETS API
+          DASHBOARD SUITE v2.2 • POWERED BY REACT & GOOGLE SHEETS API • 8 INTEGRATED DASHBOARDS
         </div>
-        <div style={{ marginTop: '5px', fontSize: '0.7rem' }}>
-          USE ALT + 1-7 FOR QUICK NAVIGATION BETWEEN DASHBOARDS
+        <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
+          USE ALT + 1-8 FOR QUICK NAVIGATION • PRODUCT ANALYSIS • AI-POWERED INSIGHTS
         </div>
       </footer>
     </div>
