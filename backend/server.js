@@ -2845,12 +2845,19 @@ function processZomatoOrdersData(rawData) {
   // Count orders per item
   const itemCounts = new Map();
   const itemRatings = new Map();
+  let totalOrdersProcessed = 0;
+  let ratedOrdersProcessed = 0;
   
   dataRows.forEach(row => {
     const itemsCell = getCellValue(row, itemsIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
     
-    if (itemsCell && itemsCell.trim()) {
+    totalOrdersProcessed++;
+    
+    // MODIFICATION: Only process orders that have ratings (rating > 0)
+    if (itemsCell && itemsCell.trim() && rating > 0) {
+      ratedOrdersProcessed++;
+      
       // Parse multiple items from the cell (they might be separated by commas, semicolons, etc.)
       const items = parseItemsFromCell(itemsCell);
       
@@ -2863,9 +2870,7 @@ function processZomatoOrdersData(rawData) {
           if (!itemRatings.has(cleanItem)) {
             itemRatings.set(cleanItem, []);
           }
-          if (rating > 0) {
-            itemRatings.get(cleanItem).push(rating);
-          }
+          itemRatings.get(cleanItem).push(rating);
         }
       });
     }
@@ -2884,7 +2889,9 @@ function processZomatoOrdersData(rawData) {
     });
   });
   
-  console.log(`Processed ${result.length} unique items from Zomato orders`);
+  console.log(`Processed ${ratedOrdersProcessed} rated orders out of ${totalOrdersProcessed} total Zomato orders (${((ratedOrdersProcessed/totalOrdersProcessed)*100).toFixed(1)}% had ratings)`);
+  console.log(`Generated ${result.length} unique items from rated Zomato orders only`);
+  
   return result;
 }
 
