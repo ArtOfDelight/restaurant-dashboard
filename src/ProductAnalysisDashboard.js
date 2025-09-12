@@ -199,13 +199,15 @@ const ProductAnalysisDashboard = () => {
     : data.products.filter(product => product.platform === selectedPlatform);
 
   // Prepare chart data
-  const orderVolumeData = filteredProducts.map(product => ({
+  const volumeData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
-    zomatoOrders: product.zomatoOrders || 0,
-    swiggyOrders: product.swiggyOrders || 0,
-    totalOrders: (product.zomatoOrders || 0) + (product.swiggyOrders || 0)
-  })).sort((a, b) => b.totalOrders - a.totalOrders).slice(0, 10);
+    zomatoRated: product.zomatoRatedCount || 0,
+    swiggyRated: product.swiggyRatedCount || 0,
+    zomatoTotal: product.zomatoTotalQuantity || 0,
+    swiggyTotal: product.swiggyTotalQuantity || 0,
+    totalUnits: (product.zomatoTotalQuantity || 0) + (product.swiggyTotalQuantity || 0)
+  })).sort((a, b) => b.totalUnits - a.totalUnits).slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
@@ -214,21 +216,21 @@ const ProductAnalysisDashboard = () => {
     swiggyComplaints: product.swiggyComplaints || 0,
     totalComplaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0),
     complaintRate: ((product.zomatoComplaints || 0) + (product.swiggyComplaints || 0)) / 
-                   ((product.zomatoOrders || 0) + (product.swiggyOrders || 0)) * 100 || 0
+                   Math.max((product.zomatoTotalQuantity || 0) + (product.swiggyTotalQuantity || 0), 1) * 100 || 0
   })).filter(product => product.totalComplaints > 0)
     .sort((a, b) => b.complaintRate - a.complaintRate).slice(0, 10);
 
   const platformDistribution = [
-    { name: 'Zomato Orders', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
-    { name: 'Swiggy Orders', value: data.summary?.totalSwiggyOrders || 0, color: '#f97316' }
+    { name: 'Zomato Total Units', value: data.summary?.totalZomatoUnits || 0, color: '#dc2626' },
+    { name: 'Swiggy Total Units', value: data.summary?.totalSwiggyUnits || 0, color: '#f97316' }
   ];
 
   const performanceScatterData = filteredProducts.map(product => ({
     name: product.name,
-    orders: (product.zomatoOrders || 0) + (product.swiggyOrders || 0),
+    units: (product.zomatoTotalQuantity || 0) + (product.swiggyTotalQuantity || 0),
     rating: product.avgRating || 0,
     complaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0)
-  })).filter(product => product.orders > 0);
+  })).filter(product => product.units > 0);
 
   const COLORS = ['#dc2626', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'];
 
@@ -270,7 +272,7 @@ const ProductAnalysisDashboard = () => {
             letterSpacing: '1px',
             margin: '10px 0 0 0'
           }}>
-            AI-POWERED PRODUCT INSIGHTS • ORDER HISTORY & COMPLAINTS • {data.summary?.totalProducts || 0} PRODUCTS
+            AI-POWERED PRODUCT INSIGHTS • ORDER & QUANTITY HISTORY • {data.summary?.dateRange || 'Sep 5-11, 2025'} • {data.summary?.totalProducts || 0} PRODUCTS
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -392,7 +394,7 @@ const ProductAnalysisDashboard = () => {
                       fontSize: '0.9rem',
                       fontWeight: '600'
                     }}>
-                      {index + 1}. {product.name.toUpperCase()}: {product.totalOrders} ORDERS
+                      {index + 1}. {product.name.toUpperCase()}: {product.totalUnits} UNITS
                     </p>
                     <p style={{
                       margin: '5px 0 0 0',
@@ -400,7 +402,7 @@ const ProductAnalysisDashboard = () => {
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       fontSize: '0.8rem'
                     }}>
-                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Complaints: {product.totalComplaints || 0}
+                      Rated Orders: {(product.zomatoRatedCount || 0) + (product.swiggyRatedCount || 0)} | Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Complaints: {product.totalComplaints || 0}
                     </p>
                   </div>
                 ))}
@@ -521,9 +523,14 @@ const ProductAnalysisDashboard = () => {
             color: '#8b5cf6'
           },
           { 
-            title: 'TOTAL ORDERS', 
-            value: (data.summary?.totalZomatoOrders || 0) + (data.summary?.totalSwiggyOrders || 0),
+            title: 'TOTAL UNITS', 
+            value: (data.summary?.totalZomatoUnits || 0) + (data.summary?.totalSwiggyUnits || 0),
             color: '#3b82f6'
+          },
+          { 
+            title: 'RATED ORDERS', 
+            value: (data.summary?.totalZomatoRatedCount || 0) + (data.summary?.totalSwiggyRatedCount || 0),
+            color: '#22c55e'
           },
           { 
             title: 'TOTAL COMPLAINTS', 
@@ -574,7 +581,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* Order Volume Chart */}
+        {/* Total Units Chart */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -592,12 +599,12 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY ORDER VOLUME
+              TOP 10 PRODUCTS BY TOTAL UNITS
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={orderVolumeData}>
+              <BarChart data={volumeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
                 <XAxis 
                   dataKey="name" 
@@ -615,13 +622,76 @@ const ProductAnalysisDashboard = () => {
                     color: '#f8fafc'
                   }}
                   labelFormatter={(label, payload) => {
-                    const item = orderVolumeData.find(d => d.name === label);
+                    const item = volumeData.find(d => d.name === label);
                     return item ? item.fullName : label;
+                  }}
+                  formatter={(value, name, props) => {
+                    if (name === 'zomatoTotal') return [value, 'Zomato Units'];
+                    if (name === 'swiggyTotal') return [value, 'Swiggy Units'];
+                    return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="zomatoOrders" fill="#dc2626" name="Zomato Orders" />
-                <Bar dataKey="swiggyOrders" fill="#f97316" name="Swiggy Orders" />
+                <Bar dataKey="zomatoTotal" fill="#dc2626" name="Zomato Units" />
+                <Bar dataKey="swiggyTotal" fill="#f97316" name="Swiggy Units" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Rated Orders Chart */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '15px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{
+            padding: '25px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <h3 style={{ 
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              margin: 0,
+              color: '#f8fafc',
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}>
+              TOP 10 PRODUCTS BY RATED ORDERS
+            </h3>
+          </div>
+          <div style={{ padding: '25px' }}>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart data={volumeData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '10px',
+                    color: '#f8fafc'
+                  }}
+                  labelFormatter={(label, payload) => {
+                    const item = volumeData.find(d => d.name === label);
+                    return item ? item.fullName : label;
+                  }}
+                  formatter={(value, name, props) => {
+                    if (name === 'zomatoRated') return [value, 'Zomato Rated Orders'];
+                    if (name === 'swiggyRated') return [value, 'Swiggy Rated Orders'];
+                    return [value, name];
+                  }}
+                />
+                <Legend />
+                <Bar dataKey="zomatoRated" fill="#b91c1c" name="Zomato Rated Orders" />
+                <Bar dataKey="swiggyRated" fill="#c2410c" name="Swiggy Rated Orders" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -645,7 +715,7 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              ORDER DISTRIBUTION BY PLATFORM
+              UNIT DISTRIBUTION BY PLATFORM
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
@@ -674,6 +744,70 @@ const ProductAnalysisDashboard = () => {
                   }}
                 />
               </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Complaint Rate Chart */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '15px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{
+            padding: '25px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <h3 style={{ 
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              margin: 0,
+              color: '#f8fafc',
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}>
+              TOP 10 PRODUCTS BY COMPLAINT RATE
+            </h3>
+          </div>
+          <div style={{ padding: '25px' }}>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart data={complaintAnalysisData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                />
+                <YAxis 
+                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                  label={{ 
+                    value: 'Complaint Rate (%)', 
+                    angle: -90, 
+                    position: 'insideLeft', 
+                    fill: '#94a3b8',
+                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                  }} 
+                />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '10px',
+                    color: '#f8fafc'
+                  }}
+                  labelFormatter={(label, payload) => {
+                    const item = complaintAnalysisData.find(d => d.name === label);
+                    return item ? item.fullName : label;
+                  }}
+                  formatter={(value, name, props) => {
+                    if (name === 'complaintRate') return [`${value.toFixed(2)}%`, 'Complaint Rate'];
+                    return [value, name];
+                  }}
+                />
+                <Bar dataKey="complaintRate" fill="#ef4444" name="Complaint Rate" />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -708,9 +842,10 @@ const ProductAnalysisDashboard = () => {
                 <tr style={{ background: 'rgba(255, 255, 255, 0.05)' }}>
                   {[
                     'PRODUCT NAME',
-                    'ZOMATO ORDERS',
-                    'SWIGGY ORDERS', 
-                    'TOTAL ORDERS',
+                    'ZOMATO UNITS',
+                    'SWIGGY UNITS',
+                    'TOTAL UNITS',
+                    'RATED ORDERS',
                     'COMPLAINT RATE %',
                     'AVG RATING',
                     'ACTIONS'
@@ -731,12 +866,13 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => ((b.zomatoOrders || 0) + (b.swiggyOrders || 0)) - ((a.zomatoOrders || 0) + (a.swiggyOrders || 0)))
+                  .sort((a, b) => ((b.zomatoTotalQuantity || 0) + (b.swiggyTotalQuantity || 0)) - ((a.zomatoTotalQuantity || 0) + (a.swiggyTotalQuantity || 0)))
                   .slice(0, 20)
                   .map((product, i) => {
-                    const totalOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
+                    const totalUnits = (product.zomatoTotalQuantity || 0) + (product.swiggyTotalQuantity || 0);
+                    const totalRated = (product.zomatoRatedCount || 0) + (product.swiggyRatedCount || 0);
                     const totalComplaints = (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0);
-                    const complaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+                    const complaintRate = totalUnits > 0 ? (totalComplaints / totalUnits * 100) : 0;
                     const isHighComplaintRate = complaintRate > 5;
                     
                     return (
@@ -770,14 +906,14 @@ const ProductAnalysisDashboard = () => {
                           color: '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                         }}>
-                          {product.zomatoOrders || 0}
+                          {product.zomatoTotalQuantity || 0}
                         </td>
                         <td style={{ 
                           padding: '18px',
                           color: '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                         }}>
-                          {product.swiggyOrders || 0}
+                          {product.swiggyTotalQuantity || 0}
                         </td>
                         <td style={{ 
                           padding: '18px',
@@ -785,7 +921,15 @@ const ProductAnalysisDashboard = () => {
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '600'
                         }}>
-                          {totalOrders}
+                          {totalUnits}
+                        </td>
+                        <td style={{ 
+                          padding: '18px',
+                          color: '#f8fafc',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '600'
+                        }}>
+                          {totalRated}
                         </td>
                         <td style={{ 
                           padding: '18px',
