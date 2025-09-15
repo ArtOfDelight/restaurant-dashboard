@@ -56,18 +56,18 @@ const TelegramBroadcast = () => {
     // Users without chat IDs yet - they'll need to sign in first
     'Ajay': '',
     'Kim': '',
-    'Boikho': '',
-    'Kaiku': '',
-    'Pau': '',
-    'Puia': '',
-    'Lamgouhao': '',
+    'Boikho': '7275588643',
+    'Kaiku': '7879774728',
+    'Pau': '5395582583',
+    'Puia': '6924505764',
+    'Lamgouhao': '8063801577',
     'Charna': '',
     'Jonathan': '',
-    'Jona': '',
-    'Prajesha': '',
-    'Obed': '',
+    'Jona': '8195835325',
+    'Prajesha': '7548733205',
+    'Obed': '7968852570',
     'Sibtain': '',
-    'Biraj Bhai': ''
+    'Biraj Bhai': '8170226011'
   };
 
   // Check bot status and fetch broadcast history on mount
