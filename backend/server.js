@@ -5644,7 +5644,7 @@ app.get('/api/debug-stock-tracker', async (req, res) => {
       success: false,
       error: error.message,
       spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8',
-      tabName: 'Tracker'
+      tabName: 'Copy of Tracker'
     });
   }
 });
