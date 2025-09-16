@@ -808,40 +808,44 @@ const StockDashboard = () => {
           backdropFilter: 'blur(4px)'
         }} onClick={closeModal}>
           <div onClick={(e) => e.stopPropagation()} style={{
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            background: 'var(--surface-dark, #1a1a1a)',
             borderRadius: '24px',
             padding: '0',
             maxWidth: '800px',
             width: '90%',
             maxHeight: '85vh',
             overflow: 'hidden',
-            boxShadow: '0 25px 80px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 25px 80px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1)',
             transform: 'scale(1)',
-            animation: 'modalSlideIn 0.3s ease-out'
+            animation: 'modalSlideIn 0.3s ease-out',
+            border: '1px solid var(--border-light)'
           }}>
             {/* Modal Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'var(--surface-dark, #1a1a1a)',
               padding: '24px 32px',
-              color: 'white',
+              color: 'var(--text-primary)',
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              borderBottom: '1px solid var(--border-light)'
             }}>
               <div>
                 <h2 style={{ 
                   margin: 0, 
                   fontSize: '24px', 
                   fontWeight: '700',
-                  textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  color: 'var(--text-primary)',
+                  textShadow: '0 0 10px rgba(255, 255, 255, 0.1)'
                 }}>
                   Item Distribution Analysis
                 </h2>
                 <p style={{ 
                   margin: '4px 0 0 0', 
                   fontSize: '16px', 
-                  opacity: '0.9',
-                  fontWeight: '500'
+                  opacity: '0.8',
+                  fontWeight: '500',
+                  color: 'var(--text-secondary)'
                 }}>
                   SKU: {selectedItem.skuCode}
                 </p>
@@ -849,8 +853,8 @@ const StockDashboard = () => {
               <button 
                 onClick={closeModal}
                 style={{
-                  background: 'rgba(255,255,255,0.2)',
-                  border: 'none',
+                  background: 'var(--surface-light)',
+                  border: '1px solid var(--border-light)',
                   borderRadius: '50%',
                   width: '40px',
                   height: '40px',
@@ -859,12 +863,11 @@ const StockDashboard = () => {
                   justifyContent: 'center',
                   cursor: 'pointer',
                   fontSize: '20px',
-                  color: 'white',
-                  transition: 'all 0.2s ease',
-                  backdropFilter: 'blur(10px)'
+                  color: 'var(--text-primary)',
+                  transition: 'all 0.2s ease'
                 }}
-                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
-                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+                onMouseEnter={(e) => e.target.style.background = 'var(--surface-card)'}
+                onMouseLeave={(e) => e.target.style.background = 'var(--surface-light)'}
               >
                 ×
               </button>
@@ -899,19 +902,19 @@ const StockDashboard = () => {
                   <div style={{ 
                     marginBottom: '28px', 
                     padding: '24px', 
-                    background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', 
+                    background: 'var(--surface-card)', 
                     borderRadius: '16px',
-                    border: '1px solid #cbd5e1'
+                    border: '1px solid var(--border-light)'
                   }}>
                     <h3 style={{ 
                       margin: '0 0 8px 0', 
                       fontSize: '20px', 
-                      color: '#1e293b',
+                      color: 'var(--text-primary)',
                       fontWeight: '700'
                     }}>
                       {itemDetails.itemInfo?.longName}
                     </h3>
-                    <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: '#64748b' }}>
+                    <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
                       <div>
                         <strong>SKU:</strong> {itemDetails.itemInfo?.skuCode}
                       </div>
@@ -919,7 +922,7 @@ const StockDashboard = () => {
                         <strong>Affected Outlets:</strong> {itemDetails.outletDetails?.length || 0} of {itemDetails.summary?.totalOutlets || 12}
                       </div>
                       {itemDetails.summary?.dateFiltersApplied && (
-                        <div style={{ color: '#7c3aed', fontWeight: '600' }}>
+                        <div style={{ color: 'var(--primary-color, #7c3aed)', fontWeight: '600' }}>
                           📅 Filtered by Date Range
                         </div>
                       )}
@@ -931,7 +934,7 @@ const StockDashboard = () => {
                     <h4 style={{ 
                       margin: '0 0 20px 0', 
                       fontSize: '18px', 
-                      color: '#374151',
+                      color: 'var(--text-primary)',
                       fontWeight: '600',
                       display: 'flex',
                       alignItems: 'center',
@@ -1005,9 +1008,9 @@ const StockDashboard = () => {
                                       color: 'var(--primary-color, #7c3aed)',
                                       marginBottom: '8px'
                                     }}>
-                                      📊 Recent Tracking History:
+                                      📊 {itemDetails.summary?.dateFiltersApplied ? 'Filtered' : 'Recent'} Tracking History ({outlet.trackerEntries.length} entries):
                                     </div>
-                                    {outlet.trackerEntries.slice(0, 2).map((entry, entryIndex) => (
+                                    {outlet.trackerEntries.map((entry, entryIndex) => (
                                       <div key={entryIndex} style={{
                                         fontSize: '12px',
                                         color: 'var(--text-muted)',
@@ -1031,16 +1034,16 @@ const StockDashboard = () => {
                       <div style={{ 
                         textAlign: 'center', 
                         padding: '40px 20px',
-                        background: '#f8fafc',
+                        background: 'var(--surface-card)',
                         borderRadius: '16px',
-                        border: '2px dashed #cbd5e1'
+                        border: '1px solid var(--border-light)'
                       }}>
                         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
-                        <div style={{ fontSize: '16px', color: '#64748b', fontWeight: '500' }}>
+                        <div style={{ fontSize: '16px', color: 'var(--text-primary)', fontWeight: '500' }}>
                           No outlet details available for the selected time range
                         </div>
                         {itemDetails.summary?.dateFiltersApplied && (
-                          <div style={{ fontSize: '14px', color: '#7c3aed', marginTop: '8px' }}>
+                          <div style={{ fontSize: '14px', color: 'var(--primary-color, #7c3aed)', marginTop: '8px' }}>
                             Try adjusting your date filters to see more results
                           </div>
                         )}
@@ -1053,32 +1056,32 @@ const StockDashboard = () => {
                     <div style={{
                       marginTop: '24px',
                       padding: '20px',
-                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                      background: 'var(--surface-card)',
                       borderRadius: '16px',
-                      border: '1px solid #bfdbfe'
+                      border: '1px solid var(--border-light)'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
                         <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
                             {itemDetails.summary.outletsWithOutOfStock}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
                             Affected Outlets
                           </div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
                             {itemDetails.summary.totalOutlets}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
                             Total Outlets
                           </div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
                             {((itemDetails.summary.outletsWithOutOfStock / itemDetails.summary.totalOutlets) * 100).toFixed(1)}%
                           </div>
-                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
                             Impact Rate
                           </div>
                         </div>
@@ -1096,14 +1099,14 @@ const StockDashboard = () => {
                   gap: '16px'
                 }}>
                   <div style={{ fontSize: '48px' }}>⚠️</div>
-                  <div style={{ fontSize: '18px', color: '#64748b', fontWeight: '500' }}>
+                  <div style={{ fontSize: '18px', color: 'var(--text-primary)', fontWeight: '500' }}>
                     Failed to load outlet details
                   </div>
                   <button
                     onClick={() => fetchItemDetails(selectedItem.skuCode)}
                     style={{
                       padding: '10px 20px',
-                      background: '#667eea',
+                      background: 'var(--primary-color, #667eea)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '8px',
