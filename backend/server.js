@@ -5466,7 +5466,7 @@ app.get('/api/stock-tracker-data', async (req, res) => {
     }
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    const TRACKER_TAB = 'Tracker';
+    const TRACKER_TAB = 'Copy of Tracker';
     
     console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
     
