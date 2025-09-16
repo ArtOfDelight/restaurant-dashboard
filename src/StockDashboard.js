@@ -31,11 +31,16 @@ const StockDashboard = () => {
   const [activeTab, setActiveTab] = useState('outofstock');
   
   const [outlets, setOutlets] = useState(hardcodedOutlets);
-  const [selectedOutlet, setSelectedOutlet] = useState('');
-  const [stockData, setStockData] = useState([]);
+  const [stockSummary, setStockSummary] = useState([]); // Changed from stockData
   const [trackerData, setTrackerData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Modal state for item details
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [itemDetails, setItemDetails] = useState(null);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   
   // Tracker filters
   const [trackerOutlet, setTrackerOutlet] = useState('');
@@ -50,17 +55,15 @@ const StockDashboard = () => {
     setError(''); // Clear any previous errors
   }, []);
 
-  // Fetch stock data for out-of-stock tab
-  const fetchStockData = async (outlet) => {
-    if (!outlet) return;
-    
+  // Fetch stock summary data for out-of-stock tab (aggregated across all outlets)
+  const fetchStockSummary = async () => {
     try {
       setLoading(true);
       setError('');
       
-      console.log(`🔍 Fetching stock data for outlet: ${outlet}`);
+      console.log('🔍 Fetching stock summary across all outlets');
       
-      const response = await fetch(`${API_BASE_URL}/api/stock-data?outlet=${encodeURIComponent(outlet)}`);
+      const response = await fetch(`${API_BASE_URL}/api/stock-summary`);
       console.log(`📡 Response status: ${response.status}`);
       
       if (!response.ok) {
@@ -69,24 +72,74 @@ const StockDashboard = () => {
       }
       
       const data = await response.json();
-      console.log('📦 Received data:', data);
+      console.log('📦 Received summary data:', data);
       
       if (data.success) {
-        setStockData(data.items || []);
-        console.log(`✅ Successfully loaded ${data.items?.length || 0} stock items`);
+        setStockSummary(data.summary || []);
+        console.log(`✅ Successfully loaded ${data.summary?.length || 0} unique items`);
       } else {
-        setError(data.error || 'Failed to fetch stock data');
-        setStockData([]);
+        setError(data.error || 'Failed to fetch stock summary');
+        setStockSummary([]);
         console.error('❌ API returned error:', data);
       }
     } catch (err) {
       const errorMsg = `Network error: ${err.message}`;
       setError(errorMsg);
-      setStockData([]);
+      setStockSummary([]);
       console.error('💥 Fetch error:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fetch item details for modal
+  const fetchItemDetails = async (skuCode) => {
+    try {
+      setModalLoading(true);
+      
+      console.log(`🔍 Fetching item details for SKU: ${skuCode}`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/stock-item-details/${encodeURIComponent(skuCode)}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${response.statusText}. Response: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('📋 Received item details:', data);
+      
+      if (data.success) {
+        setItemDetails(data);
+      } else {
+        throw new Error(data.error || 'Failed to fetch item details');
+      }
+    } catch (err) {
+      console.error('💥 Item details fetch error:', err);
+      setItemDetails({
+        success: false,
+        error: err.message,
+        itemInfo: { skuCode, longName: 'Unknown Item' },
+        outletDetails: []
+      });
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  // Handle item click to show details modal
+  const handleItemClick = async (item) => {
+    setSelectedItem(item);
+    setShowModal(true);
+    setItemDetails(null);
+    await fetchItemDetails(item.skuCode);
+  };
+
+  // Close modal
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedItem(null);
+    setItemDetails(null);
   };
 
   // Fetch tracker data
@@ -137,17 +190,6 @@ const StockDashboard = () => {
     }
   };
 
-  // Handle outlet change for out-of-stock tab
-  const handleOutletChange = (outlet) => {
-    console.log(`🏪 Outlet selected: ${outlet}`);
-    setSelectedOutlet(outlet);
-    if (outlet) {
-      fetchStockData(outlet);
-    } else {
-      setStockData([]);
-    }
-  };
-
   // Handle tracker filter changes
   const handleTrackerFilter = () => {
     fetchTrackerData(trackerOutlet, startDate, endDate);
@@ -157,10 +199,20 @@ const StockDashboard = () => {
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setError('');
-    if (tab === 'tracker' && trackerData.length === 0) {
+    
+    if (tab === 'outofstock' && stockSummary.length === 0) {
+      fetchStockSummary(); // Load stock summary when switching to out-of-stock tab
+    } else if (tab === 'tracker' && trackerData.length === 0) {
       fetchTrackerData(); // Load tracker data when switching to tracker tab
     }
   };
+
+  // Load stock summary on component mount for default tab
+  useEffect(() => {
+    if (activeTab === 'outofstock') {
+      fetchStockSummary();
+    }
+  }, [activeTab]);
 
   // Format date for display
   const formatDisplayDate = (dateString) => {
@@ -193,12 +245,12 @@ const StockDashboard = () => {
         {activeTab === 'outofstock' ? (
           <>
             <div className="stat-card">
-              <div className="stat-number">{stockData.length}</div>
-              <div className="stat-label">Out of Stock Items</div>
+              <div className="stat-number">{stockSummary.length}</div>
+              <div className="stat-label">Unique Out of Stock Items</div>
             </div>
             <div className="stat-card">
-              <div className="stat-number">{selectedOutlet || 'None'}</div>
-              <div className="stat-label">Selected Outlet</div>
+              <div className="stat-number">{stockSummary.reduce((sum, item) => sum + item.outletCount, 0)}</div>
+              <div className="stat-label">Total Out of Stock Instances</div>
             </div>
           </>
         ) : (
@@ -251,7 +303,7 @@ const StockDashboard = () => {
               borderRadius: '12px',
               fontSize: '12px'
             }}>
-              ({tab.id === 'outofstock' ? stockData.length : trackerData.length})
+              ({tab.id === 'outofstock' ? stockSummary.length : trackerData.length})
             </span>
           </button>
         ))}
@@ -260,195 +312,235 @@ const StockDashboard = () => {
       {/* Out of Stock Tab Content */}
       {activeTab === 'outofstock' && (
         <>
-          {/* Outlet Selection */}
+          {/* Refresh Button for Stock Summary */}
           <div className="highrated-filters">
             <div className="filter-group">
-              <label>Select Outlet</label>
-              <select 
-                value={selectedOutlet} 
-                onChange={(e) => handleOutletChange(e.target.value)}
+              <label>Stock Summary</label>
+              <button 
+                onClick={fetchStockSummary}
                 disabled={loading}
+                style={{ 
+                  padding: '14px 28px', 
+                  border: 'none', 
+                  borderRadius: '12px',
+                  background: 'var(--primary-color, #007bff)',
+                  color: 'white',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
               >
-                <option value="">Choose an outlet...</option>
-                {outlets.map(outlet => (
-                  <option key={outlet} value={outlet}>
-                    {outlet}
-                  </option>
-                ))}
-              </select>
+                {loading ? 'Loading...' : 'Refresh All Outlets'}
+              </button>
             </div>
             
-            {selectedOutlet && (
-              <div className="filter-group">
-                <label>Status</label>
-                <div style={{ 
-                  padding: '14px 18px', 
-                  border: '1px solid var(--border-light)', 
-                  borderRadius: '12px',
-                  background: 'var(--surface-light)',
-                  color: 'var(--text-primary)',
-                  fontSize: '15px'
-                }}>
-                  {loading ? 'Loading...' : `${stockData.length} items out of stock`}
-                </div>
+            <div className="filter-group">
+              <label>Status</label>
+              <div style={{ 
+                padding: '14px 18px', 
+                border: '1px solid var(--border-light)', 
+                borderRadius: '12px',
+                background: 'var(--surface-light)',
+                color: 'var(--text-primary)',
+                fontSize: '15px'
+              }}>
+                {loading ? 'Loading...' : `${stockSummary.length} unique items across all outlets`}
               </div>
-            )}
+            </div>
           </div>
 
-          {/* Stock Data Display */}
-          {selectedOutlet && !loading && !error && (
-            <div className="graphs-section">
-              <h4>
-                <span style={{ marginRight: '12px' }}>📦</span>
-                Out of Stock Items - {selectedOutlet}
-              </h4>
-              
-              {stockData.length === 0 ? (
-                <div className="outlet-card">
-                  <h5 style={{ color: 'var(--text-primary)' }}>No Items Out of Stock</h5>
-                  <p style={{ color: 'var(--text-secondary)' }}>
-                    Great news! Either all items are in stock or no data is available for this outlet.
-                  </p>
-                  <div style={{ marginTop: '15px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    If this seems incorrect, check the Google Sheets tab "{selectedOutlet}" for data availability.
-                  </div>
-                </div>
-              ) : (
-                <div style={{ 
-                  background: 'var(--surface-card)',
-                  borderRadius: '16px',
-                  border: '1px solid var(--border-light)',
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+          {/* Stock Summary Display */}
+          <div className="graphs-section">
+            <h4>
+              <span style={{ marginRight: '12px' }}>📦</span>
+              Out of Stock Items Summary - All Outlets
+            </h4>
+            
+            {!loading && !error && stockSummary.length === 0 ? (
+              <div className="outlet-card">
+                <h5 style={{ color: 'var(--text-primary)' }}>No Items Out of Stock</h5>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  Great news! No items are currently out of stock across all outlets.
+                </p>
+              </div>
+            ) : !loading && !error && stockSummary.length > 0 ? (
+              <div style={{ 
+                background: 'var(--surface-card)',
+                borderRadius: '16px',
+                border: '1px solid var(--border-light)',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+              }}>
+                <table style={{ 
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '0.95rem'
                 }}>
-                  <table style={{ 
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '0.95rem'
-                  }}>
-                    <thead>
-                      <tr style={{ 
-                        background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
-                        borderBottom: '2px solid var(--border-light)'
+                  <thead>
+                    <tr style={{ 
+                      background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
+                      borderBottom: '2px solid var(--border-light)'
+                    }}>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'left',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        width: '200px',
+                        borderRight: '1px solid var(--border-light)'
                       }}>
-                        <th style={{ 
+                        SKU Code
+                      </th>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'left',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        borderRight: '1px solid var(--border-light)'
+                      }}>
+                        Item Name
+                      </th>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'center',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        width: '150px'
+                      }}>
+                        Outlets Affected
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockSummary.map((item, index) => (
+                      <tr 
+                        key={`${item.skuCode}-${index}`}
+                        style={{ 
+                          borderBottom: index < stockSummary.length - 1 ? '1px solid var(--border-light)' : 'none',
+                          transition: 'all 0.2s ease',
+                          cursor: 'default'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = 'var(--surface-light)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                      >
+                        <td style={{ 
                           padding: '24px 32px',
-                          textAlign: 'left',
-                          fontWeight: '600',
+                          fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
+                          fontWeight: '700',
                           color: 'var(--text-primary)',
-                          fontSize: '0.9rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.8px',
-                          width: '200px',
+                          fontSize: '1rem',
+                          borderRight: '1px solid var(--border-light)',
+                          background: 'rgba(0, 0, 0, 0.02)'
+                        }}>
+                          {item.skuCode}
+                        </td>
+                        <td style={{ 
+                          padding: '24px 32px',
+                          color: 'var(--text-secondary)',
+                          lineHeight: '1.6',
                           borderRight: '1px solid var(--border-light)'
                         }}>
-                          SKU Code
-                        </th>
-                        <th style={{ 
-                          padding: '24px 32px',
-                          textAlign: 'left',
-                          fontWeight: '600',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.9rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.8px'
-                        }}>
-                          Item Name
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stockData.map((item, index) => (
-                        <tr 
-                          key={`${item.skuCode}-${index}`}
-                          style={{ 
-                            borderBottom: index < stockData.length - 1 ? '1px solid var(--border-light)' : 'none',
-                            transition: 'all 0.2s ease',
-                            cursor: 'default'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = 'var(--surface-light)';
-                            e.currentTarget.style.transform = 'translateX(2px)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'transparent';
-                            e.currentTarget.style.transform = 'translateX(0px)';
-                          }}
-                        >
-                          <td style={{ 
-                            padding: '24px 32px',
-                            fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
-                            fontWeight: '700',
-                            color: 'var(--text-primary)',
-                            fontSize: '1rem',
-                            borderRight: '1px solid var(--border-light)',
-                            background: 'rgba(0, 0, 0, 0.02)'
-                          }}>
-                            {item.skuCode}
-                          </td>
-                          <td style={{ 
-                            padding: '24px 32px',
-                            color: 'var(--text-secondary)',
-                            lineHeight: '1.6'
-                          }}>
-                            <div>
-                              <div style={{ 
-                                fontWeight: '500',
-                                color: 'var(--text-primary)',
-                                fontSize: '1rem',
-                                marginBottom: '6px'
-                              }}>
-                                {item.longName}
-                              </div>
-                              {item.shortName && item.shortName !== item.longName && (
-                                <div style={{ 
-                                  fontSize: '0.85rem',
-                                  color: 'var(--text-muted)',
-                                  fontStyle: 'italic',
-                                  opacity: '0.8'
-                                }}>
-                                  {item.shortName}
-                                </div>
-                              )}
+                          <div>
+                            <div style={{ 
+                              fontWeight: '500',
+                              color: 'var(--text-primary)',
+                              fontSize: '1rem',
+                              marginBottom: '6px'
+                            }}>
+                              {item.longName}
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  
-                  {/* Table Footer with Count */}
-                  <div style={{
-                    padding: '16px 32px',
-                    background: 'var(--surface-light)',
-                    borderTop: '1px solid var(--border-light)',
-                    textAlign: 'center',
-                    fontSize: '0.85rem',
-                    color: 'var(--text-muted)',
-                    fontWeight: '500'
-                  }}>
-                    {stockData.length} items out of stock in {selectedOutlet}
-                  </div>
+                            {item.shortName && item.shortName !== item.longName && (
+                              <div style={{ 
+                                fontSize: '0.85rem',
+                                color: 'var(--text-muted)',
+                                fontStyle: 'italic',
+                                opacity: '0.8'
+                              }}>
+                                {item.shortName}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ 
+                          padding: '24px 32px',
+                          textAlign: 'center'
+                        }}>
+                          <button
+                            onClick={() => handleItemClick(item)}
+                            style={{
+                              background: item.outletCount > 5 ? '#ef4444' : item.outletCount > 2 ? '#f59e0b' : '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '20px',
+                              padding: '8px 16px',
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              minWidth: '60px'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.transform = 'scale(1.05)';
+                              e.target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.transform = 'scale(1)';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          >
+                            {item.outletCount}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                {/* Table Footer with Count */}
+                <div style={{
+                  padding: '16px 32px',
+                  background: 'var(--surface-light)',
+                  borderTop: '1px solid var(--border-light)',
+                  textAlign: 'center',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-muted)',
+                  fontWeight: '500'
+                }}>
+                  {stockSummary.length} unique items out of stock across all outlets
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            ) : null}
+          </div>
 
           {/* Instructions for Out of Stock */}
-          {!selectedOutlet && !loading && (
+          {stockSummary.length === 0 && !loading && (
             <div className="bottom-outlets">
               <h4>
                 <span style={{ marginRight: '12px' }}>ℹ️</span>
                 Stock Management Instructions
               </h4>
               <div className="outlet-card">
-                <h5>How to Use Stock Dashboard</h5>
+                <h5>How to Use Stock Summary</h5>
                 <ul style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                  <li>Select an outlet from the dropdown above ({outlets.length} outlets available)</li>
-                  <li>View all out-of-stock items for that outlet</li>
-                  <li>Items display SKU Code, full product names, and short names</li>
-                  <li>Data is fetched from Google Sheets in real-time</li>
-                  <li>Zero items means all products are in stock (good news!)</li>
+                  <li>View all unique items that are out of stock across any outlets</li>
+                  <li>See how many outlets have each item out of stock</li>
+                  <li>Click on the outlet count number to see which specific outlets</li>
+                  <li>Items are sorted by outlet count (most critical first)</li>
+                  <li>Color coding: Red (5+ outlets), Orange (3-4 outlets), Green (1-2 outlets)</li>
                 </ul>
                 <div style={{ marginTop: '15px', padding: '15px', background: 'var(--surface-light)', borderRadius: '8px' }}>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 10px 0' }}>
@@ -457,14 +549,130 @@ const StockDashboard = () => {
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0' }}>
                     Backend API: {API_BASE_URL}<br/>
                     Environment: {process.env.NODE_ENV || 'production'}<br/>
-                    Outlet data: Hardcoded (reliable)<br/>
-                    Stock data: Real-time from Google Sheets
+                    Data Source: Real-time from all {outlets.length} outlet sheets<br/>
+                    Aggregation: Cross-outlet item summary
                   </p>
                 </div>
               </div>
             </div>
           )}
         </>
+      )}
+
+      {/* Item Details Modal */}
+      {showModal && selectedItem && (
+        <div className="image-modal" onClick={closeModal} style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '600px',
+            width: '90%',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>
+                Item Details - {selectedItem.skuCode}
+              </h3>
+              <button 
+                className="close-btn" 
+                onClick={closeModal}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  padding: '0',
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            {modalLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <div>Loading outlet details...</div>
+              </div>
+            ) : itemDetails ? (
+              <div>
+                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--surface-light)', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 8px 0' }}>{itemDetails.itemInfo?.longName}</h4>
+                  <p style={{ margin: '0', color: 'var(--text-muted)', fontSize: '14px' }}>
+                    SKU: {itemDetails.itemInfo?.skuCode}
+                  </p>
+                </div>
+                
+                <h5 style={{ marginBottom: '16px' }}>
+                  Outlets with this item out of stock ({itemDetails.outletDetails?.length || 0}):
+                </h5>
+                
+                {itemDetails.outletDetails && itemDetails.outletDetails.length > 0 ? (
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    {itemDetails.outletDetails.map((outlet, index) => (
+                      <div key={index} style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '12px 16px',
+                        background: 'var(--surface-card)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '8px'
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                            {outlet.outlet}
+                          </div>
+                          {outlet.shortName && (
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {outlet.shortName}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ 
+                          background: '#ef4444', 
+                          color: 'white', 
+                          padding: '4px 8px', 
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '600'
+                        }}>
+                          Out of Stock
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                    No outlet details available
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                Failed to load outlet details
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Tracker Tab Content */}
@@ -716,13 +924,12 @@ const StockDashboard = () => {
               <div>API Base URL: {API_BASE_URL}</div>
               <div>Outlets loaded: {outlets.length} (hardcoded)</div>
               <div>Active Tab: {activeTab}</div>
-              <div>Selected Outlet: {selectedOutlet || 'None'}</div>
-              <div>Stock items: {stockData.length}</div>
+              <div>Stock Summary Items: {stockSummary.length}</div>
               <div>Tracker entries: {trackerData.length}</div>
               <div>Loading: {loading ? 'Yes' : 'No'}</div>
               <div>Error: {error || 'None'}</div>
-              {selectedOutlet && activeTab === 'outofstock' && (
-                <div>Stock URL: {API_BASE_URL}/api/stock-data?outlet={selectedOutlet}</div>
+              {activeTab === 'outofstock' && (
+                <div>Stock Summary URL: {API_BASE_URL}/api/stock-summary</div>
               )}
               {activeTab === 'tracker' && (
                 <div>Tracker URL: {API_BASE_URL}/api/stock-tracker-data</div>
@@ -736,14 +943,14 @@ const StockDashboard = () => {
       {error && (
         <div className="bottom-outlets">
           <div className="outlet-card" style={{ borderLeft: '3px solid #ff4757' }}>
-            <h5 style={{ color: '#ff4757' }}>Error Loading {activeTab === 'outofstock' ? 'Stock' : 'Tracker'} Data</h5>
+            <h5 style={{ color: '#ff4757' }}>Error Loading {activeTab === 'outofstock' ? 'Stock Summary' : 'Tracker'} Data</h5>
             <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
             <div style={{ marginTop: '15px', padding: '10px', background: 'var(--surface-light)', borderRadius: '8px' }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
                 <strong>Troubleshooting:</strong>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                API URL: <code>{API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-data' : 'stock-tracker-data'}</code>
+                API URL: <code>{API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-summary' : 'stock-tracker-data'}</code>
               </div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px' }}>
                 Check if the backend server is running and the configuration is correct.
@@ -757,12 +964,12 @@ const StockDashboard = () => {
       {loading && (
         <div className="graphs-section">
           <div className="outlet-card">
-            <h5>Loading {activeTab === 'outofstock' ? 'Stock' : 'Tracker'} Data...</h5>
+            <h5>Loading {activeTab === 'outofstock' ? 'Stock Summary' : 'Tracker'} Data...</h5>
             <p style={{ color: 'var(--text-secondary)' }}>
-              Fetching {activeTab === 'outofstock' ? `out-of-stock items for ${selectedOutlet}` : 'tracker entries'}...
+              Fetching {activeTab === 'outofstock' ? 'aggregated stock data from all outlets' : 'tracker entries'}...
             </p>
             <div style={{ marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Loading from: {API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-data' : 'stock-tracker-data'}
+              Loading from: {API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-summary' : 'stock-tracker-data'}
             </div>
           </div>
         </div>
