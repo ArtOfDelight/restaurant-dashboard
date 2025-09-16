@@ -2642,43 +2642,12 @@ function generateSwiggyFallbackInsights(data, period) {
 // Process Zomato orders data with correct column mapping
 
 // Main function to process product data from multiple sheets - ADD THIS
-// Helper function to parse and validate dates
-function parseDate(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return null;
-  
-  // Try multiple date formats
-  const formats = [
-    'MM/DD/YYYY', 'YYYY-MM-DD', 'DD/MM/YYYY', 'MM-DD-YYYY', 'DD-MM-YYYY'
-  ];
-  
-  for (const format of formats) {
-    const parsed = new Date(
-      dateStr.match(/^\d{2}\/\d{2}\/\d{4}$/) ? dateStr.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$1-$2') :
-      dateStr.match(/^\d{4}-\d{2}-\d{2}$/) ? dateStr :
-      dateStr.match(/^\d{2}-\d{2}-\d{4}$/) ? dateStr.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$1-$2') :
-      null
-    );
-    
-    if (!isNaN(parsed)) return parsed;
-  }
-  
-  console.warn(`Invalid date format: ${dateStr}`);
-  return null;
-}
-
-// Helper function to check if date is in range (Sep 5, 2025 - Sep 11, 2025)
-function isDateInRange(date) {
-  const startDate = new Date('2025-09-05T00:00:00Z');
-  const endDate = new Date('2025-09-11T23:59:59Z');
-  return date >= startDate && date <= endDate;
-}
-
 async function processProductAnalysisData(spreadsheetId) {
-  console.log('Processing product analysis data from multiple sheets for Sep 5-11, 2025');
+  console.log('Processing product analysis data from multiple sheets');
   
   try {
-    // Fetch all five sheets in parallel
-    const [zomatoOrdersResponse, swiggyReviewResponse, zomatoComplaintsResponse, swiggyComplaintsResponse, productDetailsResponse] = await Promise.all([
+    // Fetch all four sheets in parallel
+    const [zomatoOrdersResponse, swiggyReviewResponse, zomatoComplaintsResponse, swiggyComplaintsResponse] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: `zomato_orders!A:Z`,
@@ -2694,14 +2663,10 @@ async function processProductAnalysisData(spreadsheetId) {
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: `swiggy complaints!A:Z`,
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `ProductDetails!A:Z`,
       })
     ]);
 
-    // Process each sheet with date filtering
+    // Process each sheet using the enhanced functions
     console.log('Processing Zomato orders...');
     const zomatoOrders = processZomatoOrdersData(zomatoOrdersResponse.data.values);
     
@@ -2729,10 +2694,12 @@ async function processProductAnalysisData(spreadsheetId) {
     const findOrCreateProduct = (productName) => {
       const normalized = normalizeProductName(productName);
       
+      // First try exact match
       if (productMap.has(normalized)) {
         return productMap.get(normalized);
       }
       
+      // Try fuzzy matching with existing products
       for (let [key, product] of productMap.entries()) {
         const similarity = calculateSimilarity(normalized, key);
         if (similarity > 0.8) { // 80% similarity threshold
@@ -2745,12 +2712,10 @@ async function processProductAnalysisData(spreadsheetId) {
       const newProduct = {
         name: capitalizeWords(productName),
         normalizedName: normalized,
-        zomatoRatedCount: 0,
-        swiggyRatedCount: 0,
+        zomatoOrders: 0,
+        swiggyOrders: 0,
         zomatoComplaints: 0,
         swiggyComplaints: 0,
-        zomatoTotalQuantity: 0,
-        swiggyTotalQuantity: 0,
         avgRating: 0,
         platform: 'Both'
       };
@@ -2758,19 +2723,19 @@ async function processProductAnalysisData(spreadsheetId) {
       return newProduct;
     };
 
-    // Add Zomato rated orders
-    console.log(`Adding ${zomatoOrders.length} Zomato rated items...`);
+    // Add Zomato orders
+    console.log(`Adding ${zomatoOrders.length} Zomato order items...`);
     zomatoOrders.forEach(product => {
       const existingProduct = findOrCreateProduct(product.name);
-      existingProduct.zomatoRatedCount = product.orders || 0;
+      existingProduct.zomatoOrders = product.orders || 0;
       existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
     });
 
-    // Add Swiggy rated orders
-    console.log(`Adding ${swiggyOrders.length} Swiggy rated items...`);
+    // Add Swiggy orders
+    console.log(`Adding ${swiggyOrders.length} Swiggy order items...`);
     swiggyOrders.forEach(product => {
       const existingProduct = findOrCreateProduct(product.name);
-      existingProduct.swiggyRatedCount = product.orders || 0;
+      existingProduct.swiggyOrders = product.orders || 0;
       existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
     });
 
@@ -2788,45 +2753,29 @@ async function processProductAnalysisData(spreadsheetId) {
       existingProduct.swiggyComplaints = complaint.count || 0;
     });
 
-    // Process Product Details with Gemini matching
-    console.log('Processing Product Details...');
-    const existingProductNames = Array.from(productMap.values()).map(p => p.name);
-    const productDetails = await processProductDetailsData(productDetailsResponse.data.values, existingProductNames);
-
-    // Add Product Details quantities
-    console.log(`Adding ${productDetails.length} Product Details items...`);
-    productDetails.forEach(pd => {
-      const existingProduct = findOrCreateProduct(pd.name);
-      existingProduct.zomatoTotalQuantity += pd.zomatoQuantity || 0;
-      existingProduct.swiggyTotalQuantity += pd.swiggyQuantity || 0;
-    });
-
     // Convert to array and calculate summary
     const products = Array.from(productMap.values());
     
     // Filter out products with very low order counts (likely parsing errors)
     const filteredProducts = products.filter(p => 
-      (p.zomatoRatedCount + p.swiggyRatedCount) >= 1 || (p.zomatoTotalQuantity + p.swiggyTotalQuantity) >= 1
+      (p.zomatoOrders + p.swiggyOrders) >= 1
     );
     
     const summary = {
       totalProducts: filteredProducts.length,
-      totalZomatoRatedCount: filteredProducts.reduce((sum, p) => sum + (p.zomatoRatedCount || 0), 0),
-      totalSwiggyRatedCount: filteredProducts.reduce((sum, p) => sum + (p.swiggyRatedCount || 0), 0),
-      totalZomatoUnits: filteredProducts.reduce((sum, p) => sum + (p.zomatoTotalQuantity || 0), 0),
-      totalSwiggyUnits: filteredProducts.reduce((sum, p) => sum + (p.swiggyTotalQuantity || 0), 0),
+      totalZomatoOrders: filteredProducts.reduce((sum, p) => sum + (p.zomatoOrders || 0), 0),
+      totalSwiggyOrders: filteredProducts.reduce((sum, p) => sum + (p.swiggyOrders || 0), 0),
       totalZomatoComplaints: filteredProducts.reduce((sum, p) => sum + (p.zomatoComplaints || 0), 0),
       totalSwiggyComplaints: filteredProducts.reduce((sum, p) => sum + (p.swiggyComplaints || 0), 0),
-      avgComplaintRate: 0,
-      dateRange: 'Sep 5, 2025 - Sep 11, 2025'
+      avgComplaintRate: 0
     };
 
-    const totalUnits = summary.totalZomatoUnits + summary.totalSwiggyUnits;
+    const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
     const totalComplaints = summary.totalZomatoComplaints + summary.totalSwiggyComplaints;
-    summary.avgComplaintRate = totalUnits > 0 ? (totalComplaints / totalUnits * 100) : 0;
+    summary.avgComplaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
 
-    console.log(`Successfully processed ${filteredProducts.length} products for Sep 5-11, 2025:`);
-    console.log(`- Total Units: ${totalUnits}`);
+    console.log(`Successfully processed ${filteredProducts.length} products:`);
+    console.log(`- Total Orders: ${totalOrders}`);
     console.log(`- Total Complaints: ${totalComplaints}`);
     console.log(`- Average Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
 
@@ -2890,36 +2839,18 @@ function processZomatoOrdersData(rawData) {
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
   const restaurantNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('restaurant name'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
   
-  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Restaurant column: ${restaurantNameIndex}, Date column: ${dateIndex}`);
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Restaurant column: ${restaurantNameIndex}`);
   
   // Count orders per item
   const itemCounts = new Map();
   const itemRatings = new Map();
-  let totalOrdersProcessed = 0;
-  let ratedOrdersProcessed = 0;
-  let skippedRows = 0;
   
   dataRows.forEach(row => {
-    const dateStr = getCellValue(row, dateIndex);
-    const parsedDate = parseDate(dateStr);
-    
-    // Skip rows outside the date range or with invalid dates
-    if (!parsedDate || !isDateInRange(parsedDate)) {
-      skippedRows++;
-      return;
-    }
-    
     const itemsCell = getCellValue(row, itemsIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
     
-    totalOrdersProcessed++;
-    
-    // MODIFICATION: Only process orders that have ratings (rating > 0)
-    if (itemsCell && itemsCell.trim() && rating > 0) {
-      ratedOrdersProcessed++;
-      
+    if (itemsCell && itemsCell.trim()) {
       // Parse multiple items from the cell (they might be separated by commas, semicolons, etc.)
       const items = parseItemsFromCell(itemsCell);
       
@@ -2932,7 +2863,9 @@ function processZomatoOrdersData(rawData) {
           if (!itemRatings.has(cleanItem)) {
             itemRatings.set(cleanItem, []);
           }
-          itemRatings.get(cleanItem).push(rating);
+          if (rating > 0) {
+            itemRatings.get(cleanItem).push(rating);
+          }
         }
       });
     }
@@ -2951,10 +2884,7 @@ function processZomatoOrdersData(rawData) {
     });
   });
   
-  console.log(`Processed ${ratedOrdersProcessed} rated orders out of ${totalOrdersProcessed} total Zomato orders (${((ratedOrdersProcessed/totalOrdersProcessed)*100).toFixed(1)}% had ratings)`);
-  console.log(`Skipped ${skippedRows} rows due to date filtering`);
-  console.log(`Generated ${result.length} unique items from rated Zomato orders only for Sep 5-11, 2025`);
-  
+  console.log(`Processed ${result.length} unique items from Zomato orders`);
   return result;
 }
 
@@ -2970,24 +2900,14 @@ function processSwiggyReviewData(rawData) {
   // Find correct column indices
   const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
   
-  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}, Date column: ${dateIndex}`);
+  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
   
   // Count orders per item
   const itemCounts = new Map();
   const itemRatings = new Map();
-  let skippedRows = 0;
   
   dataRows.forEach(row => {
-    const dateStr = getCellValue(row, dateIndex);
-    const parsedDate = parseDate(dateStr);
-    
-    if (!parsedDate || !isDateInRange(parsedDate)) {
-      skippedRows++;
-      return;
-    }
-    
     const itemCell = getCellValue(row, itemOrderedIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
     
@@ -3023,8 +2943,7 @@ function processSwiggyReviewData(rawData) {
     });
   });
   
-  console.log(`Processed ${result.length} unique items from Swiggy reviews for Sep 5-11, 2025`);
-  console.log(`Skipped ${skippedRows} rows due to date filtering`);
+  console.log(`Processed ${result.length} unique items from Swiggy reviews`);
   return result;
 }
 
@@ -3039,23 +2958,13 @@ function processZomatoComplaintsData(rawData) {
   
   // Find correct column indices
   const descriptionIndex = headers.findIndex(h => h && h.toLowerCase().includes('description'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
   
-  console.log(`Zomato Complaints - Description column: ${descriptionIndex}, Date column: ${dateIndex}`);
+  console.log(`Zomato Complaints - Description column: ${descriptionIndex}`);
   
   // Count complaints per item extracted from description
   const itemComplaints = new Map();
-  let skippedRows = 0;
   
   dataRows.forEach(row => {
-    const dateStr = getCellValue(row, dateIndex);
-    const parsedDate = parseDate(dateStr);
-    
-    if (!parsedDate || !isDateInRange(parsedDate)) {
-      skippedRows++;
-      return;
-    }
-    
     const description = getCellValue(row, descriptionIndex);
     
     if (description && description.trim()) {
@@ -3080,8 +2989,7 @@ function processZomatoComplaintsData(rawData) {
     });
   });
   
-  console.log(`Processed ${result.length} unique items from Zomato complaints for Sep 5-11, 2025`);
-  console.log(`Skipped ${skippedRows} rows due to date filtering`);
+  console.log(`Processed ${result.length} unique items from Zomato complaints`);
   return result;
 }
 
@@ -3096,23 +3004,12 @@ async function processSwiggyComplaintsData(rawData) {
   
   // Find correct column indices
   const reasonIndex = headers.findIndex(h => h && h.toLowerCase().includes('reason'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
   
-  console.log(`Swiggy Complaints - Reason column: ${reasonIndex}, Date column: ${dateIndex}`);
+  console.log(`Swiggy Complaints - Reason column: ${reasonIndex}`);
   
   // Extract unique reason texts for batch processing with Gemini
   const reasonTexts = [];
-  let skippedRows = 0;
-  
   dataRows.forEach(row => {
-    const dateStr = getCellValue(row, dateIndex);
-    const parsedDate = parseDate(dateStr);
-    
-    if (!parsedDate || !isDateInRange(parsedDate)) {
-      skippedRows++;
-      return;
-    }
-    
     const reason = getCellValue(row, reasonIndex);
     if (reason && reason.trim()) {
       reasonTexts.push(reason.trim());
@@ -3141,159 +3038,8 @@ async function processSwiggyComplaintsData(rawData) {
     });
   });
   
-  console.log(`Processed ${result.length} unique items from Swiggy complaints using Gemini parsing for Sep 5-11, 2025`);
-  console.log(`Skipped ${skippedRows} rows due to date filtering`);
+  console.log(`Processed ${result.length} unique items from Swiggy complaints using Gemini parsing`);
   return result;
-}
-
-// New function to process ProductDetails with Gemini matching
-async function processProductDetailsData(rawData, existingProductNames) {
-  if (!rawData || rawData.length <= 1) return [];
-  
-  const headers = rawData[0];
-  const dataRows = rawData.slice(1);
-  
-  console.log('Product Details Headers:', headers);
-  
-  const itemIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-  const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
-  const quantityIndex = headers.findIndex(h => h && h.toLowerCase().includes('quantity'));
-  
-  console.log(`Product Details - Item column: ${itemIndex}, Date column: ${dateIndex}, Channel column: ${channelIndex}, Quantity column: ${quantityIndex}`);
-  
-  const itemAgg = new Map(); // key: itemName.toLowerCase(), value: {original: itemName, zomatoQty: 0, swiggyQty: 0}
-  let skippedRows = 0;
-  
-  dataRows.forEach(row => {
-    const dateStr = getCellValue(row, dateIndex);
-    const parsedDate = parseDate(dateStr);
-    
-    if (!parsedDate || !isDateInRange(parsedDate)) {
-      skippedRows++;
-      return;
-    }
-    
-    const channel = getCellValue(row, channelIndex).toLowerCase();
-    if (!channel.includes('zomato') && !channel.includes('swiggy')) return;
-    
-    const itemName = getCellValue(row, itemIndex).trim();
-    if (!itemName) return;
-    
-    const quantity = parseInt(getCellValue(row, quantityIndex)) || 0;
-    if (quantity <= 0) return;
-    
-    const key = itemName.toLowerCase();
-    let agg = itemAgg.get(key) || {original: itemName, zomatoQty: 0, swiggyQty: 0};
-    
-    if (channel.includes('zomato')) {
-      agg.zomatoQty += quantity;
-    } else if (channel.includes('swiggy')) {
-      agg.swiggyQty += quantity;
-    }
-    
-    itemAgg.set(key, agg);
-  });
-  
-  const newNames = Array.from(itemAgg.values()).map(a => a.original);
-  const matching = await matchItemNamesWithGemini(newNames, existingProductNames);
-  
-  const nameMap = new Map();
-  matching.forEach(m => {
-    nameMap.set(m.original, m.matched);
-  });
-  
-  const aggregated = new Map(); // key: normalize(matched), value: {name: matched, zomatoQuantity: 0, swiggyQuantity: 0}
-  
-  for (let [key, agg] of itemAgg.entries()) {
-    const original = agg.original;
-    let matched = nameMap.get(original) || original;
-    const normMatched = normalizeProductName(matched);
-    let aggMatched = aggregated.get(normMatched) || {name: capitalizeWords(matched), zomatoQuantity: 0, swiggyQuantity: 0};
-    aggMatched.zomatoQuantity += agg.zomatoQty;
-    aggMatched.swiggyQuantity += agg.swiggyQty;
-    aggregated.set(normMatched, aggMatched);
-  }
-  
-  const result = Array.from(aggregated.values()).map(a => ({
-    name: a.name,
-    zomatoQuantity: a.zomatoQuantity,
-    swiggyQuantity: a.swiggyQuantity
-  }));
-  
-  console.log(`Processed ${result.length} unique items from Product Details for Sep 5-11, 2025`);
-  console.log(`Skipped ${skippedRows} rows due to date filtering`);
-  return result;
-}
-
-// New Gemini function to match item names
-async function matchItemNamesWithGemini(newNames, existingNames) {
-  if (!GEMINI_API_KEY || newNames.length === 0) {
-    console.log('Gemini API not available, using original names');
-    return newNames.map(n => ({original: n, matched: n}));
-  }
-
-  try {
-    const prompt = `Standard product names from other sheets: ${JSON.stringify(existingNames)}
-
-New item names from ProductDetails: ${JSON.stringify(newNames)}
-
-For each new item name, find the best matching standard name if similarity is high (e.g., >80%), otherwise keep the original or suggest a cleaned version if it's an obvious typo.
-
-Return a JSON array of objects:
-[
-  {"original": "new1", "matched": "standard1"},
-  ...
-]
-
-Focus on food item matching, ignore quantities, sizes, or extras.`;
-
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1000,
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000
-      }
-    );
-
-    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      const aiResponse = response.data.candidates[0].content.parts[0].text;
-      
-      try {
-        const jsonMatch = aiResponse.match(/\[[\s\S]*?\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) {
-            console.log(`Gemini matched ${parsed.length} item names`);
-            return parsed;
-          }
-        }
-      } catch (parseError) {
-        console.log('Failed to parse Gemini matching response, using originals');
-      }
-    }
-
-    return newNames.map(n => ({original: n, matched: n}));
-
-  } catch (error) {
-    console.error('Gemini item matching error:', error.message);
-    return newNames.map(n => ({original: n, matched: n}));
-  }
 }
 
 // Helper function to parse items from a cell (handles multiple items separated by various delimiters)
@@ -3465,19 +3211,19 @@ async function generateEnhancedProductInsightsWithGemini(data) {
     const productAnalysis = data.products
       .map(p => ({
         ...p,
-        totalUnits: (p.zomatoTotalQuantity || 0) + (p.swiggyTotalQuantity || 0),
+        totalOrders: (p.zomatoOrders || 0) + (p.swiggyOrders || 0),
         totalComplaints: (p.zomatoComplaints || 0) + (p.swiggyComplaints || 0),
         complaintRate: ((p.zomatoComplaints || 0) + (p.swiggyComplaints || 0)) / 
-                      Math.max((p.zomatoTotalQuantity || 0) + (p.swiggyTotalQuantity || 0), 1) * 100,
-        platformPreference: (p.zomatoTotalQuantity || 0) > (p.swiggyTotalQuantity || 0) ? 'Zomato' : 'Swiggy',
+                      Math.max((p.zomatoOrders || 0) + (p.swiggyOrders || 0), 1) * 100,
+        platformPreference: (p.zomatoOrders || 0) > (p.swiggyOrders || 0) ? 'Zomato' : 'Swiggy',
         ratingCategory: p.avgRating > 4.5 ? 'Excellent' : p.avgRating > 4 ? 'Good' : p.avgRating > 3 ? 'Average' : 'Poor'
       }))
-      .filter(p => p.totalUnits > 0)
-      .sort((a, b) => b.totalUnits - a.totalUnits);
+      .filter(p => p.totalOrders > 0)
+      .sort((a, b) => b.totalOrders - a.totalOrders);
 
     const topPerformers = productAnalysis.slice(0, 5);
     const highComplaintItems = productAnalysis
-      .filter(p => p.complaintRate > 3 && p.totalUnits > 5)
+      .filter(p => p.complaintRate > 3 && p.totalOrders > 5)
       .sort((a, b) => b.complaintRate - a.complaintRate)
       .slice(0, 5);
 
@@ -3485,19 +3231,19 @@ async function generateEnhancedProductInsightsWithGemini(data) {
 
 BUSINESS METRICS:
 - Total Products Analyzed: ${data.summary.totalProducts}
-- Total Units Sold: ${data.summary.totalZomatoUnits + data.summary.totalSwiggyUnits}
+- Total Orders Processed: ${data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders}
 - Total Complaints Logged: ${data.summary.totalZomatoComplaints + data.summary.totalSwiggyComplaints}
 - Overall Complaint Rate: ${data.summary.avgComplaintRate.toFixed(2)}%
 
 TOP 5 PERFORMING ITEMS (by volume):
-${topPerformers.map(p => `• ${p.name}: ${p.totalUnits} units, ${p.avgRating.toFixed(1)}⭐, ${p.complaintRate.toFixed(1)}% complaints, Popular on ${p.platformPreference}`).join('\n')}
+${topPerformers.map(p => `• ${p.name}: ${p.totalOrders} orders, ${p.avgRating.toFixed(1)}⭐, ${p.complaintRate.toFixed(1)}% complaints, Popular on ${p.platformPreference}`).join('\n')}
 
 HIGH-COMPLAINT ITEMS (>3% complaint rate):
-${highComplaintItems.map(p => `• ${p.name}: ${p.complaintRate.toFixed(1)}% complaint rate (${p.totalComplaints}/${p.totalUnits}), ${p.avgRating.toFixed(1)}⭐`).join('\n')}
+${highComplaintItems.map(p => `• ${p.name}: ${p.complaintRate.toFixed(1)}% complaint rate (${p.totalComplaints}/${p.totalOrders}), ${p.avgRating.toFixed(1)}⭐`).join('\n')}
 
 PLATFORM COMPARISON:
-- Zomato: ${data.summary.totalZomatoUnits} units, ${data.summary.totalZomatoComplaints} complaints (${(data.summary.totalZomatoComplaints/Math.max(data.summary.totalZomatoUnits,1)*100).toFixed(2)}% rate)
-- Swiggy: ${data.summary.totalSwiggyUnits} units, ${data.summary.totalSwiggyComplaints} complaints (${(data.summary.totalSwiggyComplaints/Math.max(data.summary.totalSwiggyUnits,1)*100).toFixed(2)}% rate)
+- Zomato: ${data.summary.totalZomatoOrders} orders, ${data.summary.totalZomatoComplaints} complaints (${(data.summary.totalZomatoComplaints/Math.max(data.summary.totalZomatoOrders,1)*100).toFixed(2)}% rate)
+- Swiggy: ${data.summary.totalSwiggyOrders} orders, ${data.summary.totalSwiggyComplaints} complaints (${(data.summary.totalSwiggyComplaints/Math.max(data.summary.totalSwiggyOrders,1)*100).toFixed(2)}% rate)
 
 Provide strategic business insights in JSON format:
 {
@@ -4170,6 +3916,8 @@ app.get('/api/debug-employee', async (req, res) => {
   }
 });
 
+// === PRODUCT ANALYSIS API ENDPOINTS ===
+
 // Product analysis data endpoint
 app.get('/api/product-analysis-data', async (req, res) => {
   try {
@@ -4190,8 +3938,7 @@ app.get('/api/product-analysis-data', async (req, res) => {
     
     console.log(`Successfully processed product data:`, {
       products: processedData.products.length,
-      totalUnits: processedData.summary.totalZomatoUnits + processedData.summary.totalSwiggyUnits,
-      totalRated: processedData.summary.totalZomatoRatedCount + processedData.summary.totalSwiggyRatedCount,
+      totalOrders: processedData.summary.totalZomatoOrders + processedData.summary.totalSwiggyOrders,
       totalComplaints: processedData.summary.totalZomatoComplaints + processedData.summary.totalSwiggyComplaints
     });
     
@@ -4213,6 +3960,7 @@ app.get('/api/product-analysis-data', async (req, res) => {
 });
 
 // Product-specific AI insights endpoint
+// Enhanced product-specific AI insights endpoint
 app.post('/api/product-generate-insights', async (req, res) => {
   try {
     const { data, analysisType } = req.body;
@@ -4249,8 +3997,8 @@ app.get('/api/debug-product-analysis', async (req, res) => {
 
     console.log(`Debug: Fetching raw product data from ${PRODUCT_SPREADSHEET_ID}`);
 
-    // Fetch all sheets to debug including ProductDetails
-    const [zomatoOrders, swiggyReview, zomatoComplaints, swiggyComplaints, productDetails] = await Promise.all([
+    // Fetch all sheets to debug
+    const [zomatoOrders, swiggyReview, zomatoComplaints, swiggyComplaints] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `zomato_orders!A1:Z20`,
@@ -4266,10 +4014,6 @@ app.get('/api/debug-product-analysis', async (req, res) => {
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `swiggy complaints!A1:Z20`,
-      }).catch(e => ({ data: { values: null }, error: e.message })),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: PRODUCT_SPREADSHEET_ID,
-        range: `ProductDetails!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message }))
     ]);
 
@@ -4297,11 +4041,6 @@ app.get('/api/debug-product-analysis', async (req, res) => {
           data: swiggyComplaints.data.values?.slice(0, 10) || null,
           error: swiggyComplaints.error || null,
           headers: swiggyComplaints.data.values?.[0] || null
-        },
-        product_details: {
-          data: productDetails.data.values?.slice(0, 10) || null,
-          error: productDetails.error || null,
-          headers: productDetails.data.values?.[0] || null
         }
       },
       timestamp: new Date().toISOString(),
@@ -5520,6 +5259,143 @@ app.get('/api/bot-status', async (req, res) => {
   });
 });
 
+app.get('/api/stock-data', async (req, res) => {
+  try {
+    const outlet = req.query.outlet;
+    console.log(`Stock data requested for outlet: ${outlet || 'all'}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    
+    // List of outlet names (tabs)
+    const outlets = [
+      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
+      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
+      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
+    ];
+
+    if (outlet) {
+      // Fetch data for specific outlet
+      if (!outlets.includes(outlet)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid outlet. Must be one of: ${outlets.join(', ')}`
+        });
+      }
+
+      console.log(`Fetching data for outlet: ${outlet}`);
+      
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        range: `${outlet}!A:C`, // Columns A (skuCode) and C (longName)
+      });
+
+      const rawData = response.data.values || [];
+      
+      if (rawData.length === 0) {
+        return res.json({
+          success: true,
+          outlet: outlet,
+          items: [],
+          message: 'No data found for this outlet'
+        });
+      }
+
+      // Skip header row and process data
+      const items = [];
+      for (let i = 1; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (row && row[0] && row[2]) { // Check if skuCode and longName exist
+          items.push({
+            skuCode: row[0].toString().trim(),
+            longName: row[2].toString().trim(),
+            shortName: row[1] ? row[1].toString().trim() : '' // Optional shortName
+          });
+        }
+      }
+
+      console.log(`Processed ${items.length} items for ${outlet}`);
+
+      res.json({
+        success: true,
+        outlet: outlet,
+        items: items,
+        count: items.length,
+        timestamp: new Date().toISOString()
+      });
+
+    } else {
+      // Return list of available outlets
+      res.json({
+        success: true,
+        outlets: outlets,
+        message: 'Available outlets. Use ?outlet=OutletName to get specific data',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error) {
+    console.error('Error fetching stock data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
+// Debug stock endpoint
+app.get('/api/debug-stock', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    
+    console.log(`Debug: Checking stock spreadsheet ${STOCK_SPREADSHEET_ID}`);
+
+    // Test with first outlet
+    const testOutlet = 'Sahakarnagar';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${testOutlet}!A1:C10`, // Get first 10 rows for debugging
+    });
+
+    const rawData = response.data.values || [];
+
+    res.json({
+      success: true,
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      testOutlet: testOutlet,
+      rawData: rawData,
+      rowCount: rawData.length,
+      headers: rawData[0] || null,
+      sampleData: rawData.slice(1, 4), // Show 3 sample rows
+      expectedStructure: {
+        'A': 'skuCode',
+        'B': 'shortName',
+        'C': 'longName'
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error debugging stock data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8'
+    });
+  }
+});
+
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
@@ -5678,6 +5554,12 @@ app.get('/', (req, res) => {
         data: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
         debug: '/api/debug-high-rated',
         description: 'High-rated order tracking'
+      },
+      stock: {
+        data: '/api/stock-data?outlet=[OutletName]',
+        outlets: '/api/stock-data (GET all outlets)',
+        debug: '/api/debug-stock',
+        description: 'Stock management system showing out-of-stock items per outlet'
       },
       utilities: {
         imageProxy: '/api/image-proxy/:fileId',
