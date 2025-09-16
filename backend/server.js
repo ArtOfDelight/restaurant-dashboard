@@ -5543,108 +5543,304 @@ app.get('/api/stock-tracker-data', async (req, res) => {
 });
 
 // Add new tracker entry endpoint - POST to add tracker data
-app.post('/api/add-stock-tracker-entry', async (req, res) => {
+// Stock Summary API - Aggregates out-of-stock items across all outlets
+app.get('/api/stock-summary', async (req, res) => {
   try {
-    const { outlet, items } = req.body;
-    
-    if (!outlet || !items) {
-      return res.status(400).json({
-        success: false,
-        error: 'Outlet and items are required'
-      });
-    }
-
-    console.log(`Adding tracker entry for outlet: ${outlet}, items: ${items}`);
+    console.log('Stock summary requested - aggregating data across all outlets');
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
       if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
+        throw new Error('Failed to initialize Google Sheets');
       }
     }
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    const TRACKER_TAB = 'Tracker';
-
-    // Add current timestamp
-    const currentTime = new Date().toISOString();
     
-    // Append new row to tracker
-    await sheets.spreadsheets.values.append({
+    // List of outlet names (tabs)
+    const outlets = [
+      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
+      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
+      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
+    ];
+
+    console.log(`Fetching data from ${outlets.length} outlets`);
+
+    // First, fetch the MasterSheet to get valid skuCodes and longNames
+    const masterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [['', currentTime, outlet, items]] // Empty A column, Time in B, Outlet in C, Items in D
+      range: `MasterSheet!A:B`, // Columns A (skuCode) and B (longName)
+    });
+
+    const masterData = masterResponse.data.values || [];
+    console.log(`Found ${masterData.length} rows in MasterSheet`);
+
+    // Create a Map of valid skuCodes from MasterSheet
+    const masterItems = new Map();
+    for (let i = 1; i < masterData.length; i++) { // Skip header row
+      const row = masterData[i];
+      if (row && row[0] && row[1]) { // Check if skuCode and longName exist
+        masterItems.set(row[0].toString().trim(), {
+          skuCode: row[0].toString().trim(),
+          longName: row[1].toString().trim()
+        });
+      }
+    }
+
+    // Object to aggregate items across outlets
+    const itemSummary = new Map();
+
+    // Fetch data from all outlets in parallel
+    const outletPromises = outlets.map(async (outlet) => {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: STOCK_SPREADSHEET_ID,
+          range: `${outlet}!A:C`, // Columns A (skuCode), B (shortName), C (longName)
+        });
+
+        const rawData = response.data.values || [];
+        const outletItems = [];
+        
+        // Process outlet data (skip header row)
+        for (let i = 1; i < rawData.length; i++) {
+          const row = rawData[i];
+          if (row && row[0]) { // Check if skuCode exists
+            const skuCode = row[0].toString().trim();
+            
+            // Only include if skuCode exists in MasterSheet
+            if (masterItems.has(skuCode)) {
+              const masterItem = masterItems.get(skuCode);
+              outletItems.push({
+                skuCode: skuCode,
+                longName: masterItem.longName,
+                shortName: row[1] ? row[1].toString().trim() : ''
+              });
+            }
+          }
+        }
+
+        return { outlet, items: outletItems };
+      } catch (error) {
+        console.error(`Error fetching data for outlet ${outlet}:`, error.message);
+        return { outlet, items: [], error: error.message };
       }
     });
 
-    console.log(`Successfully added tracker entry for ${outlet}`);
+    // Wait for all outlet data
+    const outletResults = await Promise.all(outletPromises);
+
+    // Aggregate items across outlets
+    outletResults.forEach(result => {
+      if (result.items && result.items.length > 0) {
+        result.items.forEach(item => {
+          const key = item.skuCode; // Use skuCode as unique key
+          
+          if (!itemSummary.has(key)) {
+            itemSummary.set(key, {
+              skuCode: item.skuCode,
+              longName: item.longName,
+              shortName: item.shortName,
+              outletCount: 0,
+              outlets: []
+            });
+          }
+          
+          const summary = itemSummary.get(key);
+          summary.outletCount++;
+          summary.outlets.push(result.outlet);
+        });
+      }
+    });
+
+    // Convert to array and sort by outlet count (descending)
+    const summaryArray = Array.from(itemSummary.values()).sort((a, b) => b.outletCount - a.outletCount);
+
+    console.log(`Successfully aggregated ${summaryArray.length} unique items across ${outlets.length} outlets`);
 
     res.json({
       success: true,
-      message: 'Tracker entry added successfully',
-      entry: {
-        time: currentTime,
-        outlet: outlet,
-        items: items
+      summary: summaryArray,
+      metadata: {
+        totalItems: summaryArray.length,
+        totalOutlets: outlets.length,
+        processedOutlets: outletResults.filter(r => !r.error).length,
+        errorOutlets: outletResults.filter(r => r.error).length,
+        masterItemsCount: masterItems.size
       },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Error adding tracker entry:', error.message);
+    console.error('Error generating stock summary:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
-      timestamp: new Date().toISOString()
+      details: error.response?.data || 'No additional details'
     });
   }
 });
 
-// Debug stock tracker endpoint
-app.get('/api/debug-stock-tracker', async (req, res) => {
+// Get detailed outlet information for a specific item
+app.get('/api/stock-item-details/:skuCode', async (req, res) => {
+  try {
+    const skuCode = req.params.skuCode;
+    console.log(`Item details requested for SKU: ${skuCode}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    
+    const outlets = [
+      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
+      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
+      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
+    ];
+
+    // Get MasterSheet data for reference
+    const masterResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `MasterSheet!A:B`,
+    });
+
+    const masterData = masterResponse.data.values || [];
+    let itemInfo = null;
+
+    // Find item info from MasterSheet
+    for (let i = 1; i < masterData.length; i++) {
+      const row = masterData[i];
+      if (row && row[0] && row[0].toString().trim() === skuCode) {
+        itemInfo = {
+          skuCode: row[0].toString().trim(),
+          longName: row[1].toString().trim()
+        };
+        break;
+      }
+    }
+
+    if (!itemInfo) {
+      return res.status(404).json({
+        success: false,
+        error: `Item with SKU ${skuCode} not found in MasterSheet`
+      });
+    }
+
+    // Check which outlets have this item out of stock
+    const outletDetails = [];
+    
+    const outletPromises = outlets.map(async (outlet) => {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: STOCK_SPREADSHEET_ID,
+          range: `${outlet}!A:C`,
+        });
+
+        const rawData = response.data.values || [];
+        
+        // Check if this outlet has the item out of stock
+        for (let i = 1; i < rawData.length; i++) {
+          const row = rawData[i];
+          if (row && row[0] && row[0].toString().trim() === skuCode) {
+            return {
+              outlet: outlet,
+              hasItem: true,
+              shortName: row[1] ? row[1].toString().trim() : '',
+              lastUpdated: new Date().toISOString() // You might want to get actual timestamp
+            };
+          }
+        }
+        
+        return { outlet, hasItem: false };
+      } catch (error) {
+        console.error(`Error checking outlet ${outlet}:`, error.message);
+        return { outlet, hasItem: false, error: error.message };
+      }
+    });
+
+    const results = await Promise.all(outletPromises);
+    const outletsWithItem = results.filter(result => result.hasItem);
+
+    res.json({
+      success: true,
+      itemInfo: itemInfo,
+      outletDetails: outletsWithItem,
+      summary: {
+        totalOutlets: outlets.length,
+        outletsWithOutOfStock: outletsWithItem.length,
+        outletsChecked: results.filter(r => !r.error).length
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error getting item details:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Debug stock summary endpoint
+app.get('/api/debug-stock-summary', async (req, res) => {
   try {
     if (!sheets) {
       await initializeGoogleServices();
     }
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    const TRACKER_TAB = 'Tracker';
+    const testOutlets = ['Sahakarnagar', 'Residency Road'];
     
-    console.log(`Debug: Checking stock tracker ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+    console.log(`Debug: Testing stock summary with outlets: ${testOutlets.join(', ')}`);
 
-    const response = await sheets.spreadsheets.values.get({
+    // Test MasterSheet access
+    const masterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A1:D20`, // Get first 20 rows for debugging
+      range: `MasterSheet!A1:B10`,
     });
 
-    const rawData = response.data.values || [];
+    // Test outlet access
+    const outletTests = {};
+    for (const outlet of testOutlets) {
+      try {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: STOCK_SPREADSHEET_ID,
+          range: `${outlet}!A1:C10`,
+        });
+        outletTests[outlet] = {
+          success: true,
+          rowCount: response.data.values ? response.data.values.length : 0,
+          sampleData: response.data.values || []
+        };
+      } catch (error) {
+        outletTests[outlet] = {
+          success: false,
+          error: error.message
+        };
+      }
+    }
 
     res.json({
       success: true,
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      tabName: TRACKER_TAB,
-      rawData: rawData,
-      rowCount: rawData.length,
-      headers: rawData[0] || null,
-      sampleData: rawData.slice(1, 6), // Show 5 sample rows
-      expectedStructure: {
-        'A': 'Auto-generated/Empty',
-        'B': 'Time (B2)',
-        'C': 'Outlet (C2)', 
-        'D': 'Items (D2)'
+      masterSheet: {
+        rowCount: masterResponse.data.values ? masterResponse.data.values.length : 0,
+        sampleData: masterResponse.data.values || []
       },
+      outletTests: outletTests,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Error debugging stock tracker:', error.message);
+    console.error('Error debugging stock summary:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
-      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8',
-      tabName: 'Copy of Tracker'
+      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8'
     });
   }
 });
