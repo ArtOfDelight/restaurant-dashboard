@@ -5452,7 +5452,202 @@ app.get('/api/debug-stock-connection', (req, res) => {
   });
 });
 
+// Stock Tracker data endpoint - GET tracker data with filtering
+app.get('/api/stock-tracker-data', async (req, res) => {
+  try {
+    const { outlet, startDate, endDate } = req.query;
+    console.log(`Stock tracker data requested - Outlet: ${outlet || 'all'}, Date range: ${startDate || 'any'} to ${endDate || 'any'}`);
 
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const TRACKER_TAB = 'Tracker';
+    
+    console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // Columns A to D to include all data
+    });
+
+    const rawData = response.data.values || [];
+    
+    if (rawData.length <= 1) {
+      return res.json({
+        success: true,
+        trackerData: [],
+        message: 'No tracker data found',
+        filters: { outlet, startDate, endDate }
+      });
+    }
+
+    // Process tracker data (skip header row)
+    const trackerData = [];
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
+        const entryTime = row[1].toString().trim();
+        const entryOutlet = row[2].toString().trim();
+        const entryItems = row[3].toString().trim();
+
+        // Apply outlet filter
+        if (outlet && entryOutlet.toLowerCase() !== outlet.toLowerCase()) {
+          continue;
+        }
+
+        // Apply date filters
+        if (startDate || endDate) {
+          try {
+            const entryDate = new Date(entryTime);
+            if (startDate && entryDate < new Date(startDate)) continue;
+            if (endDate && entryDate > new Date(endDate)) continue;
+          } catch (dateError) {
+            console.warn(`Invalid date format in row ${i + 1}: ${entryTime}`);
+          }
+        }
+
+        trackerData.push({
+          id: `TRACK-${i}`,
+          time: entryTime,
+          outlet: entryOutlet,
+          items: entryItems,
+          rowNumber: i + 1
+        });
+      }
+    }
+
+    console.log(`Processed ${trackerData.length} tracker entries (filtered from ${rawData.length - 1} total)`);
+
+    res.json({
+      success: true,
+      trackerData: trackerData,
+      count: trackerData.length,
+      totalRows: rawData.length - 1,
+      filters: { outlet, startDate, endDate },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching stock tracker data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
+// Add new tracker entry endpoint - POST to add tracker data
+app.post('/api/add-stock-tracker-entry', async (req, res) => {
+  try {
+    const { outlet, items } = req.body;
+    
+    if (!outlet || !items) {
+      return res.status(400).json({
+        success: false,
+        error: 'Outlet and items are required'
+      });
+    }
+
+    console.log(`Adding tracker entry for outlet: ${outlet}, items: ${items}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const TRACKER_TAB = 'Tracker';
+
+    // Add current timestamp
+    const currentTime = new Date().toISOString();
+    
+    // Append new row to tracker
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [['', currentTime, outlet, items]] // Empty A column, Time in B, Outlet in C, Items in D
+      }
+    });
+
+    console.log(`Successfully added tracker entry for ${outlet}`);
+
+    res.json({
+      success: true,
+      message: 'Tracker entry added successfully',
+      entry: {
+        time: currentTime,
+        outlet: outlet,
+        items: items
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error adding tracker entry:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Debug stock tracker endpoint
+app.get('/api/debug-stock-tracker', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const TRACKER_TAB = 'Tracker';
+    
+    console.log(`Debug: Checking stock tracker ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A1:D20`, // Get first 20 rows for debugging
+    });
+
+    const rawData = response.data.values || [];
+
+    res.json({
+      success: true,
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      tabName: TRACKER_TAB,
+      rawData: rawData,
+      rowCount: rawData.length,
+      headers: rawData[0] || null,
+      sampleData: rawData.slice(1, 6), // Show 5 sample rows
+      expectedStructure: {
+        'A': 'Auto-generated/Empty',
+        'B': 'Time (B2)',
+        'C': 'Outlet (C2)', 
+        'D': 'Items (D2)'
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error debugging stock tracker:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8',
+      tabName: 'Tracker'
+    });
+  }
+});
 
 // === AI API ENDPOINTS ===
 
