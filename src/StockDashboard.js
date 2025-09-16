@@ -42,6 +42,10 @@ const StockDashboard = () => {
   const [itemDetails, setItemDetails] = useState(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  
+  // Date filter state for tracker tab
+  const [trackerStartDate, setTrackerStartDate] = useState('');
+  const [trackerEndDate, setTrackerEndDate] = useState('');
 
   // Set hardcoded outlets on component mount (no API call needed)
   useEffect(() => {
