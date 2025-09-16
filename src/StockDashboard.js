@@ -307,7 +307,7 @@ const StockDashboard = () => {
         ))}
       </div>
 
-      {/* Out of Stock Tab Content - BACK TO ORIGINAL SINGLE OUTLET VIEW */}
+      {/* Out of Stock Tab Content */}
       {activeTab === 'outofstock' && (
         <>
           {/* Outlet Selection */}
@@ -517,7 +517,7 @@ const StockDashboard = () => {
         </>
       )}
 
-      {/* Tracker Tab Content - NOW WITH AGGREGATED VIEW */}
+      {/* Tracker Tab Content */}
       {activeTab === 'tracker' && (
         <>
           {/* Time Filters and Refresh Button */}
@@ -997,7 +997,7 @@ const StockDashboard = () => {
                                   gap: '6px',
                                   marginBottom: outlet.trackerEntries && outlet.trackerEntries.length > 0 ? '12px' : '0'
                                 }}>
-                                  🕐 Last Updated: {outlet.lastUpdated}
+                                  🕐 Last Updated: {outlet.trackerEntries && outlet.trackerEntries.length > 0 ? formatDisplayDate(outlet.trackerEntries[0].time) : 'No updates available'}
                                 </div>
                                 
                                 {outlet.trackerEntries && outlet.trackerEntries.length > 0 && (
