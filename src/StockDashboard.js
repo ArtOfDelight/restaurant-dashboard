@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import './HighRatedDashboard.css'; // Using the provided CSS file
 
+// Tab configuration
+const TABS = [
+  { id: 'outofstock', label: 'Out of Stock', icon: '📦' },
+  { id: 'tracker', label: 'Tracker', icon: '📊' }
+];
+
 const StockDashboard = () => {
   // API Configuration for deployed app
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://restaurant-dashboard-nqbi.onrender.com';
@@ -21,8 +27,9 @@ const StockDashboard = () => {
     'Rajajinagar'
   ];
 
-  // State management
-  const [activeTab, setActiveTab] = useState('outofstock'); // 'outofstock' or 'tracker'
+  // Tab state
+  const [activeTab, setActiveTab] = useState('outofstock');
+  
   const [outlets, setOutlets] = useState(hardcodedOutlets);
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [stockData, setStockData] = useState([]);
@@ -171,18 +178,9 @@ const StockDashboard = () => {
       <div className="highrated-header">
         <h1>Stock Management</h1>
         <div className="period-switch">
-          <button 
-            className={activeTab === 'outofstock' ? 'active' : ''}
-            onClick={() => handleTabChange('outofstock')}
-          >
-            Out of Stock Items
-          </button>
-          <button 
-            className={activeTab === 'tracker' ? 'active' : ''}
-            onClick={() => handleTabChange('tracker')}
-          >
-            Tracker
-          </button>
+          <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+            Stock Management System
+          </span>
         </div>
       </div>
 
@@ -217,143 +215,87 @@ const StockDashboard = () => {
         )}
       </div>
 
-      {/* Filters */}
-      {activeTab === 'outofstock' ? (
-        <div className="highrated-filters">
-          <div className="filter-group">
-            <label>Select Outlet</label>
-            <select 
-              value={selectedOutlet} 
-              onChange={(e) => handleOutletChange(e.target.value)}
-              disabled={loading}
-            >
-              <option value="">Choose an outlet...</option>
-              {outlets.map(outlet => (
-                <option key={outlet} value={outlet}>
-                  {outlet}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          {selectedOutlet && (
-            <div className="filter-group">
-              <label>Status</label>
-              <div style={{ 
-                padding: '14px 18px', 
-                border: '1px solid var(--border-light)', 
-                borderRadius: '12px',
-                background: 'var(--surface-light)',
-                color: 'var(--text-primary)',
-                fontSize: '15px'
-              }}>
-                {loading ? 'Loading...' : `${stockData.length} items out of stock`}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="highrated-filters">
-          <div className="filter-group">
-            <label>Filter by Outlet</label>
-            <select 
-              value={trackerOutlet} 
-              onChange={(e) => setTrackerOutlet(e.target.value)}
-              disabled={loading}
-            >
-              <option value="">All outlets...</option>
-              {outlets.map(outlet => (
-                <option key={outlet} value={outlet}>
-                  {outlet}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="filter-group">
-            <label>Start Date</label>
-            <input 
-              type="datetime-local"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              style={{ 
-                padding: '14px 18px', 
-                border: '1px solid var(--border-light)', 
-                borderRadius: '12px',
-                background: 'var(--surface-light)',
-                color: 'var(--text-primary)',
-                fontSize: '15px',
-                width: '100%'
-              }}
-            />
-          </div>
-          
-          <div className="filter-group">
-            <label>End Date</label>
-            <input 
-              type="datetime-local"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              style={{ 
-                padding: '14px 18px', 
-                border: '1px solid var(--border-light)', 
-                borderRadius: '12px',
-                background: 'var(--surface-light)',
-                color: 'var(--text-primary)',
-                fontSize: '15px',
-                width: '100%'
-              }}
-            />
-          </div>
-          
-          <div className="filter-group">
-            <label>&nbsp;</label>
-            <button 
-              onClick={handleTrackerFilter}
-              disabled={loading}
-              style={{ 
-                padding: '14px 28px', 
-                border: 'none', 
-                borderRadius: '12px',
-                background: 'var(--primary-color, #007bff)',
-                color: 'white',
-                fontSize: '15px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                width: '100%'
-              }}
-            >
-              {loading ? 'Loading...' : 'Apply Filter'}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Tab Navigation */}
+      <div className="tab-navigation" style={{ 
+        display: 'flex', 
+        gap: '10px', 
+        marginBottom: '2rem',
+        borderBottom: '1px solid var(--border-light)',
+        paddingBottom: '10px'
+      }}>
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => handleTabChange(tab.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              border: 'none',
+              borderRadius: '8px',
+              background: activeTab === tab.id ? 'var(--primary-color, #007bff)' : 'var(--surface-light)',
+              color: activeTab === tab.id ? 'white' : 'var(--text-primary)',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <span className="tab-icon">{tab.icon}</span>
+            <span className="tab-label">{tab.label}</span>
+            <span className="tab-count" style={{
+              background: activeTab === tab.id ? 'rgba(255,255,255,0.2)' : 'var(--surface-card)',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '12px'
+            }}>
+              ({tab.id === 'outofstock' ? stockData.length : trackerData.length})
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="bottom-outlets">
-          <div className="outlet-card" style={{ borderLeft: '3px solid #ff4757' }}>
-            <h5 style={{ color: '#ff4757' }}>Error Loading Data</h5>
-            <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
-            <div style={{ marginTop: '15px', padding: '10px', background: 'var(--surface-light)', borderRadius: '8px' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                <strong>Troubleshooting:</strong>
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                API URL: <code>{API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-data' : 'stock-tracker-data'}</code>
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px' }}>
-                Check if the backend server is running and the configuration is correct.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Content Display */}
-      {activeTab === 'outofstock' ? (
+      {/* Out of Stock Tab Content */}
+      {activeTab === 'outofstock' && (
         <>
-          {/* Out of Stock Data Display */}
+          {/* Outlet Selection */}
+          <div className="highrated-filters">
+            <div className="filter-group">
+              <label>Select Outlet</label>
+              <select 
+                value={selectedOutlet} 
+                onChange={(e) => handleOutletChange(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Choose an outlet...</option>
+                {outlets.map(outlet => (
+                  <option key={outlet} value={outlet}>
+                    {outlet}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {selectedOutlet && (
+              <div className="filter-group">
+                <label>Status</label>
+                <div style={{ 
+                  padding: '14px 18px', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px',
+                  background: 'var(--surface-light)',
+                  color: 'var(--text-primary)',
+                  fontSize: '15px'
+                }}>
+                  {loading ? 'Loading...' : `${stockData.length} items out of stock`}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Stock Data Display */}
           {selectedOutlet && !loading && !error && (
             <div className="graphs-section">
               <h4>
@@ -367,6 +309,9 @@ const StockDashboard = () => {
                   <p style={{ color: 'var(--text-secondary)' }}>
                     Great news! Either all items are in stock or no data is available for this outlet.
                   </p>
+                  <div style={{ marginTop: '15px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    If this seems incorrect, check the Google Sheets tab "{selectedOutlet}" for data availability.
+                  </div>
                 </div>
               ) : (
                 <div style={{ 
@@ -421,6 +366,14 @@ const StockDashboard = () => {
                             transition: 'all 0.2s ease',
                             cursor: 'default'
                           }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'var(--surface-light)';
+                            e.currentTarget.style.transform = 'translateX(2px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.transform = 'translateX(0px)';
+                          }}
                         >
                           <td style={{ 
                             padding: '24px 32px',
@@ -464,6 +417,7 @@ const StockDashboard = () => {
                     </tbody>
                   </table>
                   
+                  {/* Table Footer with Count */}
                   <div style={{
                     padding: '16px 32px',
                     background: 'var(--surface-light)',
@@ -479,142 +433,324 @@ const StockDashboard = () => {
               )}
             </div>
           )}
-        </>
-      ) : (
-        <>
-          {/* Tracker Data Display */}
-          {!loading && !error && (
-            <div className="graphs-section">
+
+          {/* Instructions for Out of Stock */}
+          {!selectedOutlet && !loading && (
+            <div className="bottom-outlets">
               <h4>
-                <span style={{ marginRight: '12px' }}>📊</span>
-                Stock Tracker {trackerOutlet ? `- ${trackerOutlet}` : '- All Outlets'}
+                <span style={{ marginRight: '12px' }}>ℹ️</span>
+                Stock Management Instructions
               </h4>
-              
-              {trackerData.length === 0 ? (
-                <div className="outlet-card">
-                  <h5 style={{ color: 'var(--text-primary)' }}>No Tracker Data Found</h5>
-                  <p style={{ color: 'var(--text-secondary)' }}>
-                    No tracking entries match your current filters. Try adjusting the date range or outlet selection.
+              <div className="outlet-card">
+                <h5>How to Use Stock Dashboard</h5>
+                <ul style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                  <li>Select an outlet from the dropdown above ({outlets.length} outlets available)</li>
+                  <li>View all out-of-stock items for that outlet</li>
+                  <li>Items display SKU Code, full product names, and short names</li>
+                  <li>Data is fetched from Google Sheets in real-time</li>
+                  <li>Zero items means all products are in stock (good news!)</li>
+                </ul>
+                <div style={{ marginTop: '15px', padding: '15px', background: 'var(--surface-light)', borderRadius: '8px' }}>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 10px 0' }}>
+                    <strong>System Info:</strong>
+                  </p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0' }}>
+                    Backend API: {API_BASE_URL}<br/>
+                    Environment: {process.env.NODE_ENV || 'production'}<br/>
+                    Outlet data: Hardcoded (reliable)<br/>
+                    Stock data: Real-time from Google Sheets
                   </p>
                 </div>
-              ) : (
-                <div style={{ 
-                  background: 'var(--surface-card)',
-                  borderRadius: '16px',
-                  border: '1px solid var(--border-light)',
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
-                }}>
-                  <table style={{ 
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '0.95rem'
-                  }}>
-                    <thead>
-                      <tr style={{ 
-                        background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
-                        borderBottom: '2px solid var(--border-light)'
-                      }}>
-                        <th style={{ 
-                          padding: '24px 32px',
-                          textAlign: 'left',
-                          fontWeight: '600',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.9rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.8px',
-                          borderRight: '1px solid var(--border-light)'
-                        }}>
-                          Time
-                        </th>
-                        <th style={{ 
-                          padding: '24px 32px',
-                          textAlign: 'left',
-                          fontWeight: '600',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.9rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.8px',
-                          borderRight: '1px solid var(--border-light)'
-                        }}>
-                          Outlet
-                        </th>
-                        <th style={{ 
-                          padding: '24px 32px',
-                          textAlign: 'left',
-                          fontWeight: '600',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.9rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.8px'
-                        }}>
-                          Items
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trackerData.map((entry, index) => (
-                        <tr 
-                          key={entry.id || index}
-                          style={{ 
-                            borderBottom: index < trackerData.length - 1 ? '1px solid var(--border-light)' : 'none',
-                            transition: 'all 0.2s ease'
-                          }}
-                        >
-                          <td style={{ 
-                            padding: '24px 32px',
-                            fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
-                            fontWeight: '600',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.9rem',
-                            borderRight: '1px solid var(--border-light)',
-                            background: 'rgba(0, 0, 0, 0.02)'
-                          }}>
-                            {formatDisplayDate(entry.time)}
-                          </td>
-                          <td style={{ 
-                            padding: '24px 32px',
-                            fontWeight: '600',
-                            color: 'var(--text-primary)',
-                            fontSize: '1rem',
-                            borderRight: '1px solid var(--border-light)'
-                          }}>
-                            {entry.outlet}
-                          </td>
-                          <td style={{ 
-                            padding: '24px 32px',
-                            color: 'var(--text-secondary)',
-                            lineHeight: '1.6'
-                          }}>
-                            <div style={{ 
-                              fontWeight: '400',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.95rem'
-                            }}>
-                              {entry.items}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  
-                  <div style={{
-                    padding: '16px 32px',
-                    background: 'var(--surface-light)',
-                    borderTop: '1px solid var(--border-light)',
-                    textAlign: 'center',
-                    fontSize: '0.85rem',
-                    color: 'var(--text-muted)',
-                    fontWeight: '500'
-                  }}>
-                    {trackerData.length} tracker entries found
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           )}
         </>
+      )}
+
+      {/* Tracker Tab Content */}
+      {activeTab === 'tracker' && (
+        <>
+          {/* Tracker Filters */}
+          <div className="highrated-filters">
+            <div className="filter-group">
+              <label>Filter by Outlet</label>
+              <select 
+                value={trackerOutlet} 
+                onChange={(e) => setTrackerOutlet(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">All outlets...</option>
+                {outlets.map(outlet => (
+                  <option key={outlet} value={outlet}>
+                    {outlet}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="filter-group">
+              <label>Start Date</label>
+              <input 
+                type="datetime-local"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{ 
+                  padding: '14px 18px', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px',
+                  background: 'var(--surface-light)',
+                  color: 'var(--text-primary)',
+                  fontSize: '15px',
+                  width: '100%'
+                }}
+              />
+            </div>
+            
+            <div className="filter-group">
+              <label>End Date</label>
+              <input 
+                type="datetime-local"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{ 
+                  padding: '14px 18px', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px',
+                  background: 'var(--surface-light)',
+                  color: 'var(--text-primary)',
+                  fontSize: '15px',
+                  width: '100%'
+                }}
+              />
+            </div>
+            
+            <div className="filter-group">
+              <label>&nbsp;</label>
+              <button 
+                onClick={handleTrackerFilter}
+                disabled={loading}
+                style={{ 
+                  padding: '14px 28px', 
+                  border: 'none', 
+                  borderRadius: '12px',
+                  background: 'var(--primary-color, #007bff)',
+                  color: 'white',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                {loading ? 'Loading...' : 'Apply Filter'}
+              </button>
+            </div>
+          </div>
+
+          {/* Tracker Data Display */}
+          <div className="graphs-section">
+            <h4>
+              <span style={{ marginRight: '12px' }}>📊</span>
+              Stock Tracker {trackerOutlet ? `- ${trackerOutlet}` : '- All Outlets'}
+            </h4>
+            
+            {trackerData.length === 0 && !loading ? (
+              <div className="outlet-card">
+                <h5 style={{ color: 'var(--text-primary)' }}>No Tracker Data Found</h5>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  No tracking entries match your current filters. Try adjusting the date range or outlet selection.
+                </p>
+              </div>
+            ) : trackerData.length > 0 ? (
+              <div style={{ 
+                background: 'var(--surface-card)',
+                borderRadius: '16px',
+                border: '1px solid var(--border-light)',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+              }}>
+                <table style={{ 
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '0.95rem'
+                }}>
+                  <thead>
+                    <tr style={{ 
+                      background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
+                      borderBottom: '2px solid var(--border-light)'
+                    }}>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'left',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        borderRight: '1px solid var(--border-light)'
+                      }}>
+                        Time
+                      </th>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'left',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        borderRight: '1px solid var(--border-light)'
+                      }}>
+                        Outlet
+                      </th>
+                      <th style={{ 
+                        padding: '24px 32px',
+                        textAlign: 'left',
+                        fontWeight: '600',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px'
+                      }}>
+                        Items
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trackerData.map((entry, index) => (
+                      <tr 
+                        key={entry.id || index}
+                        style={{ 
+                          borderBottom: index < trackerData.length - 1 ? '1px solid var(--border-light)' : 'none',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <td style={{ 
+                          padding: '24px 32px',
+                          fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
+                          fontWeight: '600',
+                          color: 'var(--text-primary)',
+                          fontSize: '0.9rem',
+                          borderRight: '1px solid var(--border-light)',
+                          background: 'rgba(0, 0, 0, 0.02)'
+                        }}>
+                          {formatDisplayDate(entry.time)}
+                        </td>
+                        <td style={{ 
+                          padding: '24px 32px',
+                          fontWeight: '600',
+                          color: 'var(--text-primary)',
+                          fontSize: '1rem',
+                          borderRight: '1px solid var(--border-light)'
+                        }}>
+                          {entry.outlet}
+                        </td>
+                        <td style={{ 
+                          padding: '24px 32px',
+                          color: 'var(--text-secondary)',
+                          lineHeight: '1.6'
+                        }}>
+                          <div style={{ 
+                            fontWeight: '400',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.95rem'
+                          }}>
+                            {entry.items}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                <div style={{
+                  padding: '16px 32px',
+                  background: 'var(--surface-light)',
+                  borderTop: '1px solid var(--border-light)',
+                  textAlign: 'center',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-muted)',
+                  fontWeight: '500'
+                }}>
+                  {trackerData.length} tracker entries found
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Instructions for Tracker */}
+          {trackerData.length === 0 && !loading && (
+            <div className="bottom-outlets">
+              <h4>
+                <span style={{ marginRight: '12px' }}>ℹ️</span>
+                Tracker Instructions
+              </h4>
+              <div className="outlet-card">
+                <h5>How to Use Stock Tracker</h5>
+                <ul style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+                  <li>Filter tracker data by outlet and date range</li>
+                  <li>View historical stock tracking entries with timestamps</li>
+                  <li>Track when and which items were monitored per outlet</li>
+                  <li>Use date filters to analyze specific time periods</li>
+                  <li>All data is synchronized with Google Sheets Tracker tab</li>
+                </ul>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Debug Info (shows in development or when there are errors) */}
+      {(process.env.NODE_ENV === 'development' || error) && (
+        <div className="highrated-filters" style={{ marginTop: '10px', background: 'rgba(0,0,0,0.3)' }}>
+          <div className="filter-group">
+            <label>Debug Info</label>
+            <div style={{ 
+              padding: '10px', 
+              border: '1px solid var(--border-light)', 
+              borderRadius: '8px',
+              background: 'var(--surface-dark)',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              fontFamily: 'monospace'
+            }}>
+              <div>API Base URL: {API_BASE_URL}</div>
+              <div>Outlets loaded: {outlets.length} (hardcoded)</div>
+              <div>Active Tab: {activeTab}</div>
+              <div>Selected Outlet: {selectedOutlet || 'None'}</div>
+              <div>Stock items: {stockData.length}</div>
+              <div>Tracker entries: {trackerData.length}</div>
+              <div>Loading: {loading ? 'Yes' : 'No'}</div>
+              <div>Error: {error || 'None'}</div>
+              {selectedOutlet && activeTab === 'outofstock' && (
+                <div>Stock URL: {API_BASE_URL}/api/stock-data?outlet={selectedOutlet}</div>
+              )}
+              {activeTab === 'tracker' && (
+                <div>Tracker URL: {API_BASE_URL}/api/stock-tracker-data</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="bottom-outlets">
+          <div className="outlet-card" style={{ borderLeft: '3px solid #ff4757' }}>
+            <h5 style={{ color: '#ff4757' }}>Error Loading {activeTab === 'outofstock' ? 'Stock' : 'Tracker'} Data</h5>
+            <p style={{ color: 'var(--text-secondary)' }}>{error}</p>
+            <div style={{ marginTop: '15px', padding: '10px', background: 'var(--surface-light)', borderRadius: '8px' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                <strong>Troubleshooting:</strong>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                API URL: <code>{API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-data' : 'stock-tracker-data'}</code>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '5px' }}>
+                Check if the backend server is running and the configuration is correct.
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Loading State */}
@@ -625,36 +761,9 @@ const StockDashboard = () => {
             <p style={{ color: 'var(--text-secondary)' }}>
               Fetching {activeTab === 'outofstock' ? `out-of-stock items for ${selectedOutlet}` : 'tracker entries'}...
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Instructions */}
-      {((activeTab === 'outofstock' && !selectedOutlet) || (activeTab === 'tracker' && trackerData.length === 0)) && !loading && (
-        <div className="bottom-outlets">
-          <h4>
-            <span style={{ marginRight: '12px' }}>ℹ️</span>
-            {activeTab === 'outofstock' ? 'Stock Management Instructions' : 'Tracker Instructions'}
-          </h4>
-          <div className="outlet-card">
-            <h5>How to Use {activeTab === 'outofstock' ? 'Stock Dashboard' : 'Stock Tracker'}</h5>
-            {activeTab === 'outofstock' ? (
-              <ul style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                <li>Select an outlet from the dropdown above ({outlets.length} outlets available)</li>
-                <li>View all out-of-stock items for that outlet</li>
-                <li>Items display SKU Code, full product names, and short names</li>
-                <li>Data is fetched from Google Sheets in real-time</li>
-                <li>Zero items means all products are in stock (good news!)</li>
-              </ul>
-            ) : (
-              <ul style={{ color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                <li>Filter tracker data by outlet and date range</li>
-                <li>View historical stock tracking entries with timestamps</li>
-                <li>Track when and which items were monitored per outlet</li>
-                <li>Use date filters to analyze specific time periods</li>
-                <li>All data is synchronized with Google Sheets Tracker tab</li>
-              </ul>
-            )}
+            <div style={{ marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Loading from: {API_BASE_URL}/api/{activeTab === 'outofstock' ? 'stock-data' : 'stock-tracker-data'}
+            </div>
           </div>
         </div>
       )}
