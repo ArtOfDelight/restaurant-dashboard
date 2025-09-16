@@ -5396,6 +5396,22 @@ app.get('/api/debug-stock', async (req, res) => {
   }
 });
 
+app.get('/api/debug-stock-connection', (req, res) => {
+  console.log('🔧 Debug stock connection endpoint hit');
+  
+  res.json({
+    success: true,
+    message: 'Stock API connection test successful',
+    timestamp: new Date().toISOString(),
+    serverStatus: 'Running',
+    stockEndpointStatus: 'Available',
+    testUrls: {
+      outlets: `${req.protocol}://${req.get('host')}/api/stock-data`,
+      sampleOutlet: `${req.protocol}://${req.get('host')}/api/stock-data?outlet=Sahakarnagar`
+    }
+  });
+});
+
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights
