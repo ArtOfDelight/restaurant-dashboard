@@ -5291,98 +5291,6 @@ app.get('/api/stock-data', async (req, res) => {
 
       console.log(`Fetching data for outlet: ${outlet}`);
       
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: STOCK_SPREADSHEET_ID,
-        range: `${outlet}!A:C`, // Columns A (skuCode) and C (longName)
-      });
-
-      const rawData = response.data.values || [];
-      
-      if (rawData.length === 0) {
-        return res.json({
-          success: true,
-          outlet: outlet,
-          items: [],
-          message: 'No data found for this outlet'
-        });
-      }
-
-      // Skip header row and process data
-      const items = [];
-      for (let i = 1; i < rawData.length; i++) {
-        const row = rawData[i];
-        if (row && row[0] && row[2]) { // Check if skuCode and longName exist
-          items.push({
-            skuCode: row[0].toString().trim(),
-            longName: row[2].toString().trim(),
-            shortName: row[1] ? row[1].toString().trim() : '' // Optional shortName
-          });
-        }
-      }
-
-      console.log(`Processed ${items.length} items for ${outlet}`);
-
-      res.json({
-        success: true,
-        outlet: outlet,
-        items: items,
-        count: items.length,
-        timestamp: new Date().toISOString()
-      });
-
-    } else {
-      // Return list of available outlets
-      res.json({
-        success: true,
-        outlets: outlets,
-        message: 'Available outlets. Use ?outlet=OutletName to get specific data',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-  } catch (error) {
-    console.error('Error fetching stock data:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: error.response?.data || 'No additional details'
-    });
-  }
-});
-
-// Debug stock endpoint
-app.get('/api/stock-data', async (req, res) => {
-  try {
-    const outlet = req.query.outlet;
-    console.log(`Stock data requested for outlet: ${outlet || 'all'}`);
-
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Sheets');
-      }
-    }
-
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    
-    // List of outlet names (tabs)
-    const outlets = [
-      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
-      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
-      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
-    ];
-
-    if (outlet) {
-      // Fetch data for specific outlet
-      if (!outlets.includes(outlet)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid outlet. Must be one of: ${outlets.join(', ')}`
-        });
-      }
-
-      console.log(`Fetching data for outlet: ${outlet}`);
-      
       // First, fetch the MasterSheet to get valid skuCodes
       console.log('Fetching MasterSheet for reference...');
       const masterResponse = await sheets.spreadsheets.values.get({
@@ -5478,6 +5386,52 @@ app.get('/api/stock-data', async (req, res) => {
       success: false,
       error: error.message,
       details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
+// Debug stock endpoint
+app.get('/api/debug-stock', async (req, res) => {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    
+    console.log(`Debug: Checking stock spreadsheet ${STOCK_SPREADSHEET_ID}`);
+
+    // Test with first outlet
+    const testOutlet = 'Sahakarnagar';
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${testOutlet}!A1:C10`, // Get first 10 rows for debugging
+    });
+
+    const rawData = response.data.values || [];
+
+    res.json({
+      success: true,
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      testOutlet: testOutlet,
+      rawData: rawData,
+      rowCount: rawData.length,
+      headers: rawData[0] || null,
+      sampleData: rawData.slice(1, 4), // Show 3 sample rows
+      expectedStructure: {
+        'A': 'skuCode',
+        'B': 'shortName',
+        'C': 'longName'
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error debugging stock data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8'
     });
   }
 });
