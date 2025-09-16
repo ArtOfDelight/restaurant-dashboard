@@ -5452,6 +5452,245 @@ app.get('/api/debug-stock-connection', (req, res) => {
   });
 });
 
+// ADD NEW: Initialize OutOfStockList tab - Add this function after initializeUserMappingTab()
+async function initializeOutOfStockTab() {
+  try {
+    if (!sheets) {
+      console.error('Google Sheets not initialized');
+      throw new Error('Google Sheets service not available');
+    }
+
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      ranges: [],
+      includeGridData: false,
+    });
+
+    const sheetExists = response.data.sheets.some(sheet => 
+      sheet.properties.title === OUT_OF_STOCK_TAB
+    );
+
+    if (!sheetExists) {
+      console.log(`Creating ${OUT_OF_STOCK_TAB} tab in stock spreadsheet`);
+      
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: OUT_OF_STOCK_TAB,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        range: `${OUT_OF_STOCK_TAB}!A1:C1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['Outlet', 'SKU', 'Item Name']]
+        },
+      });
+
+      console.log(`Created ${OUT_OF_STOCK_TAB} tab with headers`);
+    } else {
+      console.log(`${OUT_OF_STOCK_TAB} tab already exists`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error initializing OutOfStockList tab:', error.message);
+    throw error;
+  }
+}
+
+// ADD NEW: Initialize Tracker tab - Add this function after initializeOutOfStockTab()
+async function initializeTrackerTab() {
+  try {
+    if (!sheets) {
+      console.error('Google Sheets not initialized');
+      throw new Error('Google Sheets service not available');
+    }
+
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      ranges: [],
+      includeGridData: false,
+    });
+
+    const sheetExists = response.data.sheets.some(sheet => 
+      sheet.properties.title === TRACKER_TAB
+    );
+
+    if (!sheetExists) {
+      console.log(`Creating ${TRACKER_TAB} tab in stock spreadsheet`);
+      
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: TRACKER_TAB,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        range: `${TRACKER_TAB}!B1:D1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [['Time', 'Outlet', 'Items']]
+        },
+      });
+
+      console.log(`Created ${TRACKER_TAB} tab with headers`);
+    } else {
+      console.log(`${TRACKER_TAB} tab already exists`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error initializing Tracker tab:', error.message);
+    throw error;
+  }
+}
+
+// ADD NEW: Out of stock list endpoint - Add this after /api/stock-data
+app.get('/api/out-of-stock-list', async (req, res) => {
+  try {
+    console.log('Fetching out of stock list...');
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    await initializeOutOfStockTab();
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${OUT_OF_STOCK_TAB}!A:C`
+    });
+
+    const rows = response.data.values || [];
+    
+    const outOfStockItems = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row && row[0]) { // Check if outlet exists
+        outOfStockItems.push({
+          outlet: row[0].trim(),
+          sku: row[1] ? row[1].trim() : '',
+          itemName: row[2] ? row[2].trim() : ''
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      items: outOfStockItems,
+      count: outOfStockItems.length,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching out of stock list:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ADD NEW: Stock tracker endpoint with filters - Add this after /api/out-of-stock-list
+app.get('/api/stock-tracker', async (req, res) => {
+  try {
+    const { fromTime, toTime, outlet } = req.query;
+    console.log(`Fetching stock tracker data with filters: from=${fromTime || 'none'}, to=${toTime || 'none'}, outlet=${outlet || 'all'}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    await initializeTrackerTab();
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!B:D` // Columns B (Time), C (Outlet), D (Items)
+    });
+
+    const rows = response.data.values || [];
+    
+    const trackerData = [];
+    for (let i = 1; i < rows.length; i++) { // Start from row 2 (index 1)
+      const row = rows[i];
+      if (row && row[0]) { // Check if Time exists (B column, index 0 in range B:D)
+        const entry = {
+          time: row[0].trim(),
+          outlet: row[1] ? row[1].trim() : '',
+          items: row[2] ? row[2].trim() : ''
+        };
+
+        // Apply filters
+        let passesFilter = true;
+
+        // Time filter (assuming time is ISO string or comparable date)
+        if (fromTime && new Date(entry.time) < new Date(fromTime)) {
+          passesFilter = false;
+        }
+        if (toTime && new Date(entry.time) > new Date(toTime)) {
+          passesFilter = false;
+        }
+        if (outlet && entry.outlet.toLowerCase() !== outlet.toLowerCase()) {
+          passesFilter = false;
+        }
+
+        if (passesFilter) {
+          trackerData.push(entry);
+        }
+      }
+    }
+
+    // Sort by time descending (most recent first)
+    trackerData.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+    res.json({
+      success: true,
+      data: trackerData,
+      count: trackerData.length,
+      appliedFilters: { fromTime, toTime, outlet },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching stock tracker:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // === AI API ENDPOINTS ===
 
 // Generate comprehensive AI insights

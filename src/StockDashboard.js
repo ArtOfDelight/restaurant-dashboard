@@ -26,6 +26,9 @@ const StockDashboard = () => {
   const [stockData, setStockData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [trackingTime, setTrackingTime] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
+  const [startTime, setStartTime] = useState(null);
 
   // Set hardcoded outlets on component mount (no API call needed)
   useEffect(() => {
@@ -34,6 +37,29 @@ const StockDashboard = () => {
     setOutlets(hardcodedOutlets);
     setError(''); // Clear any previous errors
   }, []);
+
+  // Timer effect
+  useEffect(() => {
+    let interval = null;
+    if (timerActive && selectedOutlet) {
+      interval = setInterval(() => {
+        setTrackingTime((prevTime) => prevTime + 1);
+      }, 1000);
+    } else if (!timerActive || !selectedOutlet) {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [timerActive, selectedOutlet]);
+
+  const startTimer = () => {
+    setStartTime(Date.now());
+    setTimerActive(true);
+    setTrackingTime(0);
+  };
+
+  const stopTimer = () => {
+    setTimerActive(false);
+  };
 
   const fetchStockData = async (outlet) => {
     if (!outlet) return;
@@ -77,12 +103,24 @@ const StockDashboard = () => {
 
   const handleOutletChange = (outlet) => {
     console.log(`🏪 Outlet selected: ${outlet}`);
+    stopTimer();
+    if (selectedOutlet && selectedOutlet !== outlet) {
+      console.log(`⏱️ Time tracked for ${selectedOutlet}: ${trackingTime} seconds`);
+    }
     setSelectedOutlet(outlet);
     if (outlet) {
+      startTimer();
       fetchStockData(outlet);
     } else {
       setStockData([]);
+      setTrackingTime(0);
     }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   return (
@@ -111,6 +149,12 @@ const StockDashboard = () => {
           <div className="stat-number">{selectedOutlet || 'None'}</div>
           <div className="stat-label">Selected Outlet</div>
         </div>
+        {selectedOutlet && (
+          <div className="stat-card">
+            <div className="stat-number">{formatTime(trackingTime)}</div>
+            <div className="stat-label">Time Tracked</div>
+          </div>
+        )}
       </div>
 
       {/* Outlet Selection */}
@@ -168,6 +212,7 @@ const StockDashboard = () => {
               <div>Stock items: {stockData.length}</div>
               <div>Loading: {loading ? 'Yes' : 'No'}</div>
               <div>Error: {error || 'None'}</div>
+              <div>Tracking Time: {trackingTime} seconds</div>
               {selectedOutlet && (
                 <div>Full URL: {API_BASE_URL}/api/stock-data?outlet={selectedOutlet}</div>
               )}
@@ -366,6 +411,7 @@ const StockDashboard = () => {
               <li>Items display SKU Code, full product names, and short names</li>
               <li>Data is fetched from Google Sheets in real-time</li>
               <li>Zero items means all products are in stock (good news!)</li>
+              <li>Time spent on each outlet is tracked and displayed</li>
             </ul>
             <div style={{ marginTop: '15px', padding: '15px', background: 'var(--surface-light)', borderRadius: '8px' }}>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0 0 10px 0' }}>
@@ -375,7 +421,8 @@ const StockDashboard = () => {
                 Backend API: {API_BASE_URL}<br/>
                 Environment: {process.env.NODE_ENV || 'production'}<br/>
                 Outlet data: Hardcoded (reliable)<br/>
-                Stock data: Real-time from Google Sheets
+                Stock data: Real-time from Google Sheets<br/>
+                Tracking: Active when outlet selected
               </p>
             </div>
           </div>
