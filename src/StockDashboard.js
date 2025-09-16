@@ -3,7 +3,7 @@ import './HighRatedDashboard.css'; // Using the provided CSS file
 
 const StockDashboard = () => {
   // API Configuration for deployed app
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://restaurant-dashboard-1-tlsa.onrender.com';
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://restaurant-dashboard-1-nqbi.onrender.com';
 
   // Hardcoded outlet names - bypassing API call for outlet list
   const hardcodedOutlets = [
