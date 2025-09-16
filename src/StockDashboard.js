@@ -220,52 +220,42 @@ const StockDashboard = () => {
               background: 'var(--surface-card)',
               borderRadius: '16px',
               border: '1px solid var(--border-light)',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
             }}>
               <table style={{ 
                 width: '100%',
                 borderCollapse: 'collapse',
-                fontSize: '0.9rem'
+                fontSize: '0.95rem'
               }}>
                 <thead>
                   <tr style={{ 
-                    background: 'var(--surface-light)',
+                    background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
                     borderBottom: '2px solid var(--border-light)'
                   }}>
                     <th style={{ 
-                      padding: '20px 24px',
+                      padding: '24px 32px',
                       textAlign: 'left',
                       fontWeight: '600',
                       color: 'var(--text-primary)',
-                      fontSize: '0.85rem',
+                      fontSize: '0.9rem',
                       textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                      width: '150px'
+                      letterSpacing: '0.8px',
+                      width: '200px',
+                      borderRight: '1px solid var(--border-light)'
                     }}>
                       SKU Code
                     </th>
                     <th style={{ 
-                      padding: '20px 24px',
+                      padding: '24px 32px',
                       textAlign: 'left',
                       fontWeight: '600',
                       color: 'var(--text-primary)',
-                      fontSize: '0.85rem',
+                      fontSize: '0.9rem',
                       textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
+                      letterSpacing: '0.8px'
                     }}>
                       Item Name
-                    </th>
-                    <th style={{ 
-                      padding: '20px 24px',
-                      textAlign: 'center',
-                      fontWeight: '600',
-                      color: 'var(--text-primary)',
-                      fontSize: '0.85rem',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px',
-                      width: '120px'
-                    }}>
-                      Status
                     </th>
                   </tr>
                 </thead>
@@ -275,65 +265,72 @@ const StockDashboard = () => {
                       key={`${item.skuCode}-${index}`}
                       style={{ 
                         borderBottom: index < stockData.length - 1 ? '1px solid var(--border-light)' : 'none',
-                        transition: 'background-color 0.2s ease'
+                        transition: 'all 0.2s ease',
+                        cursor: 'default'
                       }}
-                      onMouseEnter={(e) => e.target.parentElement.style.backgroundColor = 'var(--surface-light)'}
-                      onMouseLeave={(e) => e.target.parentElement.style.backgroundColor = 'transparent'}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'var(--surface-light)';
+                        e.currentTarget.style.transform = 'translateX(2px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.transform = 'translateX(0px)';
+                      }}
                     >
                       <td style={{ 
-                        padding: '18px 24px',
+                        padding: '24px 32px',
                         fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
-                        fontWeight: '600',
+                        fontWeight: '700',
                         color: 'var(--text-primary)',
-                        fontSize: '0.9rem'
+                        fontSize: '1rem',
+                        borderRight: '1px solid var(--border-light)',
+                        background: 'rgba(0, 0, 0, 0.02)'
                       }}>
                         {item.skuCode}
                       </td>
                       <td style={{ 
-                        padding: '18px 24px',
+                        padding: '24px 32px',
                         color: 'var(--text-secondary)',
-                        lineHeight: '1.5'
+                        lineHeight: '1.6'
                       }}>
                         <div>
                           <div style={{ 
                             fontWeight: '500',
                             color: 'var(--text-primary)',
-                            marginBottom: '4px'
+                            fontSize: '1rem',
+                            marginBottom: '6px'
                           }}>
                             {item.longName}
                           </div>
                           {item.shortName && item.shortName !== item.longName && (
                             <div style={{ 
-                              fontSize: '0.8rem',
+                              fontSize: '0.85rem',
                               color: 'var(--text-muted)',
-                              fontStyle: 'italic'
+                              fontStyle: 'italic',
+                              opacity: '0.8'
                             }}>
                               {item.shortName}
                             </div>
                           )}
                         </div>
                       </td>
-                      <td style={{ 
-                        padding: '18px 24px',
-                        textAlign: 'center'
-                      }}>
-                        <span style={{
-                          background: 'rgba(255, 71, 87, 0.1)',
-                          color: '#ff4757',
-                          padding: '6px 12px',
-                          borderRadius: '6px',
-                          fontSize: '0.75rem',
-                          fontWeight: '600',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px'
-                        }}>
-                          Out of Stock
-                        </span>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              
+              {/* Table Footer with Count */}
+              <div style={{
+                padding: '16px 32px',
+                background: 'var(--surface-light)',
+                borderTop: '1px solid var(--border-light)',
+                textAlign: 'center',
+                fontSize: '0.85rem',
+                color: 'var(--text-muted)',
+                fontWeight: '500'
+              }}>
+                {stockData.length} items out of stock in {selectedOutlet}
+              </div>
             </div>
           )}
         </div>
