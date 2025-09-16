@@ -216,73 +216,124 @@ const StockDashboard = () => {
               </div>
             </div>
           ) : (
-            <div className="outlets-list">
-              {stockData.map((item, index) => (
-                <div key={`${item.skuCode}-${index}`} className="submission-card">
-                  <div style={{ padding: '25px' }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'flex-start',
-                      marginBottom: '15px'
+            <div style={{ 
+              background: 'var(--surface-card)',
+              borderRadius: '16px',
+              border: '1px solid var(--border-light)',
+              overflow: 'hidden'
+            }}>
+              <table style={{ 
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '0.9rem'
+              }}>
+                <thead>
+                  <tr style={{ 
+                    background: 'var(--surface-light)',
+                    borderBottom: '2px solid var(--border-light)'
+                  }}>
+                    <th style={{ 
+                      padding: '20px 24px',
+                      textAlign: 'left',
+                      fontWeight: '600',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      width: '150px'
                     }}>
-                      <div style={{ flex: 1 }}>
-                        <h3 style={{ 
-                          color: 'var(--text-primary)', 
-                          fontSize: '1.2rem', 
-                          fontWeight: '600',
-                          margin: '0 0 8px 0',
-                          fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace'
-                        }}>
-                          {item.skuCode}
-                        </h3>
-                        <p style={{ 
-                          color: 'var(--text-secondary)', 
-                          fontSize: '0.95rem',
-                          margin: '0',
-                          lineHeight: '1.5'
-                        }}>
-                          {item.longName}
-                        </p>
-                        {item.shortName && item.shortName !== item.longName && (
-                          <p style={{ 
-                            color: 'var(--text-muted)', 
-                            fontSize: '0.85rem',
-                            margin: '5px 0 0 0',
-                            fontStyle: 'italic'
-                          }}>
-                            Short Name: {item.shortName}
-                          </p>
-                        )}
-                      </div>
-                      <div style={{
-                        background: 'rgba(255, 71, 87, 0.1)',
-                        color: '#ff4757',
-                        padding: '8px 16px',
-                        borderRadius: '8px',
-                        fontSize: '0.8rem',
+                      SKU Code
+                    </th>
+                    <th style={{ 
+                      padding: '20px 24px',
+                      textAlign: 'left',
+                      fontWeight: '600',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px'
+                    }}>
+                      Item Name
+                    </th>
+                    <th style={{ 
+                      padding: '20px 24px',
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      width: '120px'
+                    }}>
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockData.map((item, index) => (
+                    <tr 
+                      key={`${item.skuCode}-${index}`}
+                      style={{ 
+                        borderBottom: index < stockData.length - 1 ? '1px solid var(--border-light)' : 'none',
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.target.parentElement.style.backgroundColor = 'var(--surface-light)'}
+                      onMouseLeave={(e) => e.target.parentElement.style.backgroundColor = 'transparent'}
+                    >
+                      <td style={{ 
+                        padding: '18px 24px',
+                        fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, monospace',
                         fontWeight: '600',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
+                        color: 'var(--text-primary)',
+                        fontSize: '0.9rem'
                       }}>
-                        Out of Stock
-                      </div>
-                    </div>
-                    
-                    <div style={{
-                      borderTop: '1px solid var(--border-light)',
-                      paddingTop: '15px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '0.8rem',
-                      color: 'var(--text-muted)'
-                    }}>
-                      <span>SKU: {item.skuCode}</span>
-                      <span>Outlet: {selectedOutlet}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                        {item.skuCode}
+                      </td>
+                      <td style={{ 
+                        padding: '18px 24px',
+                        color: 'var(--text-secondary)',
+                        lineHeight: '1.5'
+                      }}>
+                        <div>
+                          <div style={{ 
+                            fontWeight: '500',
+                            color: 'var(--text-primary)',
+                            marginBottom: '4px'
+                          }}>
+                            {item.longName}
+                          </div>
+                          {item.shortName && item.shortName !== item.longName && (
+                            <div style={{ 
+                              fontSize: '0.8rem',
+                              color: 'var(--text-muted)',
+                              fontStyle: 'italic'
+                            }}>
+                              {item.shortName}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ 
+                        padding: '18px 24px',
+                        textAlign: 'center'
+                      }}>
+                        <span style={{
+                          background: 'rgba(255, 71, 87, 0.1)',
+                          color: '#ff4757',
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: '600',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>
+                          Out of Stock
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
