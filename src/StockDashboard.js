@@ -127,14 +127,24 @@ const StockDashboard = () => {
     }
   };
 
-  // Fetch item details for modal
+  // Fetch item details for modal with time filtering
   const fetchItemDetails = async (skuCode) => {
     try {
       setModalLoading(true);
       
       console.log(`🔍 Fetching item details for SKU: ${skuCode}`);
       
-      const response = await fetch(`${API_BASE_URL}/api/stock-item-details/${encodeURIComponent(skuCode)}`);
+      let url = `${API_BASE_URL}/api/stock-item-details/${encodeURIComponent(skuCode)}`;
+      const params = new URLSearchParams();
+      
+      if (trackerStartDate) params.append('startDate', trackerStartDate);
+      if (trackerEndDate) params.append('endDate', trackerEndDate);
+      
+      if (params.toString()) {
+        url += `?${params.toString()}`;
+      }
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -506,8 +516,44 @@ const StockDashboard = () => {
       {/* Tracker Tab Content - NOW WITH AGGREGATED VIEW */}
       {activeTab === 'tracker' && (
         <>
-          {/* Refresh Button for Tracker Summary */}
+          {/* Time Filters and Refresh Button */}
           <div className="highrated-filters">
+            <div className="filter-group">
+              <label>Start Date</label>
+              <input 
+                type="datetime-local"
+                value={trackerStartDate}
+                onChange={(e) => setTrackerStartDate(e.target.value)}
+                style={{ 
+                  padding: '14px 18px', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px',
+                  background: 'var(--surface-light)',
+                  color: 'var(--text-primary)',
+                  fontSize: '15px',
+                  width: '100%'
+                }}
+              />
+            </div>
+            
+            <div className="filter-group">
+              <label>End Date</label>
+              <input 
+                type="datetime-local"
+                value={trackerEndDate}
+                onChange={(e) => setTrackerEndDate(e.target.value)}
+                style={{ 
+                  padding: '14px 18px', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px',
+                  background: 'var(--surface-light)',
+                  color: 'var(--text-primary)',
+                  fontSize: '15px',
+                  width: '100%'
+                }}
+              />
+            </div>
+            
             <div className="filter-group">
               <label>Item Tracker</label>
               <button 
@@ -742,119 +788,374 @@ const StockDashboard = () => {
         </>
       )}
 
-      {/* Item Details Modal */}
+      {/* Item Details Modal with Improved Styling */}
       {showModal && selectedItem && (
-        <div className="image-modal" onClick={closeModal} style={{
+        <div style={{
           position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
           bottom: 0,
-          background: 'rgba(0, 0, 0, 0.7)',
+          background: 'rgba(0, 0, 0, 0.75)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{
-            background: 'white',
-            borderRadius: '16px',
-            padding: '24px',
-            maxWidth: '600px',
+          zIndex: 1000,
+          backdropFilter: 'blur(4px)'
+        }} onClick={closeModal}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            borderRadius: '24px',
+            padding: '0',
+            maxWidth: '800px',
             width: '90%',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            boxShadow: '0 25px 80px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.2)',
+            transform: 'scale(1)',
+            animation: 'modalSlideIn 0.3s ease-out'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>
-                Item Details - {selectedItem.skuCode}
-              </h3>
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              padding: '24px 32px',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ 
+                  margin: 0, 
+                  fontSize: '24px', 
+                  fontWeight: '700',
+                  textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }}>
+                  Item Distribution Analysis
+                </h2>
+                <p style={{ 
+                  margin: '4px 0 0 0', 
+                  fontSize: '16px', 
+                  opacity: '0.9',
+                  fontWeight: '500'
+                }}>
+                  SKU: {selectedItem.skuCode}
+                </p>
+              </div>
               <button 
-                className="close-btn" 
                 onClick={closeModal}
                 style={{
-                  background: 'none',
+                  background: 'rgba(255,255,255,0.2)',
                   border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  padding: '0',
-                  width: '30px',
-                  height: '30px',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  color: 'white',
+                  transition: 'all 0.2s ease',
+                  backdropFilter: 'blur(10px)'
                 }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
               >
                 ×
               </button>
             </div>
             
-            {modalLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px' }}>
-                <div>Loading outlet details...</div>
-              </div>
-            ) : itemDetails ? (
-              <div>
-                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--surface-light)', borderRadius: '8px' }}>
-                  <h4 style={{ margin: '0 0 8px 0' }}>{itemDetails.itemInfo?.longName}</h4>
-                  <p style={{ margin: '0', color: 'var(--text-muted)', fontSize: '14px' }}>
-                    SKU: {itemDetails.itemInfo?.skuCode}
-                  </p>
+            {/* Modal Body */}
+            <div style={{ padding: '32px', maxHeight: 'calc(85vh - 100px)', overflow: 'auto' }}>
+              {modalLoading ? (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '60px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '20px'
+                }}>
+                  <div style={{
+                    width: '50px',
+                    height: '50px',
+                    border: '4px solid #e2e8f0',
+                    borderTop: '4px solid #667eea',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }}></div>
+                  <div style={{ fontSize: '18px', color: '#64748b', fontWeight: '500' }}>
+                    Loading outlet details...
+                  </div>
                 </div>
-                
-                <h5 style={{ marginBottom: '16px' }}>
-                  Outlets with this item out of stock ({itemDetails.outletDetails?.length || 0}):
-                </h5>
-                
-                {itemDetails.outletDetails && itemDetails.outletDetails.length > 0 ? (
-                  <div style={{ display: 'grid', gap: '12px' }}>
-                    {itemDetails.outletDetails.map((outlet, index) => (
-                      <div key={index} style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '12px 16px',
-                        background: 'var(--surface-card)',
-                        border: '1px solid var(--border-light)',
-                        borderRadius: '8px'
-                      }}>
-                        <div>
-                          <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                            {outlet.outlet}
-                          </div>
-                          {outlet.shortName && (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              {outlet.shortName}
-                            </div>
-                          )}
+              ) : itemDetails ? (
+                <div>
+                  {/* Item Information Card */}
+                  <div style={{ 
+                    marginBottom: '28px', 
+                    padding: '24px', 
+                    background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)', 
+                    borderRadius: '16px',
+                    border: '1px solid #cbd5e1'
+                  }}>
+                    <h3 style={{ 
+                      margin: '0 0 8px 0', 
+                      fontSize: '20px', 
+                      color: '#1e293b',
+                      fontWeight: '700'
+                    }}>
+                      {itemDetails.itemInfo?.longName}
+                    </h3>
+                    <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: '#64748b' }}>
+                      <div>
+                        <strong>SKU:</strong> {itemDetails.itemInfo?.skuCode}
+                      </div>
+                      <div>
+                        <strong>Affected Outlets:</strong> {itemDetails.outletDetails?.length || 0} of {itemDetails.summary?.totalOutlets || 12}
+                      </div>
+                      {itemDetails.summary?.dateFiltersApplied && (
+                        <div style={{ color: '#7c3aed', fontWeight: '600' }}>
+                          📅 Filtered by Date Range
                         </div>
-                        <div style={{ 
-                          background: '#ef4444', 
-                          color: 'white', 
-                          padding: '4px 8px', 
-                          borderRadius: '12px',
-                          fontSize: '12px',
-                          fontWeight: '600'
-                        }}>
-                          Out of Stock
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Outlets List */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ 
+                      margin: '0 0 20px 0', 
+                      fontSize: '18px', 
+                      color: '#374151',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      🏪 Affected Outlets ({itemDetails.outletDetails?.length || 0})
+                    </h4>
+                    
+                    {itemDetails.outletDetails && itemDetails.outletDetails.length > 0 ? (
+                      <div style={{ display: 'grid', gap: '16px' }}>
+                        {itemDetails.outletDetails.map((outlet, index) => (
+                          <div key={index} style={{
+                            background: 'white',
+                            border: '2px solid #f1f5f9',
+                            borderRadius: '16px',
+                            padding: '20px',
+                            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.borderColor = '#667eea';
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 8px 25px rgba(102, 126, 234, 0.15)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.borderColor = '#f1f5f9';
+                            e.target.style.transform = 'translateY(0px)';
+                            e.target.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.05)';
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ 
+                                  fontSize: '18px', 
+                                  fontWeight: '700', 
+                                  color: '#1e293b',
+                                  marginBottom: '8px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}>
+                                  📍 {outlet.outlet}
+                                </div>
+                                
+                                {outlet.shortName && outlet.shortName !== itemDetails.itemInfo?.longName && (
+                                  <div style={{ 
+                                    fontSize: '14px', 
+                                    color: '#6b7280',
+                                    marginBottom: '12px',
+                                    fontStyle: 'italic'
+                                  }}>
+                                    Local Name: {outlet.shortName}
+                                  </div>
+                                )}
+                                
+                                <div style={{ 
+                                  fontSize: '14px', 
+                                  color: '#64748b',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginBottom: outlet.trackerEntries && outlet.trackerEntries.length > 0 ? '12px' : '0'
+                                }}>
+                                  🕐 Last Updated: {new Date(outlet.lastUpdated).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </div>
+                                
+                                {outlet.trackerEntries && outlet.trackerEntries.length > 0 && (
+                                  <div style={{ marginTop: '12px' }}>
+                                    <div style={{ 
+                                      fontSize: '13px', 
+                                      fontWeight: '600', 
+                                      color: '#7c3aed',
+                                      marginBottom: '8px'
+                                    }}>
+                                      📊 Recent Tracking History:
+                                    </div>
+                                    {outlet.trackerEntries.slice(0, 2).map((entry, entryIndex) => (
+                                      <div key={entryIndex} style={{
+                                        fontSize: '12px',
+                                        color: '#64748b',
+                                        padding: '6px 12px',
+                                        background: '#f8fafc',
+                                        borderRadius: '8px',
+                                        marginBottom: '4px',
+                                        border: '1px solid #e2e8f0'
+                                      }}>
+                                        {new Date(entry.time).toLocaleString()} - {entry.items}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <div style={{ 
+                                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                                color: '#dc2626', 
+                                padding: '8px 16px', 
+                                borderRadius: '12px',
+                                fontSize: '13px',
+                                fontWeight: '700',
+                                border: '1px solid #fecaca',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                              }}>
+                                ❌ Out of Stock
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        textAlign: 'center', 
+                        padding: '40px 20px',
+                        background: '#f8fafc',
+                        borderRadius: '16px',
+                        border: '2px dashed #cbd5e1'
+                      }}>
+                        <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
+                        <div style={{ fontSize: '16px', color: '#64748b', fontWeight: '500' }}>
+                          No outlet details available for the selected time range
+                        </div>
+                        {itemDetails.summary?.dateFiltersApplied && (
+                          <div style={{ fontSize: '14px', color: '#7c3aed', marginTop: '8px' }}>
+                            Try adjusting your date filters to see more results
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Summary Footer */}
+                  {itemDetails.summary && (
+                    <div style={{
+                      marginTop: '24px',
+                      padding: '20px',
+                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                      borderRadius: '16px',
+                      border: '1px solid #bfdbfe'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                            {itemDetails.summary.outletsWithOutOfStock}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                            Affected Outlets
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                            {itemDetails.summary.totalOutlets}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                            Total Outlets
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: '#1d4ed8' }}>
+                            {((itemDetails.summary.outletsWithOutOfStock / itemDetails.summary.totalOutlets) * 100).toFixed(1)}%
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                            Impact Rate
+                          </div>
                         </div>
                       </div>
-                    ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '60px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '16px'
+                }}>
+                  <div style={{ fontSize: '48px' }}>⚠️</div>
+                  <div style={{ fontSize: '18px', color: '#64748b', fontWeight: '500' }}>
+                    Failed to load outlet details
                   </div>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                    No outlet details available
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                Failed to load outlet details
-              </div>
-            )}
+                  <button
+                    onClick={() => fetchItemDetails(selectedItem.skuCode)}
+                    style={{
+                      padding: '10px 20px',
+                      background: '#667eea',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+          
+          {/* CSS Animation Styles */}
+          <style>
+            {`
+              @keyframes modalSlideIn {
+                from {
+                  opacity: 0;
+                  transform: scale(0.9) translateY(-20px);
+                }
+                to {
+                  opacity: 1;
+                  transform: scale(1) translateY(0px);
+                }
+              }
+              
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}
+          </style>
         </div>
       )}
 
