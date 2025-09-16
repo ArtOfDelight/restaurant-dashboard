@@ -944,20 +944,20 @@ const StockDashboard = () => {
                       <div style={{ display: 'grid', gap: '16px' }}>
                         {itemDetails.outletDetails.map((outlet, index) => (
                           <div key={index} style={{
-                            background: 'white',
-                            border: '2px solid #f1f5f9',
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-light)',
                             borderRadius: '16px',
                             padding: '20px',
                             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
                             transition: 'all 0.2s ease'
                           }}
                           onMouseEnter={(e) => {
-                            e.target.style.borderColor = '#667eea';
+                            e.target.style.borderColor = 'var(--primary-color, #667eea)';
                             e.target.style.transform = 'translateY(-2px)';
-                            e.target.style.boxShadow = '0 8px 25px rgba(102, 126, 234, 0.15)';
+                            e.target.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.15)';
                           }}
                           onMouseLeave={(e) => {
-                            e.target.style.borderColor = '#f1f5f9';
+                            e.target.style.borderColor = 'var(--border-light)';
                             e.target.style.transform = 'translateY(0px)';
                             e.target.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.05)';
                           }}>
@@ -966,7 +966,7 @@ const StockDashboard = () => {
                                 <div style={{ 
                                   fontSize: '18px', 
                                   fontWeight: '700', 
-                                  color: '#1e293b',
+                                  color: 'var(--text-primary)',
                                   marginBottom: '8px',
                                   display: 'flex',
                                   alignItems: 'center',
@@ -978,7 +978,7 @@ const StockDashboard = () => {
                                 {outlet.shortName && outlet.shortName !== itemDetails.itemInfo?.longName && (
                                   <div style={{ 
                                     fontSize: '14px', 
-                                    color: '#6b7280',
+                                    color: 'var(--text-secondary)',
                                     marginBottom: '12px',
                                     fontStyle: 'italic'
                                   }}>
@@ -988,19 +988,13 @@ const StockDashboard = () => {
                                 
                                 <div style={{ 
                                   fontSize: '14px', 
-                                  color: '#64748b',
+                                  color: 'var(--text-muted)',
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: '6px',
                                   marginBottom: outlet.trackerEntries && outlet.trackerEntries.length > 0 ? '12px' : '0'
                                 }}>
-                                  🕐 Last Updated: {new Date(outlet.lastUpdated).toLocaleString('en-US', {
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
+                                  🕐 Last Updated: {outlet.lastUpdated}
                                 </div>
                                 
                                 {outlet.trackerEntries && outlet.trackerEntries.length > 0 && (
@@ -1008,7 +1002,7 @@ const StockDashboard = () => {
                                     <div style={{ 
                                       fontSize: '13px', 
                                       fontWeight: '600', 
-                                      color: '#7c3aed',
+                                      color: 'var(--primary-color, #7c3aed)',
                                       marginBottom: '8px'
                                     }}>
                                       📊 Recent Tracking History:
@@ -1016,33 +1010,18 @@ const StockDashboard = () => {
                                     {outlet.trackerEntries.slice(0, 2).map((entry, entryIndex) => (
                                       <div key={entryIndex} style={{
                                         fontSize: '12px',
-                                        color: '#64748b',
+                                        color: 'var(--text-muted)',
                                         padding: '6px 12px',
-                                        background: '#f8fafc',
+                                        background: 'var(--surface-light)',
                                         borderRadius: '8px',
                                         marginBottom: '4px',
-                                        border: '1px solid #e2e8f0'
+                                        border: '1px solid var(--border-light)'
                                       }}>
-                                        {new Date(entry.time).toLocaleString()} - {entry.items}
+                                        {entry.time} - {entry.items}
                                       </div>
                                     ))}
                                   </div>
                                 )}
-                              </div>
-                              
-                              <div style={{ 
-                                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
-                                color: '#dc2626', 
-                                padding: '8px 16px', 
-                                borderRadius: '12px',
-                                fontSize: '13px',
-                                fontWeight: '700',
-                                border: '1px solid #fecaca',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                              }}>
-                                ❌ Out of Stock
                               </div>
                             </div>
                           </div>
