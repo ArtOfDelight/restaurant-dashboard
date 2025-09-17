@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import OutletPerformanceTable from './OutletPerformanceTable';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -16,6 +17,7 @@ const HighRatedDashboard = () => {
   });
   const [expandedOutlet, setExpandedOutlet] = useState(null);
   const [minimized, setMinimized] = useState(false);
+  const [showOutletPerformanceTable, setShowOutletPerformanceTable] = useState(false);
 
   // Fetch data for High Rated Dashboard
   const fetchHighRatedData = async (period) => {
@@ -327,6 +329,11 @@ const HighRatedDashboard = () => {
     );
   }
 
+  // Show OutletPerformanceTable if it's opened
+  if (showOutletPerformanceTable) {
+    return <OutletPerformanceTable onClose={() => setShowOutletPerformanceTable(false)} />;
+  }
+
   return (
     <div className="checklist-dashboard">
       {/* Header */}
@@ -370,6 +377,12 @@ const HighRatedDashboard = () => {
             <option value="7 Days">7 DAYS DATA</option>
             <option value="28 Day">28 DAY DATA</option>
           </select>
+          <button 
+            onClick={() => setShowOutletPerformanceTable(true)} 
+            className="responses-btn"
+          >
+            CALCULATE INCENTIVE
+          </button>
           {expandedOutlet !== null && (
             <button
               onClick={minimized ? restoreModal : clearOutletSelection}
