@@ -62,7 +62,7 @@ const TelegramBroadcast = () => {
     'Puia': '6924505764',
     'Lamgouhao': '8063801577',
     'Charna': '',
-    'Jonathan': '',
+    'Jonathan': '5661711252',
     'Jona': '8195835325',
     'Prajesha': '7548733205',
     'Obed': '7968852570',
