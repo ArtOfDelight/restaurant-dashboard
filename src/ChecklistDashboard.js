@@ -72,7 +72,7 @@ const transformDebugResponses = (rawResponses) => {
 };
 
 // Checklist Completion Tracker Component
-const ChecklistCompletionTracker = ({ API_URL }) => {
+const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
