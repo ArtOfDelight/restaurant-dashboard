@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './OutletPerformanceTable.css';
 
 const OutletPerformanceTable = () => {
   const [outlets] = useState([
@@ -161,172 +162,152 @@ const OutletPerformanceTable = () => {
     }, 0);
   };
 
+  const getCurrencyClass = (amount) => {
+    if (amount > 0) return 'currency-positive';
+    if (amount < 0) return 'currency-negative';
+    return 'currency-neutral';
+  };
+
   return (
-    <div className="w-full p-6 bg-white">
-      <div className="flex items-center gap-2 mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Outlet Performance Tracker</h1>
+    <div className="outlet-performance-container">
+      <div className="outlet-performance-header">
+        <h1>Outlet Performance Tracker</h1>
       </div>
 
-      <div className="overflow-x-auto shadow-lg rounded-lg">
-        <table className="min-w-full bg-white border border-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
-                Start Date
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
-                End Date
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
-                Outlet Code
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
-                Outlet Name
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-blue-50">
-                Total Orders
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-blue-50">
-                Total Low Rated
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-blue-50">
-                Total IGCC
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-yellow-50">
-                Total Errors
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-yellow-50">
-                Error Rate
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-blue-50">
-                High Rated Orders
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-yellow-50">
-                High Rated %
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-yellow-50">
-                High Rated % - Error Rate %
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-green-50">
-                Incentive
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-green-50">
-                Low Error Deduction
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-green-50">
-                7 Days Incentives
-              </th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b bg-green-50">
-                Per Day Incentives
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {outlets.map((outlet, index) => {
-              const calc = calculations[outlet.code] || {};
-              return (
-                <tr key={outlet.code} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 border-r">01/09/2025</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500 border-r">07/09/2025</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900 border-r">{outlet.code}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{outlet.name}</td>
-                  <td className="px-3 py-2 whitespace-nowrap border-r">
-                    <input
-                      type="number"
-                      value={data[outlet.code].totalOrders}
-                      onChange={(e) => handleInputChange(outlet.code, 'totalOrders', e.target.value)}
-                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap border-r">
-                    <input
-                      type="number"
-                      value={data[outlet.code].totalLowRated}
-                      onChange={(e) => handleInputChange(outlet.code, 'totalLowRated', e.target.value)}
-                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap border-r">
-                    <input
-                      type="number"
-                      value={data[outlet.code].totalIGCC}
-                      onChange={(e) => handleInputChange(outlet.code, 'totalIGCC', e.target.value)}
-                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r bg-yellow-50">{calc.totalErrors || 0}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r bg-yellow-50">{formatPercentage(calc.errorRate || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap border-r">
-                    <input
-                      type="number"
-                      value={data[outlet.code].highRatedOrders}
-                      onChange={(e) => handleInputChange(outlet.code, 'highRatedOrders', e.target.value)}
-                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r bg-yellow-50">{formatPercentage(calc.highRatedPercentage || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r bg-yellow-50">{formatPercentage(calc.highRatedMinusErrorRate || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-green-600 border-r bg-green-50">{formatCurrency(calc.incentive || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-red-600 border-r bg-green-50">{formatCurrency(calc.lowErrorDeduction || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-blue-600 border-r bg-green-50 font-medium">{formatCurrency(calc.sevenDaysIncentives || 0)}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-sm text-blue-600 bg-green-50 font-medium">{formatCurrency(calc.perDayIncentives || 0)}</td>
-                </tr>
-              );
-            })}
-            
-            {/* Totals Row */}
-            <tr className="bg-blue-100 font-bold border-t-2 border-blue-300">
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">01/09/2025</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">07/09/2025</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">TOTAL</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">All Outlets</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{getTotalForField('totalOrders')}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{getTotalForField('totalLowRated')}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{getTotalForField('totalIGCC')}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{calculations.TOTAL?.totalErrors || 0}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{formatPercentage(calculations.TOTAL?.errorRate || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{getTotalForField('highRatedOrders')}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{formatPercentage(calculations.TOTAL?.highRatedPercentage || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r">{formatPercentage(calculations.TOTAL?.highRatedMinusErrorRate || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-green-600 border-r">{formatCurrency(calculations.TOTAL?.incentive || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-red-600 border-r">{formatCurrency(calculations.TOTAL?.lowErrorDeduction || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-blue-600 border-r">{formatCurrency(calculations.TOTAL?.sevenDaysIncentives || 0)}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-sm text-blue-600">{formatCurrency(calculations.TOTAL?.perDayIncentives || 0)}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div className="outlet-table-container">
+        <div className="outlet-table-wrapper">
+          <table className="outlet-performance-table">
+            <thead>
+              <tr>
+                <th className="date-header">Start Date</th>
+                <th className="date-header">End Date</th>
+                <th className="outlet-header">Outlet Code</th>
+                <th className="outlet-header">Outlet Name</th>
+                <th className="input-header">Total Orders</th>
+                <th className="input-header">Total Low Rated</th>
+                <th className="input-header">Total IGCC</th>
+                <th className="calculated-header">Total Errors</th>
+                <th className="calculated-header">Error Rate</th>
+                <th className="input-header">High Rated Orders</th>
+                <th className="calculated-header">High Rated %</th>
+                <th className="calculated-header">High Rated % - Error Rate %</th>
+                <th className="incentive-header">Incentive</th>
+                <th className="incentive-header">Low Error Deduction</th>
+                <th className="incentive-header">7 Days Incentives</th>
+                <th className="incentive-header">Per Day Incentives</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outlets.map((outlet, index) => {
+                const calc = calculations[outlet.code] || {};
+                return (
+                  <tr key={outlet.code}>
+                    <td className="date-cell">01/09/2025</td>
+                    <td className="date-cell">07/09/2025</td>
+                    <td className="outlet-code-cell">{outlet.code}</td>
+                    <td className="outlet-name-cell">{outlet.name}</td>
+                    <td className="input-cell">
+                      <input
+                        type="number"
+                        value={data[outlet.code].totalOrders}
+                        onChange={(e) => handleInputChange(outlet.code, 'totalOrders', e.target.value)}
+                        className="outlet-performance-input"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="input-cell">
+                      <input
+                        type="number"
+                        value={data[outlet.code].totalLowRated}
+                        onChange={(e) => handleInputChange(outlet.code, 'totalLowRated', e.target.value)}
+                        className="outlet-performance-input"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="input-cell">
+                      <input
+                        type="number"
+                        value={data[outlet.code].totalIGCC}
+                        onChange={(e) => handleInputChange(outlet.code, 'totalIGCC', e.target.value)}
+                        className="outlet-performance-input"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="calculated-cell">{calc.totalErrors || 0}</td>
+                    <td className="calculated-cell">{formatPercentage(calc.errorRate || 0)}</td>
+                    <td className="input-cell">
+                      <input
+                        type="number"
+                        value={data[outlet.code].highRatedOrders}
+                        onChange={(e) => handleInputChange(outlet.code, 'highRatedOrders', e.target.value)}
+                        className="outlet-performance-input"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="calculated-cell">{formatPercentage(calc.highRatedPercentage || 0)}</td>
+                    <td className="calculated-cell">{formatPercentage(calc.highRatedMinusErrorRate || 0)}</td>
+                    <td className={`incentive-cell ${getCurrencyClass(calc.incentive || 0)}`}>
+                      {formatCurrency(calc.incentive || 0)}
+                    </td>
+                    <td className={`incentive-cell ${getCurrencyClass(calc.lowErrorDeduction || 0)}`}>
+                      {formatCurrency(calc.lowErrorDeduction || 0)}
+                    </td>
+                    <td className={`incentive-cell ${getCurrencyClass(calc.sevenDaysIncentives || 0)}`}>
+                      {formatCurrency(calc.sevenDaysIncentives || 0)}
+                    </td>
+                    <td className={`incentive-cell ${getCurrencyClass(calc.perDayIncentives || 0)}`}>
+                      {formatCurrency(calc.perDayIncentives || 0)}
+                    </td>
+                  </tr>
+                );
+              })}
+              
+              {/* Totals Row */}
+              <tr className="totals-row">
+                <td className="date-cell">01/09/2025</td>
+                <td className="date-cell">07/09/2025</td>
+                <td>TOTAL</td>
+                <td>All Outlets</td>
+                <td>{getTotalForField('totalOrders')}</td>
+                <td>{getTotalForField('totalLowRated')}</td>
+                <td>{getTotalForField('totalIGCC')}</td>
+                <td>{calculations.TOTAL?.totalErrors || 0}</td>
+                <td>{formatPercentage(calculations.TOTAL?.errorRate || 0)}</td>
+                <td>{getTotalForField('highRatedOrders')}</td>
+                <td>{formatPercentage(calculations.TOTAL?.highRatedPercentage || 0)}</td>
+                <td>{formatPercentage(calculations.TOTAL?.highRatedMinusErrorRate || 0)}</td>
+                <td className={getCurrencyClass(calculations.TOTAL?.incentive || 0)}>
+                  {formatCurrency(calculations.TOTAL?.incentive || 0)}
+                </td>
+                <td className={getCurrencyClass(calculations.TOTAL?.lowErrorDeduction || 0)}>
+                  {formatCurrency(calculations.TOTAL?.lowErrorDeduction || 0)}
+                </td>
+                <td className={getCurrencyClass(calculations.TOTAL?.sevenDaysIncentives || 0)}>
+                  {formatCurrency(calculations.TOTAL?.sevenDaysIncentives || 0)}
+                </td>
+                <td className={getCurrencyClass(calculations.TOTAL?.perDayIncentives || 0)}>
+                  {formatCurrency(calculations.TOTAL?.perDayIncentives || 0)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-blue-700">Total Summary</h3>
-          </div>
-          <p className="text-sm text-blue-600 mt-1">
-            Overall Error Rate: {formatPercentage(calculations.TOTAL?.errorRate || 0)}
-          </p>
+      <div className="outlet-summary-cards">
+        <div className="outlet-summary-card blue">
+          <h3>Total Summary</h3>
+          <p>Overall Error Rate: {formatPercentage(calculations.TOTAL?.errorRate || 0)}</p>
         </div>
         
-        <div className="bg-green-50 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-green-700">Total Incentives</h3>
-          </div>
-          <p className="text-sm text-green-600 mt-1">
-            7 Days: {formatCurrency(calculations.TOTAL?.sevenDaysIncentives || 0)}
-          </p>
+        <div className="outlet-summary-card green">
+          <h3>Total Incentives</h3>
+          <p>7 Days: {formatCurrency(calculations.TOTAL?.sevenDaysIncentives || 0)}</p>
         </div>
         
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-purple-700">Daily Average</h3>
-          </div>
-          <p className="text-sm text-purple-600 mt-1">
-            Per Day: {formatCurrency(calculations.TOTAL?.perDayIncentives || 0)}
-          </p>
+        <div className="outlet-summary-card purple">
+          <h3>Daily Average</h3>
+          <p>Per Day: {formatCurrency(calculations.TOTAL?.perDayIncentives || 0)}</p>
         </div>
       </div>
     </div>
