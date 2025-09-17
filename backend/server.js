@@ -1865,6 +1865,259 @@ app.post('/api/checklist-filter', async (req, res) => {
   }
 });
 
+// Add these endpoints to your server.js file after the existing checklist endpoints
+
+// Checklist completion status endpoint
+app.get('/api/checklist-completion-status', async (req, res) => {
+  try {
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+    console.log(`Checklist completion status requested for date: ${selectedDate}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    console.log(`Fetching ${SUBMISSIONS_TAB} for completion analysis...`);
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${SUBMISSIONS_TAB}!A:Z`,
+    });
+
+    const submissionsData = submissionsResponse.data.values || [];
+    console.log(`Found ${submissionsData.length} submission rows for completion analysis`);
+
+    // Define standard time slots and allowed outlet codes
+    const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+    const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+
+    // Process submissions for the selected date
+    const submissionsByOutletAndSlot = new Map();
+    
+    if (submissionsData.length > 1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || row.length === 0) continue;
+        
+        const submissionDate = formatDate(getCellValue(row, 1));
+        const timeSlot = getCellValue(row, 2);
+        const outlet = getCellValue(row, 3);
+        const submittedBy = getCellValue(row, 4);
+        const timestamp = getCellValue(row, 5);
+        
+        // Only process submissions for the selected date
+        if (submissionDate === selectedDate && outlet && timeSlot) {
+          const key = `${outlet}|${timeSlot}`;
+          
+          if (!submissionsByOutletAndSlot.has(key)) {
+            submissionsByOutletAndSlot.set(key, {
+              outlet,
+              timeSlot,
+              submittedBy,
+              timestamp,
+              count: 1
+            });
+          } else {
+            // Update with latest submission
+            const existing = submissionsByOutletAndSlot.get(key);
+            if (new Date(timestamp) > new Date(existing.timestamp)) {
+              submissionsByOutletAndSlot.set(key, {
+                outlet,
+                timeSlot,
+                submittedBy,
+                timestamp,
+                count: existing.count + 1
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Create completion status for each allowed outlet
+    const completionData = [];
+    
+    ALLOWED_OUTLET_CODES.forEach(outletCode => {
+      const timeSlotStatus = TIME_SLOT_ORDER.map(timeSlot => {
+        const key = `${outletCode}|${timeSlot}`;
+        const submission = submissionsByOutletAndSlot.get(key);
+        
+        return {
+          timeSlot,
+          status: submission ? 'Completed' : 'Pending',
+          submittedBy: submission ? submission.submittedBy : '',
+          timestamp: submission ? submission.timestamp : ''
+        };
+      });
+      
+      // Calculate overall status
+      const completedSlots = timeSlotStatus.filter(slot => slot.status === 'Completed').length;
+      const totalSlots = timeSlotStatus.length;
+      const completionPercentage = Math.round((completedSlots / totalSlots) * 100);
+      
+      let overallStatus = 'Pending';
+      if (completedSlots === totalSlots) {
+        overallStatus = 'Completed';
+      } else if (completedSlots > 0) {
+        overallStatus = 'Partial';
+      }
+      
+      // Find last submission time
+      const lastSubmissionTime = timeSlotStatus
+        .filter(slot => slot.timestamp)
+        .map(slot => slot.timestamp)
+        .sort()
+        .pop() || '';
+      
+      completionData.push({
+        outletCode: outletCode,
+        outletName: `${outletCode} Outlet`, // You might want to map this to actual names
+        outletType: 'Restaurant', // You might want to determine this dynamically
+        overallStatus,
+        completionPercentage,
+        timeSlotStatus,
+        lastSubmissionTime,
+        isCloudDays: false // You might want to determine this based on your data
+      });
+    });
+
+    console.log(`Generated completion status for ${completionData.length} outlets`);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: completionData,
+      metadata: {
+        date: selectedDate,
+        totalOutlets: completionData.length,
+        completedOutlets: completionData.filter(o => o.overallStatus === 'Completed').length,
+        partialOutlets: completionData.filter(o => o.overallStatus === 'Partial').length,
+        pendingOutlets: completionData.filter(o => o.overallStatus === 'Pending').length,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching checklist completion status:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Checklist completion summary endpoint
+app.get('/api/checklist-completion-summary', async (req, res) => {
+  try {
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+    console.log(`Checklist completion summary requested for date: ${selectedDate}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    console.log(`Fetching ${SUBMISSIONS_TAB} for summary analysis...`);
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${SUBMISSIONS_TAB}!A:Z`,
+    });
+
+    const submissionsData = submissionsResponse.data.values || [];
+    console.log(`Found ${submissionsData.length} submission rows for summary`);
+
+    // Define constants
+    const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+    const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+
+    // Process submissions for the selected date
+    const submissionsByOutletAndSlot = new Map();
+    
+    if (submissionsData.length > 1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || row.length === 0) continue;
+        
+        const submissionDate = formatDate(getCellValue(row, 1));
+        const timeSlot = getCellValue(row, 2);
+        const outlet = getCellValue(row, 3);
+        
+        // Only process submissions for the selected date
+        if (submissionDate === selectedDate && outlet && timeSlot && ALLOWED_OUTLET_CODES.includes(outlet.toUpperCase())) {
+          const key = `${outlet}|${timeSlot}`;
+          submissionsByOutletAndSlot.set(key, true);
+        }
+      }
+    }
+
+    // Calculate summary statistics
+    const totalOutlets = ALLOWED_OUTLET_CODES.length;
+    let completedOutlets = 0;
+    let partialOutlets = 0;
+    let pendingOutlets = 0;
+
+    // Time slot completion counts
+    const timeSlotCompletions = {};
+    TIME_SLOT_ORDER.forEach(slot => {
+      timeSlotCompletions[slot] = 0;
+    });
+
+    ALLOWED_OUTLET_CODES.forEach(outletCode => {
+      const completedSlots = TIME_SLOT_ORDER.filter(timeSlot => {
+        const key = `${outletCode}|${timeSlot}`;
+        return submissionsByOutletAndSlot.has(key);
+      });
+
+      // Count completed slots for each time slot
+      completedSlots.forEach(slot => {
+        timeSlotCompletions[slot]++;
+      });
+
+      // Categorize outlet completion
+      if (completedSlots.length === TIME_SLOT_ORDER.length) {
+        completedOutlets++;
+      } else if (completedSlots.length > 0) {
+        partialOutlets++;
+      } else {
+        pendingOutlets++;
+      }
+    });
+
+    const overallCompletionRate = totalOutlets > 0 ? 
+      ((completedOutlets / totalOutlets) * 100).toFixed(1) : '0.0';
+
+    const summary = {
+      totalOutlets,
+      completedOutlets,
+      partialOutlets,
+      pendingOutlets,
+      overallCompletionRate: parseFloat(overallCompletionRate),
+      timeSlotCompletions,
+      date: selectedDate
+    };
+
+    console.log(`Generated summary for ${totalOutlets} outlets:`, summary);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      summary,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching checklist completion summary:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 // Debug checklist endpoint
 app.get('/api/debug-checklist', async (req, res) => {
   try {
