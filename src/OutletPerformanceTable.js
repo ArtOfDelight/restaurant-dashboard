@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Calculator, TrendingUp } from 'lucide-react';
 
 const OutletPerformanceTable = () => {
   const [outlets] = useState([
@@ -165,7 +164,6 @@ const OutletPerformanceTable = () => {
   return (
     <div className="w-full p-6 bg-white">
       <div className="flex items-center gap-2 mb-6">
-        <Building2 className="h-6 w-6 text-blue-600" />
         <h1 className="text-2xl font-bold text-gray-800">Outlet Performance Tracker</h1>
       </div>
 
@@ -306,7 +304,6 @@ const OutletPerformanceTable = () => {
       <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-blue-50 p-4 rounded-lg">
           <div className="flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-blue-600" />
             <h3 className="font-semibold text-blue-700">Total Summary</h3>
           </div>
           <p className="text-sm text-blue-600 mt-1">
@@ -316,7 +313,6 @@ const OutletPerformanceTable = () => {
         
         <div className="bg-green-50 p-4 rounded-lg">
           <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-green-600" />
             <h3 className="font-semibold text-green-700">Total Incentives</h3>
           </div>
           <p className="text-sm text-green-600 mt-1">
@@ -326,7 +322,6 @@ const OutletPerformanceTable = () => {
         
         <div className="bg-purple-50 p-4 rounded-lg">
           <div className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-purple-600" />
             <h3 className="font-semibold text-purple-700">Daily Average</h3>
           </div>
           <p className="text-sm text-purple-600 mt-1">
