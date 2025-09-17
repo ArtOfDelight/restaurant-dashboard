@@ -31,6 +31,7 @@ const TelegramBroadcast = () => {
     'Nishat': '700113654',
     'Jangnu': '8400579657',
     'Thai': '8433870410',
+    'Thaimei': '6803230292',
     'Hoi': '8324448967',
     'Margaret': '7396448359',
     'Len Kipgen': '8043563257',
@@ -67,7 +68,8 @@ const TelegramBroadcast = () => {
     'Prajesha': '7548733205',
     'Obed': '7968852570',
     'Sibtain': '',
-    'Biraj Bhai': '8170226011'
+    'Biraj Bhai': '8170226011',
+    'Mary': '8203671511'
   };
 
   // Check bot status and fetch broadcast history on mount
