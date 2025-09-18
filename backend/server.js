@@ -5934,10 +5934,12 @@ app.get('/api/stock-summary', async (req, res) => {
 });
 
 // Get detailed outlet information for a specific item
+// Updated Get detailed outlet information for a specific item
 app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   try {
     const skuCode = req.params.skuCode;
-    console.log(`Item details requested for SKU: ${skuCode}`);
+    const { startDate, endDate } = req.query;
+    console.log(`Item details requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -5982,7 +5984,55 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       });
     }
 
-    // Check which outlets have this item out of stock
+    // Fetch tracker data to get historical entries for this SKU
+    const TRACKER_TAB = 'Copy of Tracker';
+    console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+    
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // Columns A to D
+    });
+
+    const trackerRawData = trackerResponse.data.values || [];
+    
+    // Process tracker data to find entries for this SKU
+    const skuTrackerEntries = [];
+    for (let i = 1; i < trackerRawData.length; i++) {
+      const row = trackerRawData[i];
+      if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
+        const entryTime = row[1].toString().trim();
+        const entryOutlet = row[2].toString().trim();
+        const entryItems = row[3].toString().trim();
+
+        // Check if this entry contains our SKU (could be in comma-separated list or mentioned)
+        if (entryItems.toLowerCase().includes(skuCode.toLowerCase())) {
+          // Apply date filters
+          let includeEntry = true;
+          if (startDate || endDate) {
+            try {
+              const entryDate = new Date(entryTime);
+              if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+              if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+            } catch (dateError) {
+              console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
+            }
+          }
+
+          if (includeEntry) {
+            skuTrackerEntries.push({
+              time: entryTime,
+              outlet: entryOutlet,
+              items: entryItems,
+              rowNumber: i + 1
+            });
+          }
+        }
+      }
+    }
+
+    console.log(`Found ${skuTrackerEntries.length} tracker entries for SKU ${skuCode}`);
+
+    // Check which outlets currently have this item out of stock
     const outletDetails = [];
     
     const outletPromises = outlets.map(async (outlet) => {
@@ -5998,34 +6048,65 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
         for (let i = 1; i < rawData.length; i++) {
           const row = rawData[i];
           if (row && row[0] && row[0].toString().trim() === skuCode) {
+            // Get tracker entries specific to this outlet
+            const outletTrackerEntries = skuTrackerEntries.filter(entry => 
+              entry.outlet.toLowerCase() === outlet.toLowerCase()
+            );
+
             return {
               outlet: outlet,
               hasItem: true,
               shortName: row[1] ? row[1].toString().trim() : '',
-              lastUpdated: new Date().toISOString() // You might want to get actual timestamp
+              trackerEntries: outletTrackerEntries,
+              lastUpdated: outletTrackerEntries.length > 0 ? 
+                outletTrackerEntries[0].time : new Date().toISOString()
             };
           }
         }
         
-        return { outlet, hasItem: false };
+        // Even if outlet doesn't currently have it out of stock, 
+        // check if there are historical entries
+        const outletTrackerEntries = skuTrackerEntries.filter(entry => 
+          entry.outlet.toLowerCase() === outlet.toLowerCase()
+        );
+        
+        if (outletTrackerEntries.length > 0) {
+          return {
+            outlet: outlet,
+            hasItem: false, // Not currently out of stock
+            hasHistoricalEntries: true,
+            shortName: '',
+            trackerEntries: outletTrackerEntries,
+            lastUpdated: outletTrackerEntries[0].time
+          };
+        }
+        
+        return { outlet, hasItem: false, trackerEntries: [] };
       } catch (error) {
         console.error(`Error checking outlet ${outlet}:`, error.message);
-        return { outlet, hasItem: false, error: error.message };
+        return { outlet, hasItem: false, error: error.message, trackerEntries: [] };
       }
     });
 
     const results = await Promise.all(outletPromises);
-    const outletsWithItem = results.filter(result => result.hasItem);
+    const outletsWithData = results.filter(result => 
+      result.hasItem || (result.trackerEntries && result.trackerEntries.length > 0)
+    );
 
     res.json({
       success: true,
       itemInfo: itemInfo,
-      outletDetails: outletsWithItem,
+      outletDetails: outletsWithData,
+      allTrackerEntries: skuTrackerEntries, // All entries for this SKU across all outlets
       summary: {
         totalOutlets: outlets.length,
-        outletsWithOutOfStock: outletsWithItem.length,
-        outletsChecked: results.filter(r => !r.error).length
+        outletsWithOutOfStock: results.filter(r => r.hasItem).length,
+        outletsWithHistoricalData: results.filter(r => r.trackerEntries && r.trackerEntries.length > 0).length,
+        outletsChecked: results.filter(r => !r.error).length,
+        totalHistoricalEntries: skuTrackerEntries.length,
+        dateFiltersApplied: !!(startDate || endDate)
       },
+      filters: { startDate, endDate },
       timestamp: new Date().toISOString()
     });
 

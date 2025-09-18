@@ -131,6 +131,45 @@ const StockDashboard = () => {
     }
   };
 
+  // Format date from "01/09/2025 00:13" to "Jan 15, 2025 10:30 AM"
+  const formatTrackerDate = (dateString) => {
+    try {
+      // Handle format like "01/09/2025 00:13"
+      const parts = dateString.split(' ');
+      if (parts.length === 2) {
+        const datePart = parts[0]; // "01/09/2025"
+        const timePart = parts[1]; // "00:13"
+        
+        const [day, month, year] = datePart.split('/');
+        const [hour, minute] = timePart.split(':');
+        
+        const date = new Date(year, month - 1, day, hour, minute);
+        return date.toLocaleString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      
+      // Fallback to direct parsing
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      console.warn('Date formatting error:', error);
+      return dateString;
+    }
+  };
+
   // Fetch item details for modal with time filtering
   const fetchItemDetails = async (skuCode) => {
     try {
@@ -169,7 +208,8 @@ const StockDashboard = () => {
         success: false,
         error: err.message,
         itemInfo: { skuCode, longName: 'Unknown Item' },
-        outletDetails: []
+        outletDetails: [],
+        allTrackerEntries: []
       });
     } finally {
       setModalLoading(false);
@@ -212,7 +252,7 @@ const StockDashboard = () => {
     }
   };
 
-  // Format date for display
+  // Format display date for regular timestamps
   const formatDisplayDate = (dateString) => {
     try {
       const date = new Date(dateString);
@@ -792,7 +832,7 @@ const StockDashboard = () => {
         </>
       )}
 
-      {/* Item Details Modal with Improved Styling */}
+      {/* Updated Item Details Modal with Historical Tracker Entries */}
       {showModal && selectedItem && (
         <div style={{
           position: 'fixed',
@@ -811,7 +851,7 @@ const StockDashboard = () => {
             background: 'var(--surface-dark, #1a1a1a)',
             borderRadius: '24px',
             padding: '0',
-            maxWidth: '800px',
+            maxWidth: '900px',
             width: '90%',
             maxHeight: '85vh',
             overflow: 'hidden',
@@ -838,7 +878,7 @@ const StockDashboard = () => {
                   color: 'var(--text-primary)',
                   textShadow: '0 0 10px rgba(255, 255, 255, 0.1)'
                 }}>
-                  Item Distribution Analysis
+                  Historical Tracking Analysis
                 </h2>
                 <p style={{ 
                   margin: '4px 0 0 0', 
@@ -893,7 +933,7 @@ const StockDashboard = () => {
                     animation: 'spin 1s linear infinite'
                   }}></div>
                   <div style={{ fontSize: '18px', color: '#64748b', fontWeight: '500' }}>
-                    Loading outlet details...
+                    Loading historical tracking data...
                   </div>
                 </div>
               ) : itemDetails ? (
@@ -914,22 +954,92 @@ const StockDashboard = () => {
                     }}>
                       {itemDetails.itemInfo?.longName}
                     </h3>
-                    <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', gap: '24px', fontSize: '14px', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                       <div>
                         <strong>SKU:</strong> {itemDetails.itemInfo?.skuCode}
                       </div>
                       <div>
-                        <strong>Affected Outlets:</strong> {itemDetails.outletDetails?.length || 0} of {itemDetails.summary?.totalOutlets || 12}
+                        <strong>Current Status:</strong> {itemDetails.summary?.outletsWithOutOfStock || 0} outlets out of stock
+                      </div>
+                      <div>
+                        <strong>Historical Entries:</strong> {itemDetails.summary?.totalHistoricalEntries || 0}
                       </div>
                       {itemDetails.summary?.dateFiltersApplied && (
                         <div style={{ color: 'var(--primary-color, #7c3aed)', fontWeight: '600' }}>
-                          📅 Filtered by Date Range
+                          📅 Date Filtered Results
                         </div>
                       )}
                     </div>
                   </div>
                   
-                  {/* Outlets List */}
+                  {/* Historical Timeline - All Entries */}
+                  {itemDetails.allTrackerEntries && itemDetails.allTrackerEntries.length > 0 && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h4 style={{ 
+                        margin: '0 0 20px 0', 
+                        fontSize: '18px', 
+                        color: 'var(--text-primary)',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        🕐 Complete Historical Timeline ({itemDetails.allTrackerEntries.length} entries)
+                      </h4>
+                      
+                      <div style={{
+                        background: 'var(--surface-card)',
+                        border: '1px solid var(--border-light)',
+                        borderRadius: '16px',
+                        padding: '20px',
+                        maxHeight: '300px',
+                        overflow: 'auto'
+                      }}>
+                        {itemDetails.allTrackerEntries
+                          .sort((a, b) => new Date(b.time) - new Date(a.time)) // Sort by most recent first
+                          .map((entry, index) => (
+                          <div key={index} style={{
+                            padding: '12px 16px',
+                            marginBottom: index < itemDetails.allTrackerEntries.length - 1 ? '8px' : '0',
+                            background: 'var(--surface-light)',
+                            borderRadius: '12px',
+                            border: '1px solid var(--border-light)',
+                            fontSize: '14px',
+                            lineHeight: '1.4'
+                          }}>
+                            <div style={{ 
+                              color: 'var(--text-primary)', 
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <span>
+                                📍 {entry.outlet}
+                              </span>
+                              <span style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--text-muted)',
+                                fontWeight: '500' 
+                              }}>
+                                {formatTrackerDate(entry.time)}
+                              </span>
+                            </div>
+                            <div style={{ 
+                              color: 'var(--text-secondary)',
+                              fontSize: '13px',
+                              paddingLeft: '20px'
+                            }}>
+                              Marked out of stock - {entry.items}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Outlets List with Tracker History */}
                   <div style={{ marginBottom: '20px' }}>
                     <h4 style={{ 
                       margin: '0 0 20px 0', 
@@ -940,7 +1050,7 @@ const StockDashboard = () => {
                       alignItems: 'center',
                       gap: '8px'
                     }}>
-                      🏪 Affected Outlets ({itemDetails.outletDetails?.length || 0})
+                      🏪 Outlet Details ({itemDetails.outletDetails?.length || 0})
                     </h4>
                     
                     {itemDetails.outletDetails && itemDetails.outletDetails.length > 0 ? (
@@ -948,7 +1058,7 @@ const StockDashboard = () => {
                         {itemDetails.outletDetails.map((outlet, index) => (
                           <div key={index} style={{
                             background: 'var(--surface-card)',
-                            border: '1px solid var(--border-light)',
+                            border: outlet.hasItem ? '2px solid #10b981' : '1px solid var(--border-light)',
                             borderRadius: '16px',
                             padding: '20px',
                             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
@@ -960,11 +1070,11 @@ const StockDashboard = () => {
                             e.target.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.15)';
                           }}
                           onMouseLeave={(e) => {
-                            e.target.style.borderColor = 'var(--border-light)';
+                            e.target.style.borderColor = outlet.hasItem ? '#10b981' : 'var(--border-light)';
                             e.target.style.transform = 'translateY(0px)';
                             e.target.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.05)';
                           }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                               <div style={{ flex: 1 }}>
                                 <div style={{ 
                                   fontSize: '18px', 
@@ -976,6 +1086,32 @@ const StockDashboard = () => {
                                   gap: '8px'
                                 }}>
                                   📍 {outlet.outlet}
+                                  {outlet.hasItem && (
+                                    <span style={{
+                                      background: '#10b981',
+                                      color: 'white',
+                                      fontSize: '10px',
+                                      fontWeight: '600',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      textTransform: 'uppercase'
+                                    }}>
+                                      CURRENTLY OUT
+                                    </span>
+                                  )}
+                                  {outlet.hasHistoricalEntries && !outlet.hasItem && (
+                                    <span style={{
+                                      background: '#f59e0b',
+                                      color: 'white',
+                                      fontSize: '10px',
+                                      fontWeight: '600',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      textTransform: 'uppercase'
+                                    }}>
+                                      HISTORICAL ONLY
+                                    </span>
+                                  )}
                                 </div>
                                 
                                 {outlet.shortName && outlet.shortName !== itemDetails.itemInfo?.longName && (
@@ -988,45 +1124,65 @@ const StockDashboard = () => {
                                     Local Name: {outlet.shortName}
                                   </div>
                                 )}
-                                
-                                <div style={{ 
-                                  fontSize: '14px', 
-                                  color: 'var(--text-muted)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '6px',
-                                  marginBottom: outlet.trackerEntries && outlet.trackerEntries.length > 0 ? '12px' : '0'
-                                }}>
-                                  🕐 Last Updated: {outlet.trackerEntries && outlet.trackerEntries.length > 0 ? formatDisplayDate(outlet.trackerEntries[0].time) : 'No updates available'}
-                                </div>
-                                
-                                {outlet.trackerEntries && outlet.trackerEntries.length > 0 && (
-                                  <div style={{ marginTop: '12px' }}>
-                                    <div style={{ 
-                                      fontSize: '13px', 
-                                      fontWeight: '600', 
-                                      color: 'var(--primary-color, #7c3aed)',
-                                      marginBottom: '8px'
-                                    }}>
-                                      📊 {itemDetails.summary?.dateFiltersApplied ? 'Filtered' : 'Recent'} Tracking History ({outlet.trackerEntries.length} entries):
-                                    </div>
-                                    {outlet.trackerEntries.map((entry, entryIndex) => (
-                                      <div key={entryIndex} style={{
-                                        fontSize: '12px',
-                                        color: 'var(--text-muted)',
-                                        padding: '6px 12px',
-                                        background: 'var(--surface-light)',
-                                        borderRadius: '8px',
-                                        marginBottom: '4px',
-                                        border: '1px solid var(--border-light)'
-                                      }}>
-                                        {entry.time} - {entry.items}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
                               </div>
                             </div>
+                            
+                            {/* Tracker History for this outlet */}
+                            {outlet.trackerEntries && outlet.trackerEntries.length > 0 && (
+                              <div>
+                                <div style={{ 
+                                  fontSize: '14px', 
+                                  fontWeight: '600', 
+                                  color: 'var(--primary-color, #7c3aed)',
+                                  marginBottom: '12px',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center'
+                                }}>
+                                  <span>📊 Tracking History</span>
+                                  <span style={{ fontSize: '12px', fontWeight: '500' }}>
+                                    {outlet.trackerEntries.length} entries
+                                  </span>
+                                </div>
+                                
+                                <div style={{
+                                  maxHeight: '200px',
+                                  overflow: 'auto',
+                                  background: 'var(--surface-light)',
+                                  borderRadius: '12px',
+                                  border: '1px solid var(--border-light)',
+                                  padding: '16px'
+                                }}>
+                                  {outlet.trackerEntries
+                                    .sort((a, b) => new Date(b.time) - new Date(a.time)) // Most recent first
+                                    .map((entry, entryIndex) => (
+                                    <div key={entryIndex} style={{
+                                      padding: '10px 12px',
+                                      marginBottom: entryIndex < outlet.trackerEntries.length - 1 ? '8px' : '0',
+                                      background: 'var(--surface-card)',
+                                      borderRadius: '8px',
+                                      border: '1px solid var(--border-light)',
+                                      fontSize: '13px'
+                                    }}>
+                                      <div style={{ 
+                                        fontWeight: '600', 
+                                        color: 'var(--text-primary)',
+                                        marginBottom: '4px'
+                                      }}>
+                                        {formatTrackerDate(entry.time)}
+                                      </div>
+                                      <div style={{ 
+                                        color: 'var(--text-secondary)',
+                                        fontSize: '12px',
+                                        lineHeight: '1.4'
+                                      }}>
+                                        {entry.items}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1040,7 +1196,7 @@ const StockDashboard = () => {
                       }}>
                         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
                         <div style={{ fontSize: '16px', color: 'var(--text-primary)', fontWeight: '500' }}>
-                          No outlet details available for the selected time range
+                          No outlet or tracking data found
                         </div>
                         {itemDetails.summary?.dateFiltersApplied && (
                           <div style={{ fontSize: '14px', color: 'var(--primary-color, #7c3aed)', marginTop: '8px' }}>
@@ -1066,7 +1222,23 @@ const StockDashboard = () => {
                             {itemDetails.summary.outletsWithOutOfStock}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
-                            Affected Outlets
+                            Currently Out
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                            {itemDetails.summary.outletsWithHistoricalData}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
+                            With History
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                            {itemDetails.summary.totalHistoricalEntries}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
+                            Total Entries
                           </div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
@@ -1075,14 +1247,6 @@ const StockDashboard = () => {
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
                             Total Outlets
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                            {((itemDetails.summary.outletsWithOutOfStock / itemDetails.summary.totalOutlets) * 100).toFixed(1)}%
-                          </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
-                            Impact Rate
                           </div>
                         </div>
                       </div>
@@ -1100,7 +1264,7 @@ const StockDashboard = () => {
                 }}>
                   <div style={{ fontSize: '48px' }}>⚠️</div>
                   <div style={{ fontSize: '18px', color: 'var(--text-primary)', fontWeight: '500' }}>
-                    Failed to load outlet details
+                    Failed to load tracking details
                   </div>
                   <button
                     onClick={() => fetchItemDetails(selectedItem.skuCode)}
