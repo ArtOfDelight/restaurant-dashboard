@@ -959,10 +959,10 @@ const StockDashboard = () => {
                         <strong>SKU:</strong> {itemDetails.itemInfo?.skuCode}
                       </div>
                       <div>
-                        <strong>Current Status:</strong> {itemDetails.summary?.outletsWithOutOfStock || 0} outlets out of stock
+                        <strong>Outlets Tracked:</strong> {itemDetails.summary?.outletsAffected || 0} outlets
                       </div>
                       <div>
-                        <strong>Historical Entries:</strong> {itemDetails.summary?.totalHistoricalEntries || 0}
+                        <strong>Total Entries:</strong> {itemDetails.summary?.totalHistoricalEntries || 0}
                       </div>
                       {itemDetails.summary?.dateFiltersApplied && (
                         <div style={{ color: 'var(--primary-color, #7c3aed)', fontWeight: '600' }}>
@@ -1050,7 +1050,7 @@ const StockDashboard = () => {
                       alignItems: 'center',
                       gap: '8px'
                     }}>
-                      🏪 Outlet Details ({itemDetails.outletDetails?.length || 0})
+                      📍 Outlets with Tracking History ({itemDetails.outletDetails?.length || 0})
                     </h4>
                     
                     {itemDetails.outletDetails && itemDetails.outletDetails.length > 0 ? (
@@ -1058,7 +1058,7 @@ const StockDashboard = () => {
                         {itemDetails.outletDetails.map((outlet, index) => (
                           <div key={index} style={{
                             background: 'var(--surface-card)',
-                            border: outlet.hasItem ? '2px solid #10b981' : '1px solid var(--border-light)',
+                            border: '1px solid var(--border-light)',
                             borderRadius: '16px',
                             padding: '20px',
                             boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
@@ -1070,7 +1070,7 @@ const StockDashboard = () => {
                             e.target.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.15)';
                           }}
                           onMouseLeave={(e) => {
-                            e.target.style.borderColor = outlet.hasItem ? '#10b981' : 'var(--border-light)';
+                            e.target.style.borderColor = 'var(--border-light)';
                             e.target.style.transform = 'translateY(0px)';
                             e.target.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.05)';
                           }}>
@@ -1086,44 +1086,18 @@ const StockDashboard = () => {
                                   gap: '8px'
                                 }}>
                                   📍 {outlet.outlet}
-                                  {outlet.hasItem && (
-                                    <span style={{
-                                      background: '#10b981',
-                                      color: 'white',
-                                      fontSize: '10px',
-                                      fontWeight: '600',
-                                      padding: '2px 8px',
-                                      borderRadius: '12px',
-                                      textTransform: 'uppercase'
-                                    }}>
-                                      CURRENTLY OUT
-                                    </span>
-                                  )}
-                                  {outlet.hasHistoricalEntries && !outlet.hasItem && (
-                                    <span style={{
-                                      background: '#f59e0b',
-                                      color: 'white',
-                                      fontSize: '10px',
-                                      fontWeight: '600',
-                                      padding: '2px 8px',
-                                      borderRadius: '12px',
-                                      textTransform: 'uppercase'
-                                    }}>
-                                      HISTORICAL ONLY
-                                    </span>
-                                  )}
-                                </div>
-                                
-                                {outlet.shortName && outlet.shortName !== itemDetails.itemInfo?.longName && (
-                                  <div style={{ 
-                                    fontSize: '14px', 
-                                    color: 'var(--text-secondary)',
-                                    marginBottom: '12px',
-                                    fontStyle: 'italic'
+                                  <span style={{
+                                    background: '#10b981',
+                                    color: 'white',
+                                    fontSize: '10px',
+                                    fontWeight: '600',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    textTransform: 'uppercase'
                                   }}>
-                                    Local Name: {outlet.shortName}
-                                  </div>
-                                )}
+                                    {outlet.entryCount} ENTRIES
+                                  </span>
+                                </div>
                               </div>
                             </div>
                             
@@ -1196,7 +1170,7 @@ const StockDashboard = () => {
                       }}>
                         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
                         <div style={{ fontSize: '16px', color: 'var(--text-primary)', fontWeight: '500' }}>
-                          No outlet or tracking data found
+                          No tracking history found for this item
                         </div>
                         {itemDetails.summary?.dateFiltersApplied && (
                           <div style={{ fontSize: '14px', color: 'var(--primary-color, #7c3aed)', marginTop: '8px' }}>
@@ -1219,18 +1193,10 @@ const StockDashboard = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                            {itemDetails.summary.outletsWithOutOfStock}
+                            {itemDetails.summary.outletsAffected}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
-                            Currently Out
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                            {itemDetails.summary.outletsWithHistoricalData}
-                          </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
-                            With History
+                            Outlets Tracked
                           </div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
@@ -1243,10 +1209,18 @@ const StockDashboard = () => {
                         </div>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                            {itemDetails.summary.totalOutlets}
+                            {itemDetails.summary.dateRange?.oldest ? formatTrackerDate(itemDetails.summary.dateRange.oldest) : 'N/A'}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
-                            Total Outlets
+                            First Entry
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                            {itemDetails.summary.dateRange?.newest ? formatTrackerDate(itemDetails.summary.dateRange.newest) : 'N/A'}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>
+                            Latest Entry
                           </div>
                         </div>
                       </div>

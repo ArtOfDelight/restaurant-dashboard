@@ -5935,11 +5935,12 @@ app.get('/api/stock-summary', async (req, res) => {
 
 // Get detailed outlet information for a specific item
 // Updated Get detailed outlet information for a specific item
+// Get detailed historical tracking information for a specific item
 app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   try {
     const skuCode = req.params.skuCode;
     const { startDate, endDate } = req.query;
-    console.log(`Item details requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
+    console.log(`Item tracking history requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -5949,12 +5950,6 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
     }
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    
-    const outlets = [
-      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
-      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
-      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
-    ];
 
     // Get MasterSheet data for reference
     const masterResponse = await sheets.spreadsheets.values.get({
@@ -5984,19 +5979,20 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       });
     }
 
-    // Fetch tracker data to get historical entries for this SKU
+    // Fetch tracker data to get historical entries for this item
     const TRACKER_TAB = 'Copy of Tracker';
     console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
     
     const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // Columns A to D
+      range: `${TRACKER_TAB}!A:D`, // Columns A to D: Time, Outlet, Items
     });
 
     const trackerRawData = trackerResponse.data.values || [];
+    console.log(`Found ${trackerRawData.length} total rows in tracker tab`);
     
-    // Process tracker data to find entries for this SKU
-    const skuTrackerEntries = [];
+    // Process tracker data to find entries for this specific item
+    const itemTrackerEntries = [];
     for (let i = 1; i < trackerRawData.length; i++) {
       const row = trackerRawData[i];
       if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
@@ -6004,22 +6000,55 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
         const entryOutlet = row[2].toString().trim();
         const entryItems = row[3].toString().trim();
 
-        // Check if this entry contains our SKU (could be in comma-separated list or mentioned)
-        if (entryItems.toLowerCase().includes(skuCode.toLowerCase())) {
+        // Check if this entry contains our item by matching the longName
+        // (since tracker Items column contains full product names)
+        const entryItemsLower = entryItems.toLowerCase().trim();
+        const itemNameLower = itemInfo.longName.toLowerCase().trim();
+        
+        console.log(`Checking row ${i}: "${entryItems}" vs "${itemInfo.longName}"`);
+        
+        // Match by exact name or partial name
+        let isMatch = entryItemsLower.includes(itemNameLower) || itemNameLower.includes(entryItemsLower);
+        
+        // For more robust matching, try word-based matching for complex names
+        if (!isMatch && itemNameLower.length > 5) {
+          const itemWords = itemNameLower.replace(/[^\w\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          const entryWords = entryItemsLower.replace(/[^\w\s]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+          const matchingWords = itemWords.filter(word => 
+            entryWords.some(ew => ew.includes(word) || word.includes(ew))
+          );
+          // Require at least 60% of words to match, minimum 2 words
+          isMatch = matchingWords.length >= Math.max(2, Math.ceil(itemWords.length * 0.6));
+        }
+
+        if (isMatch) {
+          console.log(`✅ Match found for ${itemInfo.longName} in tracker entry: ${entryItems}`);
+          
           // Apply date filters
           let includeEntry = true;
           if (startDate || endDate) {
             try {
-              const entryDate = new Date(entryTime);
-              if (startDate && entryDate < new Date(startDate)) includeEntry = false;
-              if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+              // Handle date format "01/09/2025 00:13"
+              const parts = entryTime.split(' ');
+              if (parts.length === 2) {
+                const datePart = parts[0]; // "01/09/2025"
+                const timePart = parts[1]; // "00:13"
+                
+                const [day, month, year] = datePart.split('/');
+                const [hour, minute] = timePart.split(':');
+                
+                const entryDate = new Date(year, month - 1, day, hour, minute);
+                
+                if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+                if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+              }
             } catch (dateError) {
               console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
             }
           }
 
           if (includeEntry) {
-            skuTrackerEntries.push({
+            itemTrackerEntries.push({
               time: entryTime,
               outlet: entryOutlet,
               items: entryItems,
@@ -6030,88 +6059,50 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       }
     }
 
-    console.log(`Found ${skuTrackerEntries.length} tracker entries for SKU ${skuCode}`);
+    console.log(`Found ${itemTrackerEntries.length} tracker entries for item ${itemInfo.longName}`);
 
-    // Check which outlets currently have this item out of stock
-    const outletDetails = [];
-    
-    const outletPromises = outlets.map(async (outlet) => {
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: STOCK_SPREADSHEET_ID,
-          range: `${outlet}!A:C`,
-        });
-
-        const rawData = response.data.values || [];
-        
-        // Check if this outlet has the item out of stock
-        for (let i = 1; i < rawData.length; i++) {
-          const row = rawData[i];
-          if (row && row[0] && row[0].toString().trim() === skuCode) {
-            // Get tracker entries specific to this outlet
-            const outletTrackerEntries = skuTrackerEntries.filter(entry => 
-              entry.outlet.toLowerCase() === outlet.toLowerCase()
-            );
-
-            return {
-              outlet: outlet,
-              hasItem: true,
-              shortName: row[1] ? row[1].toString().trim() : '',
-              trackerEntries: outletTrackerEntries,
-              lastUpdated: outletTrackerEntries.length > 0 ? 
-                outletTrackerEntries[0].time : new Date().toISOString()
-            };
-          }
-        }
-        
-        // Even if outlet doesn't currently have it out of stock, 
-        // check if there are historical entries
-        const outletTrackerEntries = skuTrackerEntries.filter(entry => 
-          entry.outlet.toLowerCase() === outlet.toLowerCase()
-        );
-        
-        if (outletTrackerEntries.length > 0) {
-          return {
-            outlet: outlet,
-            hasItem: false, // Not currently out of stock
-            hasHistoricalEntries: true,
-            shortName: '',
-            trackerEntries: outletTrackerEntries,
-            lastUpdated: outletTrackerEntries[0].time
-          };
-        }
-        
-        return { outlet, hasItem: false, trackerEntries: [] };
-      } catch (error) {
-        console.error(`Error checking outlet ${outlet}:`, error.message);
-        return { outlet, hasItem: false, error: error.message, trackerEntries: [] };
+    // Group entries by outlet for better organization
+    const entriesByOutlet = {};
+    itemTrackerEntries.forEach(entry => {
+      if (!entriesByOutlet[entry.outlet]) {
+        entriesByOutlet[entry.outlet] = [];
       }
+      entriesByOutlet[entry.outlet].push(entry);
     });
 
-    const results = await Promise.all(outletPromises);
-    const outletsWithData = results.filter(result => 
-      result.hasItem || (result.trackerEntries && result.trackerEntries.length > 0)
-    );
+    // Convert grouped data to array format
+    const outletDetails = Object.keys(entriesByOutlet).map(outlet => ({
+      outlet: outlet,
+      trackerEntries: entriesByOutlet[outlet].sort((a, b) => new Date(b.time) - new Date(a.time)), // Sort by most recent first
+      entryCount: entriesByOutlet[outlet].length
+    }));
+
+    // Sort outlets by number of entries (most affected first)
+    outletDetails.sort((a, b) => b.entryCount - a.entryCount);
 
     res.json({
       success: true,
       itemInfo: itemInfo,
-      outletDetails: outletsWithData,
-      allTrackerEntries: skuTrackerEntries, // All entries for this SKU across all outlets
+      outletDetails: outletDetails,
+      allTrackerEntries: itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time)), // All entries sorted by most recent
       summary: {
-        totalOutlets: outlets.length,
-        outletsWithOutOfStock: results.filter(r => r.hasItem).length,
-        outletsWithHistoricalData: results.filter(r => r.trackerEntries && r.trackerEntries.length > 0).length,
-        outletsChecked: results.filter(r => !r.error).length,
-        totalHistoricalEntries: skuTrackerEntries.length,
-        dateFiltersApplied: !!(startDate || endDate)
+        totalOutlets: outletDetails.length,
+        totalHistoricalEntries: itemTrackerEntries.length,
+        dateRange: {
+          oldest: itemTrackerEntries.length > 0 ? 
+            itemTrackerEntries.sort((a, b) => new Date(a.time) - new Date(b.time))[0].time : null,
+          newest: itemTrackerEntries.length > 0 ? 
+            itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time))[0].time : null
+        },
+        dateFiltersApplied: !!(startDate || endDate),
+        outletsAffected: outletDetails.length
       },
       filters: { startDate, endDate },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Error getting item details:', error.message);
+    console.error('Error getting item tracking history:', error.message);
     res.status(500).json({
       success: false,
       error: error.message
