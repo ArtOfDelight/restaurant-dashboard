@@ -5933,48 +5933,13 @@ app.get('/api/stock-summary', async (req, res) => {
   }
 });
 
-
-// More precise matching function to avoid false positives
-function isItemMatch(searchSku, trackerItemText) {
-  const searchSkuLower = searchSku.toLowerCase().trim();
-  const trackerItemLower = trackerItemText.toLowerCase().trim();
-  
-  // Method 1: Exact match (most precise)
-  if (trackerItemLower === searchSkuLower) {
-    return true;
-  }
-  
-  // Method 2: Check if the tracker item contains the complete search term as a phrase
-  if (trackerItemLower.includes(searchSkuLower)) {
-    return true;
-  }
-  
-  // Method 3: For SKU codes - look for exact word boundaries
-  // This prevents "CAKE123" from matching "CAKE456"
-  const searchWords = searchSkuLower.split(/\s+/);
-  const trackerWords = trackerItemLower.split(/\s+/);
-  
-  // If search is a single word (likely a SKU code), look for exact word match
-  if (searchWords.length === 1) {
-    return trackerWords.some(word => word === searchSkuLower);
-  }
-  
-  // For multi-word searches, all search words must be present as complete words
-  // This prevents "mudpie cake" from matching "apple mudpie tart"
-  const allWordsMatch = searchWords.every(searchWord => 
-    trackerWords.some(trackerWord => trackerWord === searchWord)
-  );
-  
-  if (allWordsMatch) {
-    return true;
-  }
-  
-  return false;
-}
 // Get detailed outlet information for a specific item
 // Updated Get detailed outlet information for a specific item
 // Get detailed historical tracking information for a specific item
 // Get detailed historical tracking information for a specific item
+// FIXED: Get detailed historical tracking information for a specific item
+// Step 1: Get item name from MasterSheet using SKU
+// Step 2: Search tracker Items column using exact item name match
 app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   try {
     const skuCode = req.params.skuCode;
@@ -5990,71 +5955,79 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
 
-    // We'll search tracker data directly without MasterSheet validation
-    const itemInfo = {
+    // Step 1: Get actual item name from MasterSheet using SKU
+    console.log(`Step 1: Getting item name from MasterSheet for SKU: ${skuCode}`);
+    const masterResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `MasterSheet!A:B`, // A=skuCode, B=longName
+    });
+
+    const masterData = masterResponse.data.values || [];
+    let itemInfo = {
       skuCode: skuCode,
-      longName: skuCode // Will be updated if we find a better name in tracker data
+      longName: null // Will be set from MasterSheet
     };
 
-    // Fetch tracker data to get historical entries for this item
+    // Find exact SKU match in MasterSheet to get the item name
+    let itemNameToSearch = null;
+    for (let i = 1; i < masterData.length; i++) {
+      const row = masterData[i];
+      if (row && row[0] && row[0].toString().trim() === skuCode) {
+        itemNameToSearch = row[1] ? row[1].toString().trim() : null;
+        itemInfo.longName = itemNameToSearch;
+        console.log(`✅ Found in MasterSheet: SKU "${skuCode}" = Item Name "${itemNameToSearch}"`);
+        break;
+      }
+    }
+
+    if (!itemNameToSearch) {
+      console.log(`❌ SKU "${skuCode}" not found in MasterSheet`);
+      return res.status(404).json({
+        success: false,
+        error: `SKU "${skuCode}" not found in MasterSheet`,
+        skuCode: skuCode
+      });
+    }
+
+    // Step 2: Search tracker data using EXACT item name matching
     const TRACKER_TAB = 'Copy of Tracker';
-    console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+    console.log(`Step 2: Searching tracker for exact item name: "${itemNameToSearch}"`);
     
     const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // Columns A to D: Time, Outlet, Items
+      range: `${TRACKER_TAB}!A:D`, // A=?, B=Time, C=Outlet, D=Items
     });
 
     const trackerRawData = trackerResponse.data.values || [];
     console.log(`Found ${trackerRawData.length} total rows in tracker tab`);
     
-    // Process tracker data to find entries for this specific item
     const itemTrackerEntries = [];
-    let bestMatchingName = skuCode; // Keep track of the most common/best item name found
     
+    // Process tracker data with EXACT item name matching
     for (let i = 1; i < trackerRawData.length; i++) {
       const row = trackerRawData[i];
-      if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
+      if (row && row[1] && row[2] && row[3]) { // Check if Time(B), Outlet(C), Items(D) exist
         const entryTime = row[1].toString().trim();
         const entryOutlet = row[2].toString().trim();
         const entryItems = row[3].toString().trim();
 
-        // Search for the SKU code in the tracker items
-        // This is flexible - looks for SKU as substring or exact match
-        const entryItemsLower = entryItems.toLowerCase().trim();
-        const skuCodeLower = skuCode.toLowerCase().trim();
-        
-        console.log(`Checking row ${i}: "${entryItems}" for SKU "${skuCode}"`);
-        
-        // Check if this entry contains our SKU code
-        const isMatch = isItemMatch(skuCode, entryItems);
+        // EXACT ITEM NAME MATCHING
+        // Check if the tracker Items column contains the exact item name
+        const itemsArray = parseTrackerItems(entryItems);
+        const hasExactMatch = itemsArray.some(item => item === itemNameToSearch);
 
-        if (isMatch) {
-          console.log(`✅ Match found for SKU ${skuCode} in tracker entry: ${entryItems}`);
+        if (hasExactMatch) {
+          console.log(`✅ Exact match found in row ${i + 1}: "${entryItems}" contains "${itemNameToSearch}"`);
           
-          // Update best matching name (use the full item name from tracker)
-          if (entryItems.length > bestMatchingName.length) {
-            bestMatchingName = entryItems;
-          }
-          
-          // Apply date filters
+          // Apply date filters if provided
           let includeEntry = true;
           if (startDate || endDate) {
             try {
-              // Handle date format "01/09/2025 00:13"
-              const parts = entryTime.split(' ');
-              if (parts.length === 2) {
-                const datePart = parts[0]; // "01/09/2025"
-                const timePart = parts[1]; // "00:13"
-                
-                const [day, month, year] = datePart.split('/');
-                const [hour, minute] = timePart.split(':');
-                
-                const entryDate = new Date(year, month - 1, day, hour, minute);
-                
-                if (startDate && entryDate < new Date(startDate)) includeEntry = false;
-                if (endDate && entryDate > new Date(endDate)) includeEntry = false;
-              }
+              // Parse date format "01/09/2025 00:13" or similar
+              const entryDate = parseTrackerDate(entryTime);
+              
+              if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+              if (endDate && entryDate > new Date(endDate)) includeEntry = false;
             } catch (dateError) {
               console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
             }
@@ -6072,10 +6045,7 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       }
     }
 
-    // Update itemInfo with the best matching name we found
-    itemInfo.longName = bestMatchingName;
-
-    console.log(`Found ${itemTrackerEntries.length} tracker entries for SKU ${skuCode} (best name: ${bestMatchingName})`);
+    console.log(`Found ${itemTrackerEntries.length} tracker entries for item "${itemNameToSearch}"`);
 
     // Group entries by outlet for better organization
     const entriesByOutlet = {};
@@ -6089,29 +6059,33 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
     // Convert grouped data to array format
     const outletDetails = Object.keys(entriesByOutlet).map(outlet => ({
       outlet: outlet,
-      trackerEntries: entriesByOutlet[outlet].sort((a, b) => new Date(b.time) - new Date(a.time)), // Sort by most recent first
+      trackerEntries: entriesByOutlet[outlet].sort((a, b) => parseTrackerDate(b.time) - parseTrackerDate(a.time)), // Sort by most recent first
       entryCount: entriesByOutlet[outlet].length
     }));
 
     // Sort outlets by number of entries (most affected first)
     outletDetails.sort((a, b) => b.entryCount - a.entryCount);
 
+    // Calculate date range
+    let dateRange = { oldest: null, newest: null };
+    if (itemTrackerEntries.length > 0) {
+      const sortedEntries = itemTrackerEntries.sort((a, b) => parseTrackerDate(a.time) - parseTrackerDate(b.time));
+      dateRange.oldest = sortedEntries[0].time;
+      dateRange.newest = sortedEntries[sortedEntries.length - 1].time;
+    }
+
     res.json({
       success: true,
       itemInfo: itemInfo,
       outletDetails: outletDetails,
-      allTrackerEntries: itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time)), // All entries sorted by most recent
+      allTrackerEntries: itemTrackerEntries.sort((a, b) => parseTrackerDate(b.time) - parseTrackerDate(a.time)), // All entries sorted by most recent
       summary: {
         totalOutlets: outletDetails.length,
         totalHistoricalEntries: itemTrackerEntries.length,
-        dateRange: {
-          oldest: itemTrackerEntries.length > 0 ? 
-            itemTrackerEntries.sort((a, b) => new Date(a.time) - new Date(b.time))[0].time : null,
-          newest: itemTrackerEntries.length > 0 ? 
-            itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time))[0].time : null
-        },
+        dateRange: dateRange,
         dateFiltersApplied: !!(startDate || endDate),
-        outletsAffected: outletDetails.length
+        searchedItemName: itemNameToSearch,
+        searchedSKU: skuCode
       },
       filters: { startDate, endDate },
       timestamp: new Date().toISOString()
@@ -6126,6 +6100,49 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   }
 });
 
+// Helper function to parse items from tracker Items column
+function parseTrackerItems(itemsString) {
+  if (!itemsString) return [];
+  
+  // Split by common delimiters used in tracker entries
+  const delimiters = [',', ';', '|', '\n', ' and ', ' & ', ' + '];
+  let items = [itemsString];
+  
+  delimiters.forEach(delimiter => {
+    items = items.flatMap(item => item.split(delimiter));
+  });
+  
+  // Clean and normalize each item
+  return items
+    .map(item => item.trim())
+    .filter(item => item.length > 0)
+    .map(item => item.replace(/^[-•*]\s*/, '')); // Remove bullet points
+}
+
+// Helper function to parse tracker date format
+function parseTrackerDate(dateTimeString) {
+  if (!dateTimeString) return new Date(0);
+  
+  try {
+    // Handle format "01/09/2025 00:13"
+    const parts = dateTimeString.split(' ');
+    if (parts.length === 2) {
+      const datePart = parts[0]; // "01/09/2025"
+      const timePart = parts[1]; // "00:13"
+      
+      const [day, month, year] = datePart.split('/');
+      const [hour, minute] = timePart.split(':');
+      
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute));
+    }
+    
+    // Fallback to direct parsing
+    return new Date(dateTimeString);
+  } catch (error) {
+    console.warn(`Failed to parse date: ${dateTimeString}`);
+    return new Date(0);
+  }
+}
 // Debug stock summary endpoint
 app.get('/api/debug-stock-summary', async (req, res) => {
   try {
