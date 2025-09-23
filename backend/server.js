@@ -41,8 +41,7 @@ let ticketBot = null; // Separate bot instance for ticket management
 // Add this line
 const USER_MAPPING_TAB = 'UserTelegramMapping';
 
-// ADD THIS GLOBAL VARIABLE AT THE TOP OF YOUR FILE (with other global variables):
-let detectedGroups = [];
+
 let bot = null;
 let isShuttingDown = false;
 
@@ -497,9 +496,6 @@ async function initializeTicketBot() {
   }
 }
 
-
-
-// REPLACE YOUR EXISTING initializeCriticalStockBot() FUNCTION WITH THIS:
 async function initializeCriticalStockBot() {
   if (!CRITICAL_STOCK_BOT_TOKEN) {
     console.log('Critical Stock Bot Token not provided - critical alerts disabled');
@@ -561,62 +557,12 @@ async function initializeCriticalStockBot() {
     // Start polling with retry logic
     await startPollingWithRetry(newCriticalBot, 5); // More retries
     
-    // ADD MESSAGE HANDLER FOR GROUP DETECTION - NEW CODE
-    newCriticalBot.on('message', (msg) => {
-      try {
-        // Only capture group messages
-        if (msg.chat.type === 'group' || msg.chat.type === 'supergroup') {
-          const groupInfo = {
-            chatId: msg.chat.id,
-            title: msg.chat.title || 'Unknown Group',
-            type: msg.chat.type,
-            timestamp: new Date().toISOString()
-          };
-          
-          // Check if we already have this group
-          const existingGroup = detectedGroups.find(g => g.chatId === msg.chat.id);
-          if (!existingGroup) {
-            detectedGroups.push(groupInfo);
-            console.log(`🏢 Critical Stock Bot detected new group: "${groupInfo.title}" (${groupInfo.chatId})`);
-          }
-          
-          // Log any message in groups for debugging
-          console.log(`📨 Group message in "${groupInfo.title}": ${msg.text || '[media/sticker/etc]'}`);
-        }
-      } catch (messageError) {
-        console.error('Error processing group message:', messageError.message);
-      }
-    });
-
-    // Set up callback query handler for any future interactive features
-    newCriticalBot.on('callback_query', async (query) => {
-      try {
-        // Handle any callback queries if needed in the future
-        await newCriticalBot.answerCallbackQuery(query.id);
-      } catch (callbackError) {
-        console.error('Critical bot callback error:', callbackError.message);
-      }
-    });
-    
-    console.log('Critical Stock Bot initialized successfully with group detection');
+    console.log('Critical Stock Bot initialized successfully');
     return newCriticalBot;
 
   } catch (error) {
     console.error('Failed to initialize Critical Stock Bot:', error.message);
     return null;
-  }
-}
-
-// ADD THIS HELPER FUNCTION FOR CRITICAL BOT RESTART (if not already exists):
-async function restartCriticalBotPolling(botInstance) {
-  try {
-    console.log('Attempting to restart critical bot polling...');
-    await botInstance.stopPolling();
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Longer wait for critical bot
-    await startPollingWithRetry(botInstance, 3);
-    console.log('Critical bot polling restarted successfully');
-  } catch (error) {
-    console.error('Failed to restart critical bot polling:', error.message);
   }
 }
 async function sendCriticalStockAlerts() {
@@ -1075,17 +1021,7 @@ async function restartBotPolling(botInstance) {
   }
 }
 
-async function restartCriticalBotPolling(botInstance) {
-  try {
-    console.log('Attempting to restart critical stock bot polling...');
-    await botInstance.stopPolling();
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Longer wait
-    await startPollingWithRetry(botInstance);
-    console.log('Critical stock bot polling restarted successfully');
-  } catch (error) {
-    console.error('Failed to restart critical stock bot polling:', error.message);
-  }
-}
+
 
 // REPLACE the existing setupCallbackQueryHandler function with this:
 function setupCallbackQueryHandler(botInstance) {
