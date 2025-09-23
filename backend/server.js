@@ -500,69 +500,6 @@ async function initializeTicketBot() {
 
 
 // REPLACE YOUR EXISTING initializeCriticalStockBot() FUNCTION WITH THIS:
-app.post('/api/emergency-stop-bots', async (req, res) => {
-  try {
-    console.log('🚨 EMERGENCY BOT STOP INITIATED');
-    isShuttingDown = true;
-    
-    const results = [];
-    
-    // Stop all bots
-    if (bot) {
-      try {
-        await bot.stopPolling();
-        results.push('Main bot stopped');
-      } catch (e) {
-        results.push(`Main bot stop error: ${e.message}`);
-      }
-    }
-    
-    if (ticketBot) {
-      try {
-        await ticketBot.stopPolling();
-        results.push('Ticket bot stopped');
-      } catch (e) {
-        results.push(`Ticket bot stop error: ${e.message}`);
-      }
-    }
-    
-    if (criticalStockBot) {
-      try {
-        await criticalStockBot.stopPolling();
-        results.push('Critical stock bot stopped');
-      } catch (e) {
-        results.push(`Critical stock bot stop error: ${e.message}`);
-      }
-    }
-    
-    // Clear any intervals
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      results.push('Critical stock interval cleared');
-    }
-    
-    // Reset bot variables
-    bot = null;
-    ticketBot = null;
-    criticalStockBot = null;
-    
-    console.log('🛑 All bots stopped');
-    
-    res.json({
-      success: true,
-      message: 'All bots stopped emergency',
-      results: results
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// STEP 2: REPLACE YOUR initializeCriticalStockBot() WITH THIS CONFLICT-FREE VERSION
 async function initializeCriticalStockBot() {
   if (!CRITICAL_STOCK_BOT_TOKEN) {
     console.log('Critical Stock Bot Token not provided - critical alerts disabled');
@@ -575,74 +512,59 @@ async function initializeCriticalStockBot() {
   }
 
   try {
-    console.log('Initializing Critical Stock Bot with conflict prevention...');
+    console.log('Initializing Critical Stock Bot...');
     
-    // AGGRESSIVE CLEANUP - Multiple attempts to clear conflicts
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        console.log(`Cleanup attempt ${attempt}/3...`);
-        const tempBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN);
-        
-        // Delete webhook
-        await tempBot.deleteWebHook();
-        
-        // Try to stop any existing polling
-        try {
-          await tempBot.stopPolling();
-        } catch (stopError) {
-          // Ignore stop errors
-        }
-        
-        tempBot.close && tempBot.close();
-        console.log(`Cleanup attempt ${attempt} completed`);
-        
-        // Wait between attempts
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (cleanupError) {
-        console.log(`Cleanup attempt ${attempt} had issues: ${cleanupError.message}`);
-      }
+    // Clear any existing webhook for this bot - IMPORTANT
+    try {
+      const tempBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN);
+      await tempBot.deleteWebHook();
+      console.log('Cleared any existing webhooks for critical stock bot');
+      
+      // Close the temporary bot
+      tempBot.close && tempBot.close();
+    } catch (webhookError) {
+      console.log('Webhook cleanup completed (no webhook existed)');
     }
 
-    // Long wait to ensure cleanup
-    console.log('Waiting 10 seconds for complete cleanup...');
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    // Wait longer before creating the real bot to avoid conflicts
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Create new bot with longer intervals to avoid conflicts
     const newCriticalBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN, {
       polling: {
-        interval: 5000, // Very slow polling to avoid conflicts
+        interval: 3000, // Slower polling to reduce conflicts
         autoStart: false,
         params: {
-          timeout: 10, // Shorter timeout
+          timeout: 20,
         }
       }
     });
 
-    // DISABLE AUTOMATIC RESTART - This was causing the loop
+    // Set up error handlers BEFORE starting polling
     newCriticalBot.on('polling_error', (error) => {
       console.log('Critical stock bot polling error:', error.message);
       
-      // DO NOT AUTO-RESTART - Let it fail and require manual restart
-      console.log('❌ Critical bot polling failed - MANUAL RESTART REQUIRED');
-      console.log('Use POST /api/restart-critical-bot to restart manually');
+      // Handle 409 conflicts specifically
+      if (error.message.includes('409') && error.message.includes('Conflict')) {
+        console.log('Critical stock bot conflict detected - attempting recovery in 15 seconds...');
+        setTimeout(async () => {
+          if (!isShuttingDown) {
+            await restartCriticalBotPolling(newCriticalBot);
+          }
+        }, 15000); // Longer wait for critical bot
+      }
     });
 
     newCriticalBot.on('webhook_error', (error) => {
       console.log('Critical stock bot webhook error:', error.message);
     });
 
-    // Simple start - no retry logic to avoid loops
-    try {
-      await newCriticalBot.startPolling();
-      console.log('✅ Critical bot polling started successfully');
-    } catch (startError) {
-      console.error('❌ Failed to start critical bot polling:', startError.message);
-      throw startError;
-    }
+    // Start polling with retry logic
+    await startPollingWithRetry(newCriticalBot, 5); // More retries
     
-    // Message handler for group detection
+    // ADD MESSAGE HANDLER FOR GROUP DETECTION - NEW CODE
     newCriticalBot.on('message', (msg) => {
       try {
+        // Only capture group messages
         if (msg.chat.type === 'group' || msg.chat.type === 'supergroup') {
           const groupInfo = {
             chatId: msg.chat.id,
@@ -651,26 +573,39 @@ async function initializeCriticalStockBot() {
             timestamp: new Date().toISOString()
           };
           
+          // Check if we already have this group
           const existingGroup = detectedGroups.find(g => g.chatId === msg.chat.id);
           if (!existingGroup) {
             detectedGroups.push(groupInfo);
-            console.log(`🏢 Group detected: "${groupInfo.title}" (${groupInfo.chatId})`);
+            console.log(`🏢 Critical Stock Bot detected new group: "${groupInfo.title}" (${groupInfo.chatId})`);
           }
+          
+          // Log any message in groups for debugging
+          console.log(`📨 Group message in "${groupInfo.title}": ${msg.text || '[media/sticker/etc]'}`);
         }
       } catch (messageError) {
-        console.error('Group message error:', messageError.message);
+        console.error('Error processing group message:', messageError.message);
+      }
+    });
+
+    // Set up callback query handler for any future interactive features
+    newCriticalBot.on('callback_query', async (query) => {
+      try {
+        // Handle any callback queries if needed in the future
+        await newCriticalBot.answerCallbackQuery(query.id);
+      } catch (callbackError) {
+        console.error('Critical bot callback error:', callbackError.message);
       }
     });
     
-    console.log('✅ Critical Stock Bot initialized successfully');
+    console.log('Critical Stock Bot initialized successfully with group detection');
     return newCriticalBot;
 
   } catch (error) {
-    console.error('❌ Failed to initialize Critical Stock Bot:', error.message);
+    console.error('Failed to initialize Critical Stock Bot:', error.message);
     return null;
   }
 }
-
 
 // ADD THIS HELPER FUNCTION FOR CRITICAL BOT RESTART (if not already exists):
 async function restartCriticalBotPolling(botInstance) {
