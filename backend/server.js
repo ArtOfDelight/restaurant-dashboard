@@ -5797,9 +5797,12 @@ app.get('/api/stock-tracker-data', async (req, res) => {
 
 // Add new tracker entry endpoint - POST to add tracker data
 // Stock Summary API - Aggregates out-of-stock items across all outlets
+// FIXED: Stock Summary API - Uses tracker data instead of current outlet sheets
+// This should replace the existing /api/stock-summary endpoint
 app.get('/api/stock-summary', async (req, res) => {
   try {
-    console.log('Stock summary requested - aggregating data across all outlets');
+    const { startDate, endDate } = req.query;
+    console.log(`Stock summary requested using tracker data - Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -5809,122 +5812,116 @@ app.get('/api/stock-summary', async (req, res) => {
     }
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-    
-    // List of outlet names (tabs)
-    const outlets = [
-      'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala', 
-      'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere', 
-      'Jayanagar', 'HSR Layout', 'Electronic City', 'Rajajinagar'
-    ];
 
-    console.log(`Fetching data from ${outlets.length} outlets`);
-
-    // First, fetch the MasterSheet to get valid skuCodes and longNames
+    // Step 1: Get all items from MasterSheet for reference
+    console.log('Step 1: Loading MasterSheet for item reference...');
     const masterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `MasterSheet!A:B`, // Columns A (skuCode) and B (longName)
+      range: `MasterSheet!A:B`, // A=skuCode, B=longName
     });
 
     const masterData = masterResponse.data.values || [];
-    console.log(`Found ${masterData.length} rows in MasterSheet`);
+    const masterItems = new Map(); // Map: itemName -> skuCode
 
-    // Create a Map of valid skuCodes from MasterSheet
-    const masterItems = new Map();
-    for (let i = 1; i < masterData.length; i++) { // Skip header row
+    for (let i = 1; i < masterData.length; i++) {
       const row = masterData[i];
-      if (row && row[0] && row[1]) { // Check if skuCode and longName exist
-        masterItems.set(row[0].toString().trim(), {
-          skuCode: row[0].toString().trim(),
-          longName: row[1].toString().trim()
-        });
+      if (row && row[0] && row[1]) {
+        const skuCode = row[0].toString().trim();
+        const itemName = row[1].toString().trim();
+        masterItems.set(itemName, skuCode);
       }
     }
 
-    // Object to aggregate items across outlets
-    const itemSummary = new Map();
+    console.log(`Loaded ${masterItems.size} items from MasterSheet`);
 
-    // Fetch data from all outlets in parallel
-    const outletPromises = outlets.map(async (outlet) => {
-      try {
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: STOCK_SPREADSHEET_ID,
-          range: `${outlet}!A:C`, // Columns A (skuCode), B (shortName), C (longName)
-        });
+    // Step 2: Get all tracker data
+    console.log('Step 2: Loading tracker data...');
+    const TRACKER_TAB = 'Copy of Tracker';
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // A=?, B=Time, C=Outlet, D=Items
+    });
 
-        const rawData = response.data.values || [];
-        const outletItems = [];
-        
-        // Process outlet data (skip header row)
-        for (let i = 1; i < rawData.length; i++) {
-          const row = rawData[i];
-          if (row && row[0]) { // Check if skuCode exists
-            const skuCode = row[0].toString().trim();
-            
-            // Only include if skuCode exists in MasterSheet
-            if (masterItems.has(skuCode)) {
-              const masterItem = masterItems.get(skuCode);
-              outletItems.push({
-                skuCode: skuCode,
-                longName: masterItem.longName,
-                shortName: row[1] ? row[1].toString().trim() : ''
-              });
-            }
+    const trackerRawData = trackerResponse.data.values || [];
+    console.log(`Found ${trackerRawData.length} rows in tracker`);
+
+    // Step 3: Process tracker data and aggregate by item
+    const itemOutletMap = new Map(); // Map: itemName -> Set of outlets
+
+    for (let i = 1; i < trackerRawData.length; i++) {
+      const row = trackerRawData[i];
+      if (row && row[1] && row[2] && row[3]) {
+        const entryTime = row[1].toString().trim();
+        const entryOutlet = row[2].toString().trim();
+        const entryItems = row[3].toString().trim();
+
+        // Apply date filters if provided
+        let includeEntry = true;
+        if (startDate || endDate) {
+          try {
+            const entryDate = parseTrackerDate(entryTime);
+            if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+            if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+          } catch (dateError) {
+            console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
           }
         }
 
-        return { outlet, items: outletItems };
-      } catch (error) {
-        console.error(`Error fetching data for outlet ${outlet}:`, error.message);
-        return { outlet, items: [], error: error.message };
+        if (includeEntry) {
+          // Parse items from this tracker entry
+          const itemsInEntry = parseTrackerItems(entryItems);
+          
+          // For each item in this entry, track which outlet reported it
+          itemsInEntry.forEach(itemName => {
+            // Only include items that exist in MasterSheet
+            if (masterItems.has(itemName)) {
+              if (!itemOutletMap.has(itemName)) {
+                itemOutletMap.set(itemName, new Set());
+              }
+              itemOutletMap.get(itemName).add(entryOutlet);
+            }
+          });
+        }
       }
+    }
+
+    // Step 4: Convert to summary format
+    const summaryArray = [];
+    
+    itemOutletMap.forEach((outletSet, itemName) => {
+      const skuCode = masterItems.get(itemName);
+      const outlets = Array.from(outletSet).sort();
+      
+      summaryArray.push({
+        skuCode: skuCode,
+        longName: itemName,
+        shortName: itemName, // Use same as longName since we don't have shortName in tracker
+        outletCount: outlets.length,
+        outlets: outlets
+      });
     });
 
-    // Wait for all outlet data
-    const outletResults = await Promise.all(outletPromises);
+    // Sort by outlet count (most affected items first)
+    summaryArray.sort((a, b) => b.outletCount - a.outletCount);
 
-    // Aggregate items across outlets
-    outletResults.forEach(result => {
-      if (result.items && result.items.length > 0) {
-        result.items.forEach(item => {
-          const key = item.skuCode; // Use skuCode as unique key
-          
-          if (!itemSummary.has(key)) {
-            itemSummary.set(key, {
-              skuCode: item.skuCode,
-              longName: item.longName,
-              shortName: item.shortName,
-              outletCount: 0,
-              outlets: []
-            });
-          }
-          
-          const summary = itemSummary.get(key);
-          summary.outletCount++;
-          summary.outlets.push(result.outlet);
-        });
-      }
-    });
-
-    // Convert to array and sort by outlet count (descending)
-    const summaryArray = Array.from(itemSummary.values()).sort((a, b) => b.outletCount - a.outletCount);
-
-    console.log(`Successfully aggregated ${summaryArray.length} unique items across ${outlets.length} outlets`);
+    console.log(`Successfully processed ${summaryArray.length} unique items from tracker data`);
 
     res.json({
       success: true,
       summary: summaryArray,
       metadata: {
         totalItems: summaryArray.length,
-        totalOutlets: outlets.length,
-        processedOutlets: outletResults.filter(r => !r.error).length,
-        errorOutlets: outletResults.filter(r => r.error).length,
-        masterItemsCount: masterItems.size
+        dataSource: 'tracker', // Indicate this comes from tracker, not current outlet sheets
+        masterItemsCount: masterItems.size,
+        trackerRowsProcessed: trackerRawData.length - 1,
+        dateFiltersApplied: !!(startDate || endDate),
+        dateRange: { startDate, endDate }
       },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Error generating stock summary:', error.message);
+    console.error('Error generating tracker-based stock summary:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -5933,174 +5930,7 @@ app.get('/api/stock-summary', async (req, res) => {
   }
 });
 
-// Get detailed outlet information for a specific item
-// Updated Get detailed outlet information for a specific item
-// Get detailed historical tracking information for a specific item
-// Get detailed historical tracking information for a specific item
-// FIXED: Get detailed historical tracking information for a specific item
-// Step 1: Get item name from MasterSheet using SKU
-// Step 2: Search tracker Items column using exact item name match
-app.get('/api/stock-item-details/:skuCode', async (req, res) => {
-  try {
-    const skuCode = req.params.skuCode;
-    const { startDate, endDate } = req.query;
-    console.log(`Item tracking history requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
-
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Sheets');
-      }
-    }
-
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
-
-    // Step 1: Get actual item name from MasterSheet using SKU
-    console.log(`Step 1: Getting item name from MasterSheet for SKU: ${skuCode}`);
-    const masterResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `MasterSheet!A:B`, // A=skuCode, B=longName
-    });
-
-    const masterData = masterResponse.data.values || [];
-    let itemInfo = {
-      skuCode: skuCode,
-      longName: null // Will be set from MasterSheet
-    };
-
-    // Find exact SKU match in MasterSheet to get the item name
-    let itemNameToSearch = null;
-    for (let i = 1; i < masterData.length; i++) {
-      const row = masterData[i];
-      if (row && row[0] && row[0].toString().trim() === skuCode) {
-        itemNameToSearch = row[1] ? row[1].toString().trim() : null;
-        itemInfo.longName = itemNameToSearch;
-        console.log(`✅ Found in MasterSheet: SKU "${skuCode}" = Item Name "${itemNameToSearch}"`);
-        break;
-      }
-    }
-
-    if (!itemNameToSearch) {
-      console.log(`❌ SKU "${skuCode}" not found in MasterSheet`);
-      return res.status(404).json({
-        success: false,
-        error: `SKU "${skuCode}" not found in MasterSheet`,
-        skuCode: skuCode
-      });
-    }
-
-    // Step 2: Search tracker data using EXACT item name matching
-    const TRACKER_TAB = 'Copy of Tracker';
-    console.log(`Step 2: Searching tracker for exact item name: "${itemNameToSearch}"`);
-    
-    const trackerResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // A=?, B=Time, C=Outlet, D=Items
-    });
-
-    const trackerRawData = trackerResponse.data.values || [];
-    console.log(`Found ${trackerRawData.length} total rows in tracker tab`);
-    
-    const itemTrackerEntries = [];
-    
-    // Process tracker data with EXACT item name matching
-    for (let i = 1; i < trackerRawData.length; i++) {
-      const row = trackerRawData[i];
-      if (row && row[1] && row[2] && row[3]) { // Check if Time(B), Outlet(C), Items(D) exist
-        const entryTime = row[1].toString().trim();
-        const entryOutlet = row[2].toString().trim();
-        const entryItems = row[3].toString().trim();
-
-        // EXACT ITEM NAME MATCHING
-        // Check if the tracker Items column contains the exact item name
-        const itemsArray = parseTrackerItems(entryItems);
-        const hasExactMatch = itemsArray.some(item => item === itemNameToSearch);
-
-        if (hasExactMatch) {
-          console.log(`✅ Exact match found in row ${i + 1}: "${entryItems}" contains "${itemNameToSearch}"`);
-          
-          // Apply date filters if provided
-          let includeEntry = true;
-          if (startDate || endDate) {
-            try {
-              // Parse date format "01/09/2025 00:13" or similar
-              const entryDate = parseTrackerDate(entryTime);
-              
-              if (startDate && entryDate < new Date(startDate)) includeEntry = false;
-              if (endDate && entryDate > new Date(endDate)) includeEntry = false;
-            } catch (dateError) {
-              console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
-            }
-          }
-
-          if (includeEntry) {
-            itemTrackerEntries.push({
-              time: entryTime,
-              outlet: entryOutlet,
-              items: entryItems,
-              rowNumber: i + 1
-            });
-          }
-        }
-      }
-    }
-
-    console.log(`Found ${itemTrackerEntries.length} tracker entries for item "${itemNameToSearch}"`);
-
-    // Group entries by outlet for better organization
-    const entriesByOutlet = {};
-    itemTrackerEntries.forEach(entry => {
-      if (!entriesByOutlet[entry.outlet]) {
-        entriesByOutlet[entry.outlet] = [];
-      }
-      entriesByOutlet[entry.outlet].push(entry);
-    });
-
-    // Convert grouped data to array format
-    const outletDetails = Object.keys(entriesByOutlet).map(outlet => ({
-      outlet: outlet,
-      trackerEntries: entriesByOutlet[outlet].sort((a, b) => parseTrackerDate(b.time) - parseTrackerDate(a.time)), // Sort by most recent first
-      entryCount: entriesByOutlet[outlet].length
-    }));
-
-    // Sort outlets by number of entries (most affected first)
-    outletDetails.sort((a, b) => b.entryCount - a.entryCount);
-
-    // Calculate date range
-    let dateRange = { oldest: null, newest: null };
-    if (itemTrackerEntries.length > 0) {
-      const sortedEntries = itemTrackerEntries.sort((a, b) => parseTrackerDate(a.time) - parseTrackerDate(b.time));
-      dateRange.oldest = sortedEntries[0].time;
-      dateRange.newest = sortedEntries[sortedEntries.length - 1].time;
-    }
-
-    res.json({
-      success: true,
-      itemInfo: itemInfo,
-      outletDetails: outletDetails,
-      allTrackerEntries: itemTrackerEntries.sort((a, b) => parseTrackerDate(b.time) - parseTrackerDate(a.time)), // All entries sorted by most recent
-      summary: {
-        totalOutlets: outletDetails.length,
-        totalHistoricalEntries: itemTrackerEntries.length,
-        dateRange: dateRange,
-        dateFiltersApplied: !!(startDate || endDate),
-        searchedItemName: itemNameToSearch,
-        searchedSKU: skuCode
-      },
-      filters: { startDate, endDate },
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Error getting item tracking history:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Helper function to parse items from tracker Items column
+// Helper functions (add these if they don't exist already)
 function parseTrackerItems(itemsString) {
   if (!itemsString) return [];
   
@@ -6119,7 +5949,6 @@ function parseTrackerItems(itemsString) {
     .map(item => item.replace(/^[-•*]\s*/, '')); // Remove bullet points
 }
 
-// Helper function to parse tracker date format
 function parseTrackerDate(dateTimeString) {
   if (!dateTimeString) return new Date(0);
   
@@ -6143,6 +5972,173 @@ function parseTrackerDate(dateTimeString) {
     return new Date(0);
   }
 }
+
+// Get detailed outlet information for a specific item
+// Updated Get detailed outlet information for a specific item
+// Get detailed historical tracking information for a specific item
+// Get detailed historical tracking information for a specific item
+app.get('/api/stock-item-details/:skuCode', async (req, res) => {
+  try {
+    const skuCode = req.params.skuCode;
+    const { startDate, endDate } = req.query;
+    console.log(`Item tracking history requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+
+    // We'll search tracker data directly without MasterSheet validation
+    const itemInfo = {
+      skuCode: skuCode,
+      longName: skuCode // Will be updated if we find a better name in tracker data
+    };
+
+    // Fetch tracker data to get historical entries for this item
+    const TRACKER_TAB = 'Copy of Tracker';
+    console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
+    
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // Columns A to D: Time, Outlet, Items
+    });
+
+    const trackerRawData = trackerResponse.data.values || [];
+    console.log(`Found ${trackerRawData.length} total rows in tracker tab`);
+    
+    // Process tracker data to find entries for this specific item
+    const itemTrackerEntries = [];
+    let bestMatchingName = skuCode; // Keep track of the most common/best item name found
+    
+    for (let i = 1; i < trackerRawData.length; i++) {
+      const row = trackerRawData[i];
+      if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
+        const entryTime = row[1].toString().trim();
+        const entryOutlet = row[2].toString().trim();
+        const entryItems = row[3].toString().trim();
+
+        // Search for the SKU code in the tracker items
+        // This is flexible - looks for SKU as substring or exact match
+        const entryItemsLower = entryItems.toLowerCase().trim();
+        const skuCodeLower = skuCode.toLowerCase().trim();
+        
+        console.log(`Checking row ${i}: "${entryItems}" for SKU "${skuCode}"`);
+        
+        // Check if this entry contains our SKU code
+        let isMatch = entryItemsLower.includes(skuCodeLower);
+        
+        // Also try reverse match in case SKU is longer
+        if (!isMatch) {
+          isMatch = skuCodeLower.includes(entryItemsLower);
+        }
+        
+        // For very short SKUs, be more strict to avoid false matches
+        if (skuCode.length <= 3 && !isMatch) {
+          const words = entryItemsLower.split(/\s+/);
+          isMatch = words.some(word => word === skuCodeLower);
+        }
+
+        if (isMatch) {
+          console.log(`✅ Match found for SKU ${skuCode} in tracker entry: ${entryItems}`);
+          
+          // Update best matching name (use the full item name from tracker)
+          if (entryItems.length > bestMatchingName.length) {
+            bestMatchingName = entryItems;
+          }
+          
+          // Apply date filters
+          let includeEntry = true;
+          if (startDate || endDate) {
+            try {
+              // Handle date format "01/09/2025 00:13"
+              const parts = entryTime.split(' ');
+              if (parts.length === 2) {
+                const datePart = parts[0]; // "01/09/2025"
+                const timePart = parts[1]; // "00:13"
+                
+                const [day, month, year] = datePart.split('/');
+                const [hour, minute] = timePart.split(':');
+                
+                const entryDate = new Date(year, month - 1, day, hour, minute);
+                
+                if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+                if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+              }
+            } catch (dateError) {
+              console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
+            }
+          }
+
+          if (includeEntry) {
+            itemTrackerEntries.push({
+              time: entryTime,
+              outlet: entryOutlet,
+              items: entryItems,
+              rowNumber: i + 1
+            });
+          }
+        }
+      }
+    }
+
+    // Update itemInfo with the best matching name we found
+    itemInfo.longName = bestMatchingName;
+
+    console.log(`Found ${itemTrackerEntries.length} tracker entries for SKU ${skuCode} (best name: ${bestMatchingName})`);
+
+    // Group entries by outlet for better organization
+    const entriesByOutlet = {};
+    itemTrackerEntries.forEach(entry => {
+      if (!entriesByOutlet[entry.outlet]) {
+        entriesByOutlet[entry.outlet] = [];
+      }
+      entriesByOutlet[entry.outlet].push(entry);
+    });
+
+    // Convert grouped data to array format
+    const outletDetails = Object.keys(entriesByOutlet).map(outlet => ({
+      outlet: outlet,
+      trackerEntries: entriesByOutlet[outlet].sort((a, b) => new Date(b.time) - new Date(a.time)), // Sort by most recent first
+      entryCount: entriesByOutlet[outlet].length
+    }));
+
+    // Sort outlets by number of entries (most affected first)
+    outletDetails.sort((a, b) => b.entryCount - a.entryCount);
+
+    res.json({
+      success: true,
+      itemInfo: itemInfo,
+      outletDetails: outletDetails,
+      allTrackerEntries: itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time)), // All entries sorted by most recent
+      summary: {
+        totalOutlets: outletDetails.length,
+        totalHistoricalEntries: itemTrackerEntries.length,
+        dateRange: {
+          oldest: itemTrackerEntries.length > 0 ? 
+            itemTrackerEntries.sort((a, b) => new Date(a.time) - new Date(b.time))[0].time : null,
+          newest: itemTrackerEntries.length > 0 ? 
+            itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time))[0].time : null
+        },
+        dateFiltersApplied: !!(startDate || endDate),
+        outletsAffected: outletDetails.length
+      },
+      filters: { startDate, endDate },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error getting item tracking history:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Debug stock summary endpoint
 app.get('/api/debug-stock-summary', async (req, res) => {
   try {
