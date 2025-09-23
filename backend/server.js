@@ -5977,11 +5977,12 @@ function parseTrackerDate(dateTimeString) {
 // Updated Get detailed outlet information for a specific item
 // Get detailed historical tracking information for a specific item
 // Get detailed historical tracking information for a specific item
+// WORKING FIX: Replace the existing /api/stock-item-details/:skuCode endpoint with this
 app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   try {
     const skuCode = req.params.skuCode;
     const { startDate, endDate } = req.query;
-    console.log(`Item tracking history requested for SKU: ${skuCode}, Date filters: ${startDate || 'none'} to ${endDate || 'none'}`);
+    console.log(`[POPUP] Item tracking history for SKU: ${skuCode}`);
 
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -5992,92 +5993,76 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
 
     const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
 
-    // We'll search tracker data directly without MasterSheet validation
-    const itemInfo = {
-      skuCode: skuCode,
-      longName: skuCode // Will be updated if we find a better name in tracker data
-    };
-
-    // Fetch tracker data to get historical entries for this item
-    const TRACKER_TAB = 'Copy of Tracker';
-    console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
-    
-    const trackerResponse = await sheets.spreadsheets.values.get({
+    // Step 1: Get item name from MasterSheet
+    console.log(`[POPUP] Getting item name for SKU: ${skuCode}`);
+    const masterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // Columns A to D: Time, Outlet, Items
+      range: `MasterSheet!A:B`,
     });
 
-    const trackerRawData = trackerResponse.data.values || [];
-    console.log(`Found ${trackerRawData.length} total rows in tracker tab`);
+    const masterData = masterResponse.data.values || [];
+    let itemName = null;
     
-    // Process tracker data to find entries for this specific item
-    const itemTrackerEntries = [];
-    let bestMatchingName = skuCode; // Keep track of the most common/best item name found
+    // Find SKU in MasterSheet
+    for (let i = 1; i < masterData.length; i++) {
+      const row = masterData[i];
+      if (row && row[0] && row[0].toString().trim() === skuCode) {
+        itemName = row[1] ? row[1].toString().trim() : skuCode;
+        break;
+      }
+    }
+
+    if (!itemName) {
+      console.log(`[POPUP] SKU ${skuCode} not found in MasterSheet`);
+      return res.status(404).json({
+        success: false,
+        error: `SKU "${skuCode}" not found in MasterSheet`
+      });
+    }
+
+    console.log(`[POPUP] Found item: ${skuCode} = "${itemName}"`);
+
+    // Step 2: Search tracker for this item name
+    const TRACKER_TAB = 'Copy of Tracker';
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`,
+    });
+
+    const trackerData = trackerResponse.data.values || [];
+    console.log(`[POPUP] Searching ${trackerData.length} tracker rows for "${itemName}"`);
     
-    for (let i = 1; i < trackerRawData.length; i++) {
-      const row = trackerRawData[i];
-      if (row && row[1] && row[2] && row[3]) { // Check if Time, Outlet, Items exist
-        const entryTime = row[1].toString().trim();
-        const entryOutlet = row[2].toString().trim();
-        const entryItems = row[3].toString().trim();
+    const matchingEntries = [];
+    
+    // Search tracker data
+    for (let i = 1; i < trackerData.length; i++) {
+      const row = trackerData[i];
+      if (row && row[1] && row[2] && row[3]) {
+        const time = row[1].toString().trim();
+        const outlet = row[2].toString().trim();
+        const items = row[3].toString().trim();
 
-        // Search for the SKU code in the tracker items
-        // This is flexible - looks for SKU as substring or exact match
-        const entryItemsLower = entryItems.toLowerCase().trim();
-        const skuCodeLower = skuCode.toLowerCase().trim();
-        
-        console.log(`Checking row ${i}: "${entryItems}" for SKU "${skuCode}"`);
-        
-        // Check if this entry contains our SKU code
-        let isMatch = entryItemsLower.includes(skuCodeLower);
-        
-        // Also try reverse match in case SKU is longer
-        if (!isMatch) {
-          isMatch = skuCodeLower.includes(entryItemsLower);
-        }
-        
-        // For very short SKUs, be more strict to avoid false matches
-        if (skuCode.length <= 3 && !isMatch) {
-          const words = entryItemsLower.split(/\s+/);
-          isMatch = words.some(word => word === skuCodeLower);
-        }
-
-        if (isMatch) {
-          console.log(`✅ Match found for SKU ${skuCode} in tracker entry: ${entryItems}`);
-          
-          // Update best matching name (use the full item name from tracker)
-          if (entryItems.length > bestMatchingName.length) {
-            bestMatchingName = entryItems;
-          }
+        // Check if this entry contains our item name
+        if (containsExactItem(items, itemName)) {
+          console.log(`[POPUP] Match found in row ${i}: "${items}"`);
           
           // Apply date filters
           let includeEntry = true;
           if (startDate || endDate) {
             try {
-              // Handle date format "01/09/2025 00:13"
-              const parts = entryTime.split(' ');
-              if (parts.length === 2) {
-                const datePart = parts[0]; // "01/09/2025"
-                const timePart = parts[1]; // "00:13"
-                
-                const [day, month, year] = datePart.split('/');
-                const [hour, minute] = timePart.split(':');
-                
-                const entryDate = new Date(year, month - 1, day, hour, minute);
-                
-                if (startDate && entryDate < new Date(startDate)) includeEntry = false;
-                if (endDate && entryDate > new Date(endDate)) includeEntry = false;
-              }
-            } catch (dateError) {
-              console.warn(`Invalid date format in tracker row ${i + 1}: ${entryTime}`);
+              const entryDate = parseTrackerDateSimple(time);
+              if (startDate && entryDate < new Date(startDate)) includeEntry = false;
+              if (endDate && entryDate > new Date(endDate)) includeEntry = false;
+            } catch (err) {
+              console.warn(`[POPUP] Date parse error: ${time}`);
             }
           }
 
           if (includeEntry) {
-            itemTrackerEntries.push({
-              time: entryTime,
-              outlet: entryOutlet,
-              items: entryItems,
+            matchingEntries.push({
+              time: time,
+              outlet: outlet,
+              items: items,
               rowNumber: i + 1
             });
           }
@@ -6085,53 +6070,57 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       }
     }
 
-    // Update itemInfo with the best matching name we found
-    itemInfo.longName = bestMatchingName;
+    console.log(`[POPUP] Found ${matchingEntries.length} matching entries`);
 
-    console.log(`Found ${itemTrackerEntries.length} tracker entries for SKU ${skuCode} (best name: ${bestMatchingName})`);
-
-    // Group entries by outlet for better organization
-    const entriesByOutlet = {};
-    itemTrackerEntries.forEach(entry => {
-      if (!entriesByOutlet[entry.outlet]) {
-        entriesByOutlet[entry.outlet] = [];
+    // Group by outlet
+    const byOutlet = {};
+    matchingEntries.forEach(entry => {
+      if (!byOutlet[entry.outlet]) {
+        byOutlet[entry.outlet] = [];
       }
-      entriesByOutlet[entry.outlet].push(entry);
+      byOutlet[entry.outlet].push(entry);
     });
 
-    // Convert grouped data to array format
-    const outletDetails = Object.keys(entriesByOutlet).map(outlet => ({
+    // Format response
+    const outletDetails = Object.keys(byOutlet).map(outlet => ({
       outlet: outlet,
-      trackerEntries: entriesByOutlet[outlet].sort((a, b) => new Date(b.time) - new Date(a.time)), // Sort by most recent first
-      entryCount: entriesByOutlet[outlet].length
+      trackerEntries: byOutlet[outlet].sort((a, b) => {
+        try {
+          return parseTrackerDateSimple(b.time) - parseTrackerDateSimple(a.time);
+        } catch {
+          return 0;
+        }
+      }),
+      entryCount: byOutlet[outlet].length
     }));
 
-    // Sort outlets by number of entries (most affected first)
     outletDetails.sort((a, b) => b.entryCount - a.entryCount);
 
     res.json({
       success: true,
-      itemInfo: itemInfo,
+      itemInfo: {
+        skuCode: skuCode,
+        longName: itemName
+      },
       outletDetails: outletDetails,
-      allTrackerEntries: itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time)), // All entries sorted by most recent
+      allTrackerEntries: matchingEntries.sort((a, b) => {
+        try {
+          return parseTrackerDateSimple(b.time) - parseTrackerDateSimple(a.time);
+        } catch {
+          return 0;
+        }
+      }),
       summary: {
         totalOutlets: outletDetails.length,
-        totalHistoricalEntries: itemTrackerEntries.length,
-        dateRange: {
-          oldest: itemTrackerEntries.length > 0 ? 
-            itemTrackerEntries.sort((a, b) => new Date(a.time) - new Date(b.time))[0].time : null,
-          newest: itemTrackerEntries.length > 0 ? 
-            itemTrackerEntries.sort((a, b) => new Date(b.time) - new Date(a.time))[0].time : null
-        },
-        dateFiltersApplied: !!(startDate || endDate),
-        outletsAffected: outletDetails.length
+        totalHistoricalEntries: matchingEntries.length,
+        searchedItemName: itemName,
+        searchedSKU: skuCode
       },
-      filters: { startDate, endDate },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('Error getting item tracking history:', error.message);
+    console.error('[POPUP] Error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message
@@ -6139,6 +6128,45 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
   }
 });
 
+// Helper function - add this near your other helper functions
+function containsExactItem(itemsString, targetItem) {
+  if (!itemsString || !targetItem) return false;
+  
+  // Split items by common delimiters
+  const delimiters = /[,;|&+\n]/;
+  const items = itemsString.split(delimiters)
+    .map(item => item.trim())
+    .filter(item => item.length > 0);
+  
+  // Check for exact match
+  return items.some(item => item === targetItem);
+}
+
+// Helper function - add this near your other helper functions
+function parseTrackerDateSimple(dateString) {
+  if (!dateString) return new Date(0);
+  
+  try {
+    // Handle "01/09/2025 00:13" format
+    if (dateString.includes('/') && dateString.includes(':')) {
+      const [datePart, timePart] = dateString.split(' ');
+      const [day, month, year] = datePart.split('/');
+      const [hour, minute] = timePart.split(':');
+      
+      return new Date(
+        parseInt(year), 
+        parseInt(month) - 1, 
+        parseInt(day), 
+        parseInt(hour), 
+        parseInt(minute)
+      );
+    }
+    
+    return new Date(dateString);
+  } catch (error) {
+    return new Date(0);
+  }
+}
 // Debug stock summary endpoint
 app.get('/api/debug-stock-summary', async (req, res) => {
   try {
