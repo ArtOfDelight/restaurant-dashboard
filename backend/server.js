@@ -5933,6 +5933,44 @@ app.get('/api/stock-summary', async (req, res) => {
   }
 });
 
+
+// More precise matching function to avoid false positives
+function isItemMatch(searchSku, trackerItemText) {
+  const searchSkuLower = searchSku.toLowerCase().trim();
+  const trackerItemLower = trackerItemText.toLowerCase().trim();
+  
+  // Method 1: Exact match (most precise)
+  if (trackerItemLower === searchSkuLower) {
+    return true;
+  }
+  
+  // Method 2: Check if the tracker item contains the complete search term as a phrase
+  if (trackerItemLower.includes(searchSkuLower)) {
+    return true;
+  }
+  
+  // Method 3: For SKU codes - look for exact word boundaries
+  // This prevents "CAKE123" from matching "CAKE456"
+  const searchWords = searchSkuLower.split(/\s+/);
+  const trackerWords = trackerItemLower.split(/\s+/);
+  
+  // If search is a single word (likely a SKU code), look for exact word match
+  if (searchWords.length === 1) {
+    return trackerWords.some(word => word === searchSkuLower);
+  }
+  
+  // For multi-word searches, all search words must be present as complete words
+  // This prevents "mudpie cake" from matching "apple mudpie tart"
+  const allWordsMatch = searchWords.every(searchWord => 
+    trackerWords.some(trackerWord => trackerWord === searchWord)
+  );
+  
+  if (allWordsMatch) {
+    return true;
+  }
+  
+  return false;
+}
 // Get detailed outlet information for a specific item
 // Updated Get detailed outlet information for a specific item
 // Get detailed historical tracking information for a specific item
@@ -5989,18 +6027,7 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
         console.log(`Checking row ${i}: "${entryItems}" for SKU "${skuCode}"`);
         
         // Check if this entry contains our SKU code
-        let isMatch = entryItemsLower.includes(skuCodeLower);
-        
-        // Also try reverse match in case SKU is longer
-        if (!isMatch) {
-          isMatch = skuCodeLower.includes(entryItemsLower);
-        }
-        
-        // For very short SKUs, be more strict to avoid false matches
-        if (skuCode.length <= 3 && !isMatch) {
-          const words = entryItemsLower.split(/\s+/);
-          isMatch = words.some(word => word === skuCodeLower);
-        }
+        const isMatch = isItemMatch(skuCode, entryItems);
 
         if (isMatch) {
           console.log(`✅ Match found for SKU ${skuCode} in tracker entry: ${entryItems}`);
