@@ -6005,12 +6005,25 @@ app.get('/api/bot-status', async (req, res) => {
     botTests.ticketBot = { status: 'Not Initialized' };
   }
   
+  // ADD THIS: Test critical stock bot
+  if (criticalStockBot) {
+    try {
+      const me = await criticalStockBot.getMe();
+      botTests.criticalStockBot = { status: 'Connected', username: me.username };
+    } catch (error) {
+      botTests.criticalStockBot = { status: 'Error', error: error.message };
+    }
+  } else {
+    botTests.criticalStockBot = { status: 'Not Initialized' };
+  }
+  
   res.json({
     success: true,
     bots: botTests,
     environment: {
       telegramToken: !!TELEGRAM_BOT_TOKEN,
       coToken: !!CO_BOT_TOKEN,
+      criticalStockToken: !!CRITICAL_STOCK_BOT_TOKEN, // Also add this
       telegramEnabled: ENABLE_TELEGRAM_BOT
     }
   });
