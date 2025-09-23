@@ -510,20 +510,24 @@ async function initializeCriticalStockBot() {
   try {
     console.log('Initializing Critical Stock Bot...');
     
-    // Clear any existing webhook for this bot
+    // Clear any existing webhook for this bot - IMPORTANT
     try {
       const tempBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN);
       await tempBot.deleteWebHook();
       console.log('Cleared any existing webhooks for critical stock bot');
+      
+      // Close the temporary bot
+      tempBot.close && tempBot.close();
     } catch (webhookError) {
-      // Ignore webhook errors
+      console.log('Webhook cleanup completed (no webhook existed)');
     }
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Wait longer before creating the real bot to avoid conflicts
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     const newCriticalBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN, {
       polling: {
-        interval: 2000,
+        interval: 3000, // Slower polling to reduce conflicts
         autoStart: false,
         params: {
           timeout: 20,
@@ -531,16 +535,27 @@ async function initializeCriticalStockBot() {
       }
     });
 
-    // Set up error handlers
+    // Set up error handlers BEFORE starting polling
     newCriticalBot.on('polling_error', (error) => {
       console.log('Critical stock bot polling error:', error.message);
+      
+      // Handle 409 conflicts specifically
+      if (error.message.includes('409') && error.message.includes('Conflict')) {
+        console.log('Critical stock bot conflict detected - attempting recovery in 15 seconds...');
+        setTimeout(async () => {
+          if (!isShuttingDown) {
+            await restartCriticalBotPolling(newCriticalBot);
+          }
+        }, 15000); // Longer wait for critical bot
+      }
     });
 
     newCriticalBot.on('webhook_error', (error) => {
       console.log('Critical stock bot webhook error:', error.message);
     });
 
-    await startPollingWithRetry(newCriticalBot);
+    // Start polling with retry logic
+    await startPollingWithRetry(newCriticalBot, 5); // More retries
     
     console.log('Critical Stock Bot initialized successfully');
     return newCriticalBot;
@@ -1003,6 +1018,18 @@ async function restartBotPolling(botInstance) {
     console.log('Bot polling restarted successfully');
   } catch (error) {
     console.error('Failed to restart bot polling:', error.message);
+  }
+}
+
+async function restartCriticalBotPolling(botInstance) {
+  try {
+    console.log('Attempting to restart critical stock bot polling...');
+    await botInstance.stopPolling();
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Longer wait
+    await startPollingWithRetry(botInstance);
+    console.log('Critical stock bot polling restarted successfully');
+  } catch (error) {
+    console.error('Failed to restart critical stock bot polling:', error.message);
   }
 }
 
