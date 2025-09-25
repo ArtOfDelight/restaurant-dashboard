@@ -4891,34 +4891,52 @@ function transformTicketDataWithAutoAssignment(rawTickets) {
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
     
-    // FIXED: Read from Category (K) and Subcategory (L) columns as per bot
-    const ticketCategory = getCellValue(safeRow, 10) || ''; // Column K - Category
-    const ticketSubcategory = getCellValue(safeRow, 11) || ''; // Column L - Subcategory
+    // UPDATED: Read only from Category column (K) since subcategory is now stored there
+    const categoryValue = getCellValue(safeRow, 10) || ''; // Column K - Category (contains subcategory if present)
     
-    // FIXED: Determine ticket type from bot's category/subcategory structure
+    // UPDATED: Determine ticket type directly from the category value stored by bot
     let ticketType = TICKET_TYPES.OTHERS;
-    let displayType = ticketCategory;
+    let displayType = categoryValue;
+    let mainCategory = '';
+    let subcategory = '';
     
-    if (ticketCategory === 'Repair and Maintenance') {
+    // Map based on what the bot actually stores in the Category column
+    if (categoryValue === 'Repair and Maintenance') {
       ticketType = TICKET_TYPES.REPAIR_MAINTENANCE;
-    } else if (ticketCategory === 'Difficulty in Order') {
+      mainCategory = 'Repair and Maintenance';
+      displayType = 'Repair and Maintenance';
+    } else if (categoryValue === 'Difficulty in Order') {
       ticketType = TICKET_TYPES.DIFFICULTY_IN_ORDER;
-    } else if (ticketCategory === 'Place an Order') {
-      // Handle bot's subcategory structure
-      if (ticketSubcategory === 'Stock Items') {
-        ticketType = TICKET_TYPES.STOCK_ITEMS;
-        displayType = 'Stock Items';
-      } else if (ticketSubcategory === 'Housekeeping') {
-        ticketType = TICKET_TYPES.HOUSEKEEPING;
-        displayType = 'Housekeeping';
-      } else if (ticketSubcategory === 'Others') {
-        ticketType = TICKET_TYPES.OTHERS;
-        displayType = 'Others';
-      } else {
-        // Default for "Place an Order" without subcategory
-        ticketType = TICKET_TYPES.OTHERS;
-        displayType = 'Place an Order';
-      }
+      mainCategory = 'Difficulty in Order';
+      displayType = 'Difficulty in Order';
+    } else if (categoryValue === 'Stock Items') {
+      // Bot stores "Stock Items" for "Place an Order - Stock Items"
+      ticketType = TICKET_TYPES.STOCK_ITEMS;
+      mainCategory = 'Place an Order';
+      subcategory = 'Stock Items';
+      displayType = 'Stock Items';
+    } else if (categoryValue === 'Housekeeping') {
+      // Bot stores "Housekeeping" for "Place an Order - Housekeeping"
+      ticketType = TICKET_TYPES.HOUSEKEEPING;
+      mainCategory = 'Place an Order';
+      subcategory = 'Housekeeping';
+      displayType = 'Housekeeping';
+    } else if (categoryValue === 'Others') {
+      // Bot stores "Others" for "Place an Order - Others"
+      ticketType = TICKET_TYPES.OTHERS;
+      mainCategory = 'Place an Order';
+      subcategory = 'Others';
+      displayType = 'Others';
+    } else if (categoryValue === 'Place an Order') {
+      // Fallback case if bot stored main category without subcategory
+      ticketType = TICKET_TYPES.OTHERS;
+      mainCategory = 'Place an Order';
+      displayType = 'Place an Order';
+    } else {
+      // Unknown category
+      ticketType = TICKET_TYPES.OTHERS;
+      mainCategory = categoryValue;
+      displayType = categoryValue;
     }
     
     const issueDescription = getCellValue(safeRow, 4) || '';
@@ -4939,17 +4957,18 @@ function transformTicketDataWithAutoAssignment(rawTickets) {
       assignedTo: autoAssignee,
       actionTaken: getCellValue(safeRow, 9) || '',
       type: ticketType, // Normalized type for frontend
-      displayType: displayType, // Display name from bot
-      category: ticketCategory, // Original category from bot
-      subcategory: ticketSubcategory, // Original subcategory from bot
+      displayType: displayType, // Display name (subcategory if present, else main category)
+      category: mainCategory, // Main category (reconstructed)
+      subcategory: subcategory, // Subcategory (if applicable)
+      storedCategory: categoryValue, // What's actually stored in the sheet
       autoAssigned: !currentAssignedTo,
       daysPending: calculateDaysPending(getCellValue(safeRow, 1))
     };
   }).filter(ticket => {
-    const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
-                       ticket.submittedBy !== 'Unknown User' || 
-                       ticket.date || 
-                       ticket.ticketId.startsWith('TKT-') === false;
+    const hasAnyData = ticket.outlet !== 'Unknown Outlet' ||
+                        ticket.submittedBy !== 'Unknown User' ||
+                        ticket.date ||
+                        ticket.ticketId.startsWith('TKT-') === false;
     return hasAnyData;
   });
 }
