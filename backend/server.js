@@ -10,6 +10,7 @@ const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
 
 const TICKET_TYPES = {
   REPAIR_MAINTENANCE: 'Repair and Maintenance',
+  DIFFICULTY_IN_ORDER: 'Difficulty in Order', // NEW: Missing from original
   STOCK_ITEMS: 'Stock Items', 
   HOUSEKEEPING: 'Housekeeping',
   OTHERS: 'Others'
@@ -17,7 +18,8 @@ const TICKET_TYPES = {
 
 const AUTO_ASSIGNMENT_RULES = {
   [TICKET_TYPES.REPAIR_MAINTENANCE]: ['Nishat'],
-  [TICKET_TYPES.STOCK_ITEMS]: ['Nishat', 'Ajay'], // Will randomly select one
+  [TICKET_TYPES.DIFFICULTY_IN_ORDER]: [], // NEW: No specific assignment in bot
+  [TICKET_TYPES.STOCK_ITEMS]: ['Nishat', 'Ajay'],
   [TICKET_TYPES.HOUSEKEEPING]: ['Kim'],
   [TICKET_TYPES.OTHERS]: ['Kim']
 };
@@ -28,6 +30,10 @@ const TYPE_CLASSIFICATION_KEYWORDS = {
     'repair', 'maintenance', 'fix', 'broken', 'not working', 'malfunction', 
     'equipment', 'machine', 'device', 'hardware', 'technical issue'
   ],
+  [TICKET_TYPES.DIFFICULTY_IN_ORDER]: [
+    'difficulty', 'problem with order', 'order issue', 'cannot order',
+    'ordering problem', 'app issue', 'system problem'
+  ],
   [TICKET_TYPES.STOCK_ITEMS]: [
     'stock', 'inventory', 'out of stock', 'shortage', 'supply', 'items missing',
     'product unavailable', 'restock', 'ordering', 'procurement'
@@ -36,7 +42,7 @@ const TYPE_CLASSIFICATION_KEYWORDS = {
     'housekeeping', 'cleaning', 'hygiene', 'sanitation', 'cleanliness',
     'washroom', 'bathroom', 'dining area', 'kitchen clean', 'waste'
   ],
-  [TICKET_TYPES.OTHERS]: [] // Default fallback
+  [TICKET_TYPES.OTHERS]: []
 };
 
 const app = express();
@@ -4889,7 +4895,36 @@ function transformTicketDataWithAutoAssignment(rawTickets) {
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
     
-    const ticketType = getCellValue(safeRow, 10) || TICKET_TYPES.OTHERS;
+    // FIXED: Read from Category (K) and Subcategory (L) columns as per bot
+    const ticketCategory = getCellValue(safeRow, 10) || ''; // Column K - Category
+    const ticketSubcategory = getCellValue(safeRow, 11) || ''; // Column L - Subcategory
+    
+    // FIXED: Determine ticket type from bot's category/subcategory structure
+    let ticketType = TICKET_TYPES.OTHERS;
+    let displayType = ticketCategory;
+    
+    if (ticketCategory === 'Repair and Maintenance') {
+      ticketType = TICKET_TYPES.REPAIR_MAINTENANCE;
+    } else if (ticketCategory === 'Difficulty in Order') {
+      ticketType = TICKET_TYPES.DIFFICULTY_IN_ORDER;
+    } else if (ticketCategory === 'Place an Order') {
+      // Handle bot's subcategory structure
+      if (ticketSubcategory === 'Stock Items') {
+        ticketType = TICKET_TYPES.STOCK_ITEMS;
+        displayType = 'Stock Items';
+      } else if (ticketSubcategory === 'Housekeeping') {
+        ticketType = TICKET_TYPES.HOUSEKEEPING;
+        displayType = 'Housekeeping';
+      } else if (ticketSubcategory === 'Others') {
+        ticketType = TICKET_TYPES.OTHERS;
+        displayType = 'Others';
+      } else {
+        // Default for "Place an Order" without subcategory
+        ticketType = TICKET_TYPES.OTHERS;
+        displayType = 'Place an Order';
+      }
+    }
+    
     const issueDescription = getCellValue(safeRow, 4) || '';
     const currentAssignedTo = getCellValue(safeRow, 8) || '';
     
@@ -4907,7 +4942,10 @@ function transformTicketDataWithAutoAssignment(rawTickets) {
       status: getCellValue(safeRow, 7) || 'Open',
       assignedTo: autoAssignee,
       actionTaken: getCellValue(safeRow, 9) || '',
-      type: ticketType,
+      type: ticketType, // Normalized type for frontend
+      displayType: displayType, // Display name from bot
+      category: ticketCategory, // Original category from bot
+      subcategory: ticketSubcategory, // Original subcategory from bot
       autoAssigned: !currentAssignedTo,
       daysPending: calculateDaysPending(getCellValue(safeRow, 1))
     };
@@ -4923,7 +4961,7 @@ function transformTicketDataWithAutoAssignment(rawTickets) {
 // Auto-assignment function
 function getAutoAssignee(ticketType, issueDescription = '') {
   // First try explicit type matching
-  if (AUTO_ASSIGNMENT_RULES[ticketType]) {
+  if (AUTO_ASSIGNMENT_RULES[ticketType] && AUTO_ASSIGNMENT_RULES[ticketType].length > 0) {
     const assignees = AUTO_ASSIGNMENT_RULES[ticketType];
     if (assignees.length === 1) {
       return assignees[0];
@@ -4933,19 +4971,21 @@ function getAutoAssignee(ticketType, issueDescription = '') {
     }
   }
 
-  // If type is not recognized, try to classify based on keywords
+  // If type is not recognized or has no assignees, try keyword classification
   const description = issueDescription.toLowerCase();
   
   for (const [type, keywords] of Object.entries(TYPE_CLASSIFICATION_KEYWORDS)) {
-    if (type === TICKET_TYPES.OTHERS) continue; // Skip Others for keyword matching
+    if (type === TICKET_TYPES.OTHERS || type === TICKET_TYPES.DIFFICULTY_IN_ORDER) continue;
     
     if (keywords.some(keyword => description.includes(keyword))) {
       const assignees = AUTO_ASSIGNMENT_RULES[type];
-      return assignees.length === 1 ? assignees[0] : assignees[Math.floor(Math.random() * assignees.length)];
+      if (assignees && assignees.length > 0) {
+        return assignees.length === 1 ? assignees[0] : assignees[Math.floor(Math.random() * assignees.length)];
+      }
     }
   }
 
-  // Default fallback to Others category
+  // Default fallback to Kim (Others category)
   return AUTO_ASSIGNMENT_RULES[TICKET_TYPES.OTHERS][0];
 }
 
@@ -7042,139 +7082,35 @@ app.post('/api/test-group-message', async (req, res) => {
 });
 
 // New API endpoint for manual type reclassification
-app.post('/api/reclassify-ticket-type', async (req, res) => {
-  try {
-    const { ticketId, newType } = req.body;
-    
-    if (!ticketId || !newType) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing ticketId or newType in request body'
-      });
+function getAutoAssignee(ticketType, issueDescription = '') {
+  // First try explicit type matching
+  if (AUTO_ASSIGNMENT_RULES[ticketType] && AUTO_ASSIGNMENT_RULES[ticketType].length > 0) {
+    const assignees = AUTO_ASSIGNMENT_RULES[ticketType];
+    if (assignees.length === 1) {
+      return assignees[0];
+    } else if (assignees.length > 1) {
+      // Random selection for multiple assignees (like Stock Items -> Nishat/Ajay)
+      return assignees[Math.floor(Math.random() * assignees.length)];
     }
-
-    if (!Object.values(TICKET_TYPES).includes(newType)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid ticket type. Must be one of: ${Object.values(TICKET_TYPES).join(', ')}`
-      });
-    }
-
-    console.log(`Reclassifying ticket ${ticketId} as ${newType}`);
-
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
-    }
-
-    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const TICKET_TAB = 'Tickets';
-
-    // Find and update the ticket
-    const ticketsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: TICKET_SPREADSHEET_ID,
-      range: `${TICKET_TAB}!A:K`,
-    });
-
-    const ticketsData = ticketsResponse.data.values || [];
-    let targetRow = -1;
-
-    for (let i = 1; i < ticketsData.length; i++) {
-      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
-        targetRow = i + 1;
-        break;
-      }
-    }
-
-    if (targetRow === -1) {
-      return res.status(404).json({
-        success: false,
-        error: `Ticket ${ticketId} not found`
-      });
-    }
-
-    // Get new auto-assignee based on new type
-    const issueDescription = ticketsData[targetRow - 1][4] || '';
-    const newAssignee = getAutoAssignee(newType, issueDescription);
-
-    // Update both type and assignee
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: TICKET_SPREADSHEET_ID,
-      resource: {
-        data: [
-          {
-            range: `${TICKET_TAB}!K${targetRow}`, // Type column
-            values: [[newType]]
-          },
-          {
-            range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column  
-            values: [[newAssignee]]
-          },
-          {
-            range: `${TICKET_TAB}!H${targetRow}`, // Status column
-            values: [['In Progress']]
-          }
-        ],
-        valueInputOption: 'RAW'
-      }
-    });
-
-    // Send notification to new assignee
-    let notificationSent = false;
-    if (ticketBot) {
-      const assigneeChatId = await getUserChatId(newAssignee);
-      
-      if (assigneeChatId) {
-        const ticketDetails = {
-          ticketId: ticketsData[targetRow - 1][0],
-          outlet: ticketsData[targetRow - 1][2],
-          submittedBy: ticketsData[targetRow - 1][3],
-          issueDescription: issueDescription,
-          type: newType
-        };
-
-        const message = `🔄 TICKET RECLASSIFIED & ASSIGNED
-
-📋 Ticket ID: ${ticketDetails.ticketId}
-🏪 Outlet: ${ticketDetails.outlet}
-👤 Reported by: ${ticketDetails.submittedBy}
-🏷️ Type: ${newType} (Updated)
-
-📝 Issue Description:
-${ticketDetails.issueDescription}
-
-⚡ This ticket has been reclassified and assigned to you. Please investigate and resolve.`;
-
-        try {
-          await ticketBot.sendMessage(assigneeChatId, message);
-          notificationSent = true;
-        } catch (error) {
-          console.error('Failed to send reclassification notification:', error.message);
-        }
-      }
-    }
-
-    res.json({
-      success: true,
-      ticketId,
-      newType,
-      newAssignee,
-      notificationSent,
-      message: `Ticket ${ticketId} reclassified as "${newType}" and assigned to ${newAssignee}`,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Error reclassifying ticket:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
   }
-});
+
+  // If type is not recognized or has no assignees, try keyword classification
+  const description = issueDescription.toLowerCase();
+  
+  for (const [type, keywords] of Object.entries(TYPE_CLASSIFICATION_KEYWORDS)) {
+    if (type === TICKET_TYPES.OTHERS || type === TICKET_TYPES.DIFFICULTY_IN_ORDER) continue;
+    
+    if (keywords.some(keyword => description.includes(keyword))) {
+      const assignees = AUTO_ASSIGNMENT_RULES[type];
+      if (assignees && assignees.length > 0) {
+        return assignees.length === 1 ? assignees[0] : assignees[Math.floor(Math.random() * assignees.length)];
+      }
+    }
+  }
+
+  // Default fallback to Kim (Others category)
+  return AUTO_ASSIGNMENT_RULES[TICKET_TYPES.OTHERS][0];
+}
 
 // Add endpoint to get ticket statistics by type
 app.get('/api/ticket-type-stats', async (req, res) => {

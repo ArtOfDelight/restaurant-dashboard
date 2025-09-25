@@ -6,17 +6,19 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Updated predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
 
-// Updated ticket types
+// FIXED: Updated ticket types to match bot structure
 const TICKET_TYPES = {
   REPAIR_MAINTENANCE: 'Repair and Maintenance',
+  DIFFICULTY_IN_ORDER: 'Difficulty in Order', // NEW: From bot
   STOCK_ITEMS: 'Stock Items',
   HOUSEKEEPING: 'Housekeeping', 
   OTHERS: 'Others'
 };
 
-// Auto-assignment rules for display
+// FIXED: Auto-assignment rules to match bot
 const AUTO_ASSIGNMENT_RULES = {
   [TICKET_TYPES.REPAIR_MAINTENANCE]: ['Nishat'],
+  [TICKET_TYPES.DIFFICULTY_IN_ORDER]: [], // NEW: No specific assignment
   [TICKET_TYPES.STOCK_ITEMS]: ['Nishat', 'Ajay'],
   [TICKET_TYPES.HOUSEKEEPING]: ['Kim'],
   [TICKET_TYPES.OTHERS]: ['Kim']
@@ -25,9 +27,10 @@ const AUTO_ASSIGNMENT_RULES = {
 // Status options
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
-// Updated tab configuration
+// FIXED: Updated tab configuration to match bot structure
 const TABS = [
   { id: 'repair', label: 'Repair & Maintenance', icon: '🔧', type: TICKET_TYPES.REPAIR_MAINTENANCE },
+  { id: 'difficulty', label: 'Order Difficulties', icon: '❓', type: TICKET_TYPES.DIFFICULTY_IN_ORDER }, // NEW
   { id: 'stock', label: 'Stock Items', icon: '📦', type: TICKET_TYPES.STOCK_ITEMS },
   { id: 'housekeeping', label: 'Housekeeping', icon: '🧹', type: TICKET_TYPES.HOUSEKEEPING },
   { id: 'others', label: 'Others', icon: '📝', type: TICKET_TYPES.OTHERS },
@@ -79,12 +82,7 @@ const formatDate = (dateStr) => {
   }
 };
 
-// Updated transform function - no longer needed here since backend handles it
-const transformTicketData = (rawTickets) => {
-  return rawTickets; // Backend now handles transformation with auto-assignment
-};
-
-// Type Reclassification Component
+// FIXED: Type Reclassification Component with new structure
 const TypeReclassification = ({ ticket, onReclassify }) => {
   const [newType, setNewType] = useState(ticket.type);
   const [isReclassifying, setIsReclassifying] = useState(false);
@@ -124,8 +122,19 @@ const TypeReclassification = ({ ticket, onReclassify }) => {
     }
   };
 
+  // FIXED: Display bot's category structure
+  const getDisplayType = (type) => {
+    if (type === TICKET_TYPES.STOCK_ITEMS) return 'Place an Order → Stock Items';
+    if (type === TICKET_TYPES.HOUSEKEEPING) return 'Place an Order → Housekeeping';  
+    if (type === TICKET_TYPES.OTHERS) return 'Place an Order → Others';
+    return type; // Repair and Maintenance, Difficulty in Order stay as is
+  };
+
   return (
     <div className="type-reclassification">
+      <div className="current-type">
+        <small>Current: {getDisplayType(ticket.type)}</small>
+      </div>
       <div className="reclassify-controls">
         <select
           value={newType}
@@ -133,7 +142,7 @@ const TypeReclassification = ({ ticket, onReclassify }) => {
           className="type-select"
         >
           {Object.values(TICKET_TYPES).map(type => (
-            <option key={type} value={type}>{type}</option>
+            <option key={type} value={type}>{getDisplayType(type)}</option>
           ))}
         </select>
         <button
@@ -147,11 +156,17 @@ const TypeReclassification = ({ ticket, onReclassify }) => {
       {ticket.autoAssigned && (
         <span className="auto-assigned-badge">🤖 Auto-Assigned</span>
       )}
+      {/* FIXED: Show bot's original category/subcategory */}
+      {ticket.category && (
+        <div className="original-category">
+          <small>Bot Category: {ticket.category}{ticket.subcategory ? ` → ${ticket.subcategory}` : ''}</small>
+        </div>
+      )}
     </div>
   );
 };
 
-// Statistics Component
+// FIXED: Statistics Component with updated structure
 const TicketStatistics = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -187,14 +202,47 @@ const TicketStatistics = () => {
     <div className="ticket-statistics">
       <h2>📊 Ticket Statistics & Auto-Assignment Overview</h2>
       
+      <div className="bot-structure-info">
+        <h3>🤖 Bot Ticket Structure</h3>
+        <div className="bot-flow">
+          <h4>Telegram Bot Flow:</h4>
+          <div className="flow-steps">
+            <div className="flow-step">
+              <strong>Step 1:</strong> Contact Verification
+            </div>
+            <div className="flow-step">
+              <strong>Step 2:</strong> Main Category Selection
+              <ul>
+                <li>🔧 Repair and Maintenance → Nishat</li>
+                <li>❓ Difficulty in Order → No auto-assignment</li>
+                <li>📦 Place an Order → Subcategory selection</li>
+              </ul>
+            </div>
+            <div className="flow-step">
+              <strong>Step 3:</strong> Subcategory (for "Place an Order")
+              <ul>
+                <li>📋 Stock Items → Nishat or Ajay (random)</li>
+                <li>🧹 Housekeeping → Kim</li>
+                <li>📌 Others → Kim</li>
+              </ul>
+            </div>
+            <div className="flow-step">
+              <strong>Step 4:</strong> Issue Description & Image Upload
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <div className="auto-assignment-rules">
-        <h3>🤖 Auto-Assignment Rules</h3>
+        <h3>🎯 Auto-Assignment Rules</h3>
         <div className="rules-grid">
           {Object.entries(AUTO_ASSIGNMENT_RULES).map(([type, assignees]) => (
             <div key={type} className="rule-card">
               <div className="rule-type">{type}</div>
               <div className="rule-assignees">
-                {assignees.length === 1 ? (
+                {assignees.length === 0 ? (
+                  <span className="no-assignees">→ No auto-assignment</span>
+                ) : assignees.length === 1 ? (
                   <span className="single-assignee">→ {assignees[0]}</span>
                 ) : (
                   <span className="multiple-assignees">
@@ -224,7 +272,7 @@ const TicketStatistics = () => {
                 </div>
                 <div className="stat-item">
                   <span className="stat-label">In Progress:</span>
-                  <span className="stat-value progress">{typeStats.inprogress || 0}</span>
+                  <span className="stat-value progress">{typeStats.inProgress || 0}</span>
                 </div>
                 <div className="stat-item">
                   <span className="stat-label">Resolved:</span>
@@ -261,15 +309,26 @@ const TicketStatistics = () => {
       </div>
 
       <div className="classification-info">
-        <h3>🎯 Auto-Classification</h3>
+        <h3>🎯 Auto-Classification Process</h3>
         <p>
           Tickets are automatically classified and assigned based on:
         </p>
         <ul>
-          <li><strong>Type Field:</strong> If explicitly set during ticket creation</li>
+          <li><strong>Bot Category:</strong> Main category selected during ticket creation</li>
+          <li><strong>Bot Subcategory:</strong> Subcategory for "Place an Order" tickets</li>
           <li><strong>Keyword Analysis:</strong> AI analyzes issue description for classification</li>
           <li><strong>Default Fallback:</strong> Unclassified tickets go to "Others" (Kim)</li>
         </ul>
+        
+        <h4>📋 Data Structure Mapping:</h4>
+        <div className="mapping-info">
+          <p><strong>Google Sheets Structure (from bot):</strong></p>
+          <ul>
+            <li>Column K: Category (Main category from bot)</li>
+            <li>Column L: Subcategory (Subcategory from bot)</li>
+            <li>Frontend Type: Normalized for display and filtering</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
@@ -408,12 +467,12 @@ const UserManagement = () => {
           <div className="no-users">
             <p>No users registered yet. Add users above to enable Telegram notifications.</p>
             <div className="setup-steps">
-              <h4>🤖 Auto-Assignment Process:</h4>
+              <h4>🤖 Enhanced Bot Workflow:</h4>
               <ol>
-                <li>Ticket is created with type classification</li>
-                <li>System auto-assigns based on rules</li>
-                <li>Employee gets instant Telegram notification</li>
-                <li>Employee can manage ticket through dashboard or Telegram</li>
+                <li>User creates ticket via Telegram bot with guided flow</li>
+                <li>Bot auto-categorizes and assigns based on selection</li>
+                <li>Assigned employee gets instant notification</li>
+                <li>Resolution workflow handled via Telegram + Dashboard</li>
               </ol>
             </div>
           </div>
@@ -464,27 +523,27 @@ const UserManagement = () => {
       </div>
 
       <div className="workflow-info">
-        <h3>🔄 Enhanced Telegram Workflow</h3>
+        <h3>🔄 Enhanced Telegram Bot Workflow</h3>
         <div className="workflow-steps">
           <div className="workflow-step">
             <div className="step-number">1</div>
             <div className="step-content">
-              <h4>🤖 Auto-Assignment</h4>
-              <p>Ticket is automatically classified and assigned based on type and keywords</p>
+              <h4>📱 Guided Ticket Creation</h4>
+              <p>Bot guides users through category selection with smart auto-assignment</p>
             </div>
           </div>
           <div className="workflow-step">
             <div className="step-number">2</div>
             <div className="step-content">
-              <h4>📱 Instant Notification</h4>
-              <p>Assigned employee gets immediate Telegram notification with full ticket details</p>
+              <h4>🤖 Intelligent Assignment</h4>
+              <p>Based on bot's category/subcategory structure for accurate routing</p>
             </div>
           </div>
           <div className="workflow-step">
             <div className="step-number">3</div>
             <div className="step-content">
-              <h4>✅ Resolution & Approval</h4>
-              <p>Resolution notifications and approval workflow handled via Telegram</p>
+              <h4>📬 Instant Notifications</h4>
+              <p>Real-time Telegram notifications with approval workflow</p>
             </div>
           </div>
         </div>
@@ -493,7 +552,7 @@ const UserManagement = () => {
   );
 };
 
-// Main Ticket Dashboard Component (Updated)
+// FIXED: Main Ticket Dashboard Component
 const TicketDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -589,7 +648,7 @@ const TicketDashboard = () => {
     return () => clearInterval(interval);
   }, [loadTicketData]);
 
-  // Manual assignment (now less needed due to auto-assignment)
+  // Manual assignment (now less needed due to bot's auto-assignment)
   const assignTicket = async (ticketId, assigneeName) => {
     if (!assigneeName.trim()) {
       alert('Please select an assignee');
@@ -789,9 +848,10 @@ const TicketDashboard = () => {
   const filteredTickets = getFilteredAndSortedTickets();
   const tabTickets = getTicketsByTab();
   
-  // Calculate updated stats for different ticket types
+  // FIXED: Calculate updated stats for different ticket types including new one
   const stats = {
     repair: tickets.filter(t => t.type === TICKET_TYPES.REPAIR_MAINTENANCE && t.status !== 'Closed').length,
+    difficulty: tickets.filter(t => t.type === TICKET_TYPES.DIFFICULTY_IN_ORDER && t.status !== 'Closed').length, // NEW
     stock: tickets.filter(t => t.type === TICKET_TYPES.STOCK_ITEMS && t.status !== 'Closed').length,
     housekeeping: tickets.filter(t => t.type === TICKET_TYPES.HOUSEKEEPING && t.status !== 'Closed').length,
     others: tickets.filter(t => t.type === TICKET_TYPES.OTHERS && t.status !== 'Closed').length,
@@ -809,7 +869,7 @@ const TicketDashboard = () => {
     return (
       <div className="ticket-loading">
         <div className="loading-spinner"></div>
-        <p>Loading ticket data with auto-assignment...</p>
+        <p>Loading ticket data from bot structure...</p>
       </div>
     );
   }
@@ -817,13 +877,13 @@ const TicketDashboard = () => {
   return (
     <div className="ticket-dashboard">
       <div className="ticket-header">
-        <h1>🤖 Enhanced Ticket Management System</h1>
+        <h1>🤖 Bot-Integrated Ticket Management System</h1>
         <div className="header-actions">
           <button onClick={loadTicketData} className="refresh-btn">
             🔄 Refresh
           </button>
           <div className="telegram-status">
-            <span className="telegram-indicator">📱 Auto-Assignment Active</span>
+            <span className="telegram-indicator">📱 Bot Auto-Assignment Active</span>
           </div>
         </div>
       </div>
@@ -845,7 +905,7 @@ const TicketDashboard = () => {
         </div>
         <div className="stat-card">
           <div className="stat-number">{stats.autoAssigned}</div>
-          <div className="stat-label">🤖 Auto-Assigned</div>
+          <div className="stat-label">🤖 Bot Auto-Assigned</div>
         </div>
         <div className="stat-card">
           <div className="stat-number">{stats.open}</div>
@@ -861,7 +921,7 @@ const TicketDashboard = () => {
         </div>
       </div>
 
-      {/* Updated Tab Navigation */}
+      {/* FIXED: Updated Tab Navigation with new tab */}
       <div className="tab-navigation">
         {TABS.map(tab => (
           <button
@@ -874,6 +934,7 @@ const TicketDashboard = () => {
             {!['users', 'stats'].includes(tab.id) && (
               <span className="tab-count">
                 ({tab.id === 'repair' ? stats.repair : 
+                  tab.id === 'difficulty' ? stats.difficulty : // NEW
                   tab.id === 'stock' ? stats.stock :
                   tab.id === 'housekeeping' ? stats.housekeeping :
                   tab.id === 'others' ? stats.others :
@@ -1053,13 +1114,13 @@ const TicketDashboard = () => {
                       <td className="ticket-type-assignment">
                         <div className="type-info">
                           <div className="ticket-type">
-                            <strong>{ticket.type}</strong>
+                            <strong>{ticket.displayType || ticket.type}</strong>
                           </div>
                           <div className="assignee-info">
                             👤 {ticket.assignedTo || 'Unassigned'}
                           </div>
                           {ticket.autoAssigned && (
-                            <span className="auto-badge">🤖 Auto</span>
+                            <span className="auto-badge">🤖 Bot Auto</span>
                           )}
                         </div>
                         <TypeReclassification 
@@ -1089,7 +1150,7 @@ const TicketDashboard = () => {
                                 onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
                                 disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
                                 className="assign-btn-inline telegram-btn"
-                                title="Override auto-assignment"
+                                title="Override bot auto-assignment"
                               >
                                 {assignmentLoading[ticket.ticketId] ? '...' : '🔄 Override'}
                               </button>
