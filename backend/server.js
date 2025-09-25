@@ -853,11 +853,7 @@ async function gracefulShutdown(signal) {
       console.log('Original Telegram bot stopped');
     }
     
-    if (ticketBot) {
-      console.log('Stopping ticket Telegram bot...');
-      await ticketBot.stopPolling();
-      console.log('Ticket Telegram bot stopped');
-    }
+    
     
     // ADD THESE LINES
     if (criticalStockBot) {
