@@ -8,6 +8,37 @@ const CRITICAL_STOCK_BOT_TOKEN = process.env.CRITICAL_STOCK_BOT_TOKEN;
 const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
 
+const TICKET_TYPES = {
+  REPAIR_MAINTENANCE: 'Repair and Maintenance',
+  STOCK_ITEMS: 'Stock Items', 
+  HOUSEKEEPING: 'Housekeeping',
+  OTHERS: 'Others'
+};
+
+const AUTO_ASSIGNMENT_RULES = {
+  [TICKET_TYPES.REPAIR_MAINTENANCE]: ['Nishat'],
+  [TICKET_TYPES.STOCK_ITEMS]: ['Nishat', 'Ajay'], // Will randomly select one
+  [TICKET_TYPES.HOUSEKEEPING]: ['Kim'],
+  [TICKET_TYPES.OTHERS]: ['Kim']
+};
+
+// Keywords for automatic type classification (optional)
+const TYPE_CLASSIFICATION_KEYWORDS = {
+  [TICKET_TYPES.REPAIR_MAINTENANCE]: [
+    'repair', 'maintenance', 'fix', 'broken', 'not working', 'malfunction', 
+    'equipment', 'machine', 'device', 'hardware', 'technical issue'
+  ],
+  [TICKET_TYPES.STOCK_ITEMS]: [
+    'stock', 'inventory', 'out of stock', 'shortage', 'supply', 'items missing',
+    'product unavailable', 'restock', 'ordering', 'procurement'
+  ],
+  [TICKET_TYPES.HOUSEKEEPING]: [
+    'housekeeping', 'cleaning', 'hygiene', 'sanitation', 'cleanliness',
+    'washroom', 'bathroom', 'dining area', 'kitchen clean', 'waste'
+  ],
+  [TICKET_TYPES.OTHERS]: [] // Default fallback
+};
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -4849,7 +4880,7 @@ function calculateDaysPending(dateString) {
 
 
 // Transform function for ticket data - UPDATED WITH TYPE COLUMN
-function transformTicketData(rawTickets) {
+function transformTicketDataWithAutoAssignment(rawTickets) {
   if (!rawTickets || rawTickets.length <= 1) return [];
   
   const headers = rawTickets[0];
@@ -4858,18 +4889,26 @@ function transformTicketData(rawTickets) {
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
     
+    const ticketType = getCellValue(safeRow, 10) || TICKET_TYPES.OTHERS;
+    const issueDescription = getCellValue(safeRow, 4) || '';
+    const currentAssignedTo = getCellValue(safeRow, 8) || '';
+    
+    // Auto-assign if not already assigned
+    const autoAssignee = currentAssignedTo || getAutoAssignee(ticketType, issueDescription);
+    
     return {
       ticketId: getCellValue(safeRow, 0) || `TKT-${index + 1}`,
       date: formatDate(getCellValue(safeRow, 1)),
       outlet: getCellValue(safeRow, 2) || 'Unknown Outlet',
       submittedBy: getCellValue(safeRow, 3) || 'Unknown User',
-      issueDescription: getCellValue(safeRow, 4) || '',
+      issueDescription: issueDescription,
       imageLink: getCellValue(safeRow, 5) || '',
       imageHash: getCellValue(safeRow, 6) || '',
       status: getCellValue(safeRow, 7) || 'Open',
-      assignedTo: getCellValue(safeRow, 8) || '',
+      assignedTo: autoAssignee,
       actionTaken: getCellValue(safeRow, 9) || '',
-      type: getCellValue(safeRow, 10) || 'Unknown', // NEW: Type column (K)
+      type: ticketType,
+      autoAssigned: !currentAssignedTo,
       daysPending: calculateDaysPending(getCellValue(safeRow, 1))
     };
   }).filter(ticket => {
@@ -4879,6 +4918,35 @@ function transformTicketData(rawTickets) {
                        ticket.ticketId.startsWith('TKT-') === false;
     return hasAnyData;
   });
+}
+
+// Auto-assignment function
+function getAutoAssignee(ticketType, issueDescription = '') {
+  // First try explicit type matching
+  if (AUTO_ASSIGNMENT_RULES[ticketType]) {
+    const assignees = AUTO_ASSIGNMENT_RULES[ticketType];
+    if (assignees.length === 1) {
+      return assignees[0];
+    } else if (assignees.length > 1) {
+      // Random selection for multiple assignees (like Stock Items -> Nishat/Ajay)
+      return assignees[Math.floor(Math.random() * assignees.length)];
+    }
+  }
+
+  // If type is not recognized, try to classify based on keywords
+  const description = issueDescription.toLowerCase();
+  
+  for (const [type, keywords] of Object.entries(TYPE_CLASSIFICATION_KEYWORDS)) {
+    if (type === TICKET_TYPES.OTHERS) continue; // Skip Others for keyword matching
+    
+    if (keywords.some(keyword => description.includes(keyword))) {
+      const assignees = AUTO_ASSIGNMENT_RULES[type];
+      return assignees.length === 1 ? assignees[0] : assignees[Math.floor(Math.random() * assignees.length)];
+    }
+  }
+
+  // Default fallback to Others category
+  return AUTO_ASSIGNMENT_RULES[TICKET_TYPES.OTHERS][0];
 }
 
 // Fetch tickets from Google Sheets Tickets tab
@@ -4905,7 +4973,7 @@ app.get('/api/ticket-data', async (req, res) => {
     const ticketsData = ticketsResponse.data.values || [];
     console.log(`Found ${ticketsData.length} ticket rows`);
 
-    const tickets = transformTicketData(ticketsData);
+    const tickets = transformTicketDataWithAutoAssignment(ticketsData);
     console.log(`Processed ${tickets.length} tickets`);
 
     res.set('Content-Type', 'application/json');
@@ -6969,6 +7037,208 @@ app.post('/api/test-group-message', async (req, res) => {
       success: false,
       error: error.message,
       details: 'Make sure the bot is added to the group and has permission to send messages'
+    });
+  }
+});
+
+// New API endpoint for manual type reclassification
+app.post('/api/reclassify-ticket-type', async (req, res) => {
+  try {
+    const { ticketId, newType } = req.body;
+    
+    if (!ticketId || !newType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ticketId or newType in request body'
+      });
+    }
+
+    if (!Object.values(TICKET_TYPES).includes(newType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid ticket type. Must be one of: ${Object.values(TICKET_TYPES).join(', ')}`
+      });
+    }
+
+    console.log(`Reclassifying ticket ${ticketId} as ${newType}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    // Find and update the ticket
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:K`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    let targetRow = -1;
+
+    for (let i = 1; i < ticketsData.length; i++) {
+      if (ticketsData[i] && ticketsData[i][0] === ticketId) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      return res.status(404).json({
+        success: false,
+        error: `Ticket ${ticketId} not found`
+      });
+    }
+
+    // Get new auto-assignee based on new type
+    const issueDescription = ticketsData[targetRow - 1][4] || '';
+    const newAssignee = getAutoAssignee(newType, issueDescription);
+
+    // Update both type and assignee
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      resource: {
+        data: [
+          {
+            range: `${TICKET_TAB}!K${targetRow}`, // Type column
+            values: [[newType]]
+          },
+          {
+            range: `${TICKET_TAB}!I${targetRow}`, // Assigned To column  
+            values: [[newAssignee]]
+          },
+          {
+            range: `${TICKET_TAB}!H${targetRow}`, // Status column
+            values: [['In Progress']]
+          }
+        ],
+        valueInputOption: 'RAW'
+      }
+    });
+
+    // Send notification to new assignee
+    let notificationSent = false;
+    if (ticketBot) {
+      const assigneeChatId = await getUserChatId(newAssignee);
+      
+      if (assigneeChatId) {
+        const ticketDetails = {
+          ticketId: ticketsData[targetRow - 1][0],
+          outlet: ticketsData[targetRow - 1][2],
+          submittedBy: ticketsData[targetRow - 1][3],
+          issueDescription: issueDescription,
+          type: newType
+        };
+
+        const message = `🔄 TICKET RECLASSIFIED & ASSIGNED
+
+📋 Ticket ID: ${ticketDetails.ticketId}
+🏪 Outlet: ${ticketDetails.outlet}
+👤 Reported by: ${ticketDetails.submittedBy}
+🏷️ Type: ${newType} (Updated)
+
+📝 Issue Description:
+${ticketDetails.issueDescription}
+
+⚡ This ticket has been reclassified and assigned to you. Please investigate and resolve.`;
+
+        try {
+          await ticketBot.sendMessage(assigneeChatId, message);
+          notificationSent = true;
+        } catch (error) {
+          console.error('Failed to send reclassification notification:', error.message);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      ticketId,
+      newType,
+      newAssignee,
+      notificationSent,
+      message: `Ticket ${ticketId} reclassified as "${newType}" and assigned to ${newAssignee}`,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error reclassifying ticket:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Add endpoint to get ticket statistics by type
+app.get('/api/ticket-type-stats', async (req, res) => {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    const TICKET_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const TICKET_TAB = 'Tickets';
+
+    const ticketsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: TICKET_SPREADSHEET_ID,
+      range: `${TICKET_TAB}!A:K`,
+    });
+
+    const ticketsData = ticketsResponse.data.values || [];
+    const tickets = transformTicketDataWithAutoAssignment(ticketsData);
+    
+    // Calculate statistics by type
+    const statsByType = {};
+    
+    Object.values(TICKET_TYPES).forEach(type => {
+      statsByType[type] = {
+        total: 0,
+        open: 0,
+        inProgress: 0,
+        resolved: 0,
+        closed: 0,
+        autoAssigned: 0
+      };
+    });
+
+    tickets.forEach(ticket => {
+      const type = ticket.type || TICKET_TYPES.OTHERS;
+      if (statsByType[type]) {
+        statsByType[type].total++;
+        const statusKey = ticket.status.toLowerCase().replace(' ', '').replace('inprogress', 'inProgress');
+        if (statsByType[type][statusKey] !== undefined) {
+          statsByType[type][statusKey]++;
+        }
+        if (ticket.autoAssigned) {
+          statsByType[type].autoAssigned++;
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      statsByType,
+      totalTickets: tickets.length,
+      autoAssignmentRules: AUTO_ASSIGNMENT_RULES,
+      availableTypes: Object.values(TICKET_TYPES),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error getting ticket type stats:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });

@@ -3,21 +3,40 @@ import './TicketDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
-// Predefined assignee names
+// Updated predefined assignee names
 const ASSIGNEE_OPTIONS = ['Jatin', 'Nishat', 'Kim', 'Ajay', 'Ayaaz', 'Sharon'];
+
+// Updated ticket types
+const TICKET_TYPES = {
+  REPAIR_MAINTENANCE: 'Repair and Maintenance',
+  STOCK_ITEMS: 'Stock Items',
+  HOUSEKEEPING: 'Housekeeping', 
+  OTHERS: 'Others'
+};
+
+// Auto-assignment rules for display
+const AUTO_ASSIGNMENT_RULES = {
+  [TICKET_TYPES.REPAIR_MAINTENANCE]: ['Nishat'],
+  [TICKET_TYPES.STOCK_ITEMS]: ['Nishat', 'Ajay'],
+  [TICKET_TYPES.HOUSEKEEPING]: ['Kim'],
+  [TICKET_TYPES.OTHERS]: ['Kim']
+};
 
 // Status options
 const STATUS_OPTIONS = ['Open', 'In Progress', 'Resolved'];
 
-// Tab configuration
+// Updated tab configuration
 const TABS = [
-  { id: 'orders', label: 'Orders', icon: '📦' },
-  { id: 'complaints', label: 'Complaints', icon: '🔴' },
+  { id: 'repair', label: 'Repair & Maintenance', icon: '🔧', type: TICKET_TYPES.REPAIR_MAINTENANCE },
+  { id: 'stock', label: 'Stock Items', icon: '📦', type: TICKET_TYPES.STOCK_ITEMS },
+  { id: 'housekeeping', label: 'Housekeeping', icon: '🧹', type: TICKET_TYPES.HOUSEKEEPING },
+  { id: 'others', label: 'Others', icon: '📝', type: TICKET_TYPES.OTHERS },
   { id: 'closed', label: 'Closed Tickets', icon: '✅' },
-  { id: 'users', label: 'Telegram Users', icon: '👥' }
+  { id: 'users', label: 'Telegram Users', icon: '👥' },
+  { id: 'stats', label: 'Statistics', icon: '📊' }
 ];
 
-// Helper functions
+// Helper functions remain the same...
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
   try {
@@ -60,40 +79,203 @@ const formatDate = (dateStr) => {
   }
 };
 
-// Transform function for ticket data
+// Updated transform function - no longer needed here since backend handles it
 const transformTicketData = (rawTickets) => {
-  if (!rawTickets || rawTickets.length <= 1) return [];
-  
-  const headers = rawTickets[0];
-  const dataRows = rawTickets.slice(1);
-  
-  return dataRows.map((row, index) => {
-    const safeRow = Array.isArray(row) ? row : [];
-    
-    return {
-      ticketId: safeRow[0] || `TKT-${index + 1}`,
-      date: formatDateForDisplay(safeRow[1] || ''),
-      outlet: safeRow[2] || 'Unknown Outlet',
-      submittedBy: safeRow[3] || 'Unknown User',
-      issueDescription: safeRow[4] || '',
-      imageLink: safeRow[5] || '',
-      imageHash: safeRow[6] || '',
-      status: safeRow[7] || 'Open',
-      assignedTo: safeRow[8] || '',
-      actionTaken: safeRow[9] || '',
-      type: safeRow[10] || 'Unknown',
-      daysPending: calculateDaysPending(safeRow[1] || '')
-    };
-  }).filter(ticket => {
-    const hasAnyData = ticket.outlet !== 'Unknown Outlet' || 
-                       ticket.submittedBy !== 'Unknown User' || 
-                       ticket.date || 
-                       ticket.ticketId.startsWith('TKT-') === false;
-    return hasAnyData;
-  });
+  return rawTickets; // Backend now handles transformation with auto-assignment
 };
 
-// User Management Component
+// Type Reclassification Component
+const TypeReclassification = ({ ticket, onReclassify }) => {
+  const [newType, setNewType] = useState(ticket.type);
+  const [isReclassifying, setIsReclassifying] = useState(false);
+
+  const handleReclassify = async () => {
+    if (newType === ticket.type) {
+      alert('Please select a different type to reclassify');
+      return;
+    }
+
+    setIsReclassifying(true);
+    try {
+      const response = await fetch(`${API_URL}/api/reclassify-ticket-type`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketId: ticket.ticketId,
+          newType: newType
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`✅ ${result.message}${result.notificationSent ? ' 📱 Notification sent!' : ''}`);
+        onReclassify();
+      } else {
+        throw new Error(result.error || 'Reclassification failed');
+      }
+    } catch (error) {
+      console.error('Error reclassifying ticket:', error);
+      alert('Failed to reclassify ticket. Please try again.');
+    } finally {
+      setIsReclassifying(false);
+    }
+  };
+
+  return (
+    <div className="type-reclassification">
+      <div className="reclassify-controls">
+        <select
+          value={newType}
+          onChange={(e) => setNewType(e.target.value)}
+          className="type-select"
+        >
+          {Object.values(TICKET_TYPES).map(type => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
+        <button
+          onClick={handleReclassify}
+          disabled={isReclassifying || newType === ticket.type}
+          className="reclassify-btn"
+        >
+          {isReclassifying ? '...' : '🔄 Reclassify'}
+        </button>
+      </div>
+      {ticket.autoAssigned && (
+        <span className="auto-assigned-badge">🤖 Auto-Assigned</span>
+      )}
+    </div>
+  );
+};
+
+// Statistics Component
+const TicketStatistics = () => {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/ticket-type-stats`);
+        const data = await response.json();
+        
+        if (data.success) {
+          setStats(data);
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStats();
+  }, []);
+
+  if (loading) {
+    return <div className="loading">Loading statistics...</div>;
+  }
+
+  if (!stats) {
+    return <div className="error">Failed to load statistics</div>;
+  }
+
+  return (
+    <div className="ticket-statistics">
+      <h2>📊 Ticket Statistics & Auto-Assignment Overview</h2>
+      
+      <div className="auto-assignment-rules">
+        <h3>🤖 Auto-Assignment Rules</h3>
+        <div className="rules-grid">
+          {Object.entries(AUTO_ASSIGNMENT_RULES).map(([type, assignees]) => (
+            <div key={type} className="rule-card">
+              <div className="rule-type">{type}</div>
+              <div className="rule-assignees">
+                {assignees.length === 1 ? (
+                  <span className="single-assignee">→ {assignees[0]}</span>
+                ) : (
+                  <span className="multiple-assignees">
+                    → Random: {assignees.join(' or ')}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="stats-by-type">
+        <h3>📈 Statistics by Ticket Type</h3>
+        <div className="stats-grid">
+          {Object.entries(stats.statsByType).map(([type, typeStats]) => (
+            <div key={type} className="stat-type-card">
+              <h4>{type}</h4>
+              <div className="stat-numbers">
+                <div className="stat-item">
+                  <span className="stat-label">Total:</span>
+                  <span className="stat-value">{typeStats.total}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Open:</span>
+                  <span className="stat-value open">{typeStats.open || 0}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">In Progress:</span>
+                  <span className="stat-value progress">{typeStats.inprogress || 0}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Resolved:</span>
+                  <span className="stat-value resolved">{typeStats.resolved || 0}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Closed:</span>
+                  <span className="stat-value closed">{typeStats.closed || 0}</span>
+                </div>
+                <div className="stat-item auto-assigned">
+                  <span className="stat-label">🤖 Auto-Assigned:</span>
+                  <span className="stat-value">{typeStats.autoAssigned || 0}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="overall-stats">
+        <h3>📊 Overall Statistics</h3>
+        <div className="overall-numbers">
+          <div className="overall-stat">
+            <div className="overall-number">{stats.totalTickets}</div>
+            <div className="overall-label">Total Tickets</div>
+          </div>
+          <div className="overall-stat">
+            <div className="overall-number">
+              {Object.values(stats.statsByType).reduce((sum, type) => sum + (type.autoAssigned || 0), 0)}
+            </div>
+            <div className="overall-label">Auto-Assigned</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="classification-info">
+        <h3>🎯 Auto-Classification</h3>
+        <p>
+          Tickets are automatically classified and assigned based on:
+        </p>
+        <ul>
+          <li><strong>Type Field:</strong> If explicitly set during ticket creation</li>
+          <li><strong>Keyword Analysis:</strong> AI analyzes issue description for classification</li>
+          <li><strong>Default Fallback:</strong> Unclassified tickets go to "Others" (Kim)</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+// User Management Component (unchanged)
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +344,7 @@ const UserManagement = () => {
 
   return (
     <div className="user-management">
-      <h2>Telegram User Management</h2>
+      <h2>👥 Telegram User Management</h2>
       <div className="user-management-description">
         <p>Register employees with their Telegram Chat IDs to enable automatic ticket notifications.</p>
         <div className="chat-id-help">
@@ -226,12 +408,12 @@ const UserManagement = () => {
           <div className="no-users">
             <p>No users registered yet. Add users above to enable Telegram notifications.</p>
             <div className="setup-steps">
-              <h4>Setup Process:</h4>
+              <h4>🤖 Auto-Assignment Process:</h4>
               <ol>
-                <li>Employee gets their Chat ID from @userinfobot</li>
-                <li>Admin adds employee and Chat ID using the form above</li>
-                <li>Employee will now receive notifications when tickets are assigned</li>
-                <li>Employee can approve/reject resolutions directly from Telegram</li>
+                <li>Ticket is created with type classification</li>
+                <li>System auto-assigns based on rules</li>
+                <li>Employee gets instant Telegram notification</li>
+                <li>Employee can manage ticket through dashboard or Telegram</li>
               </ol>
             </div>
           </div>
@@ -243,54 +425,66 @@ const UserManagement = () => {
                 <th>Chat ID</th>
                 <th>Username</th>
                 <th>Status</th>
-                <th>Notifications</th>
+                <th>Auto-Assignment Types</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((user, index) => (
-                <tr key={index}>
-                  <td>{user.employeeName}</td>
-                  <td><code>{user.chatId}</code></td>
-                  <td>{user.username || 'Not provided'}</td>
-                  <td>
-                    <span className={`status-badge ${user.chatId ? 'active' : 'inactive'}`}>
-                      {user.chatId ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="notification-status">
-                      {user.chatId ? '🔔 Enabled' : '🔕 Disabled'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {users.map((user, index) => {
+                // Find which types this user is assigned to
+                const assignedTypes = Object.entries(AUTO_ASSIGNMENT_RULES)
+                  .filter(([type, assignees]) => assignees.includes(user.employeeName))
+                  .map(([type, assignees]) => type);
+
+                return (
+                  <tr key={index}>
+                    <td>{user.employeeName}</td>
+                    <td><code>{user.chatId}</code></td>
+                    <td>{user.username || 'Not provided'}</td>
+                    <td>
+                      <span className={`status-badge ${user.chatId ? 'active' : 'inactive'}`}>
+                        {user.chatId ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="assigned-types">
+                        {assignedTypes.length > 0 ? 
+                          assignedTypes.map(type => (
+                            <span key={type} className="type-badge">{type}</span>
+                          )) :
+                          <span className="no-types">No auto-assignments</span>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
 
       <div className="workflow-info">
-        <h3>Telegram Workflow</h3>
+        <h3>🔄 Enhanced Telegram Workflow</h3>
         <div className="workflow-steps">
           <div className="workflow-step">
             <div className="step-number">1</div>
             <div className="step-content">
-              <h4>Assignment</h4>
-              <p>When you assign a ticket → Employee gets instant Telegram notification with ticket details</p>
+              <h4>🤖 Auto-Assignment</h4>
+              <p>Ticket is automatically classified and assigned based on type and keywords</p>
             </div>
           </div>
           <div className="workflow-step">
             <div className="step-number">2</div>
             <div className="step-content">
-              <h4>Resolution</h4>
-              <p>When employee marks as "Resolved" → Ticket creator gets notification asking for approval</p>
+              <h4>📱 Instant Notification</h4>
+              <p>Assigned employee gets immediate Telegram notification with full ticket details</p>
             </div>
           </div>
           <div className="workflow-step">
             <div className="step-number">3</div>
             <div className="step-content">
-              <h4>Approval</h4>
-              <p>Creator can approve/reject directly from Telegram → Ticket automatically closes or reopens</p>
+              <h4>✅ Resolution & Approval</h4>
+              <p>Resolution notifications and approval workflow handled via Telegram</p>
             </div>
           </div>
         </div>
@@ -299,7 +493,7 @@ const UserManagement = () => {
   );
 };
 
-// Main Ticket Dashboard Component
+// Main Ticket Dashboard Component (Updated)
 const TicketDashboard = () => {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -311,7 +505,7 @@ const TicketDashboard = () => {
   const [actionInputs, setActionInputs] = useState({});
   const [sortField, setSortField] = useState('date');
   const [sortDirection, setSortDirection] = useState('desc');
-  const [activeTab, setActiveTab] = useState('orders');
+  const [activeTab, setActiveTab] = useState('repair');
   const [filters, setFilters] = useState({
     date: '',
     outlet: '',
@@ -395,7 +589,7 @@ const TicketDashboard = () => {
     return () => clearInterval(interval);
   }, [loadTicketData]);
 
-  // Enhanced assignment with Telegram notification
+  // Manual assignment (now less needed due to auto-assignment)
   const assignTicket = async (ticketId, assigneeName) => {
     if (!assigneeName.trim()) {
       alert('Please select an assignee');
@@ -422,7 +616,7 @@ const TicketDashboard = () => {
         setTickets(prevTickets => 
           prevTickets.map(ticket => 
             ticket.ticketId === ticketId 
-              ? { ...ticket, assignedTo: assigneeName.trim(), status: 'In Progress' }
+              ? { ...ticket, assignedTo: assigneeName.trim(), status: 'In Progress', autoAssigned: false }
               : ticket
           )
         );
@@ -434,7 +628,7 @@ const TicketDashboard = () => {
           ' 📱 Telegram notification sent!' : 
           ' ⚠️ No Telegram Chat ID found for this user';
         
-        alert(`Ticket ${ticketId} assigned to ${assigneeName.trim()}.${notificationStatus}`);
+        alert(`Ticket ${ticketId} manually assigned to ${assigneeName.trim()}.${notificationStatus}`);
       } else {
         throw new Error(result.error || 'Assignment failed');
       }
@@ -508,18 +702,19 @@ const TicketDashboard = () => {
   };
 
   const getTicketsByTab = () => {
-    switch (activeTab) {
-      case 'orders':
-        return tickets.filter(ticket => ticket.type === 'Order' && ticket.status !== 'Closed');
-      case 'complaints':
-        return tickets.filter(ticket => ticket.type === 'Complaint' && ticket.status !== 'Closed');
-      case 'closed':
-        return tickets.filter(ticket => ticket.status === 'Closed');
-      case 'users':
-        return []; // No tickets for user management tab
-      default:
-        return tickets;
+    const currentTab = TABS.find(tab => tab.id === activeTab);
+    
+    if (activeTab === 'closed') {
+      return tickets.filter(ticket => ticket.status === 'Closed');
+    } else if (activeTab === 'users' || activeTab === 'stats') {
+      return []; // No tickets for these tabs
+    } else if (currentTab && currentTab.type) {
+      return tickets.filter(ticket => 
+        ticket.type === currentTab.type && ticket.status !== 'Closed'
+      );
     }
+    
+    return tickets.filter(ticket => ticket.status !== 'Closed');
   };
 
   const getFilteredAndSortedTickets = () => {
@@ -594,15 +789,18 @@ const TicketDashboard = () => {
   const filteredTickets = getFilteredAndSortedTickets();
   const tabTickets = getTicketsByTab();
   
-  // Calculate stats for all tickets
+  // Calculate updated stats for different ticket types
   const stats = {
+    repair: tickets.filter(t => t.type === TICKET_TYPES.REPAIR_MAINTENANCE && t.status !== 'Closed').length,
+    stock: tickets.filter(t => t.type === TICKET_TYPES.STOCK_ITEMS && t.status !== 'Closed').length,
+    housekeeping: tickets.filter(t => t.type === TICKET_TYPES.HOUSEKEEPING && t.status !== 'Closed').length,
+    others: tickets.filter(t => t.type === TICKET_TYPES.OTHERS && t.status !== 'Closed').length,
+    closed: tickets.filter(t => t.status === 'Closed').length,
+    autoAssigned: tickets.filter(t => t.autoAssigned).length,
     total: tickets.filter(t => t.status !== 'Closed').length,
     open: tickets.filter(t => t.status === 'Open').length,
     inProgress: tickets.filter(t => t.status === 'In Progress').length,
     resolved: tickets.filter(t => t.status === 'Resolved').length,
-    closed: tickets.filter(t => t.status === 'Closed').length,
-    orders: tickets.filter(t => t.type === 'Order' && t.status !== 'Closed').length,
-    complaints: tickets.filter(t => t.type === 'Complaint' && t.status !== 'Closed').length,
     avgDaysPending: tickets.length > 0 ? 
       Math.round(tickets.reduce((sum, t) => sum + t.daysPending, 0) / tickets.length) : 0,
   };
@@ -611,7 +809,7 @@ const TicketDashboard = () => {
     return (
       <div className="ticket-loading">
         <div className="loading-spinner"></div>
-        <p>Loading ticket data...</p>
+        <p>Loading ticket data with auto-assignment...</p>
       </div>
     );
   }
@@ -619,13 +817,13 @@ const TicketDashboard = () => {
   return (
     <div className="ticket-dashboard">
       <div className="ticket-header">
-        <h1>Ticket Management System with Telegram Integration</h1>
+        <h1>🤖 Enhanced Ticket Management System</h1>
         <div className="header-actions">
           <button onClick={loadTicketData} className="refresh-btn">
             🔄 Refresh
           </button>
           <div className="telegram-status">
-            <span className="telegram-indicator">📱 Telegram Bot Active</span>
+            <span className="telegram-indicator">📱 Auto-Assignment Active</span>
           </div>
         </div>
       </div>
@@ -646,6 +844,10 @@ const TicketDashboard = () => {
           <div className="stat-label">Total Active</div>
         </div>
         <div className="stat-card">
+          <div className="stat-number">{stats.autoAssigned}</div>
+          <div className="stat-label">🤖 Auto-Assigned</div>
+        </div>
+        <div className="stat-card">
           <div className="stat-number">{stats.open}</div>
           <div className="stat-label">Open</div>
         </div>
@@ -657,13 +859,9 @@ const TicketDashboard = () => {
           <div className="stat-number">{stats.resolved}</div>
           <div className="stat-label">Resolved</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-number">{stats.closed}</div>
-          <div className="stat-label">Closed</div>
-        </div>
       </div>
 
-      {/* Tab Navigation */}
+      {/* Updated Tab Navigation */}
       <div className="tab-navigation">
         {TABS.map(tab => (
           <button
@@ -673,10 +871,12 @@ const TicketDashboard = () => {
           >
             <span className="tab-icon">{tab.icon}</span>
             <span className="tab-label">{tab.label}</span>
-            {tab.id !== 'users' && (
+            {!['users', 'stats'].includes(tab.id) && (
               <span className="tab-count">
-                ({tab.id === 'orders' ? stats.orders : 
-                  tab.id === 'complaints' ? stats.complaints : 
+                ({tab.id === 'repair' ? stats.repair : 
+                  tab.id === 'stock' ? stats.stock :
+                  tab.id === 'housekeeping' ? stats.housekeeping :
+                  tab.id === 'others' ? stats.others :
                   stats.closed})
               </span>
             )}
@@ -684,11 +884,12 @@ const TicketDashboard = () => {
         ))}
       </div>
 
-      {/* User Management Tab */}
+      {/* Special tabs */}
       {activeTab === 'users' && <UserManagement />}
+      {activeTab === 'stats' && <TicketStatistics />}
 
       {/* Ticket Management Tabs */}
-      {activeTab !== 'users' && (
+      {!['users', 'stats'].includes(activeTab) && (
         <>
           {tickets.length > 0 && (
             <div className="ticket-filters">
@@ -762,8 +963,8 @@ const TicketDashboard = () => {
             {!error && tabTickets.length === 0 ? (
               <div className="no-data">
                 <div className="no-data-icon">🎫</div>
-                <h3>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} tickets found</h3>
-                <p>No {activeTab === 'orders' ? 'order' : activeTab === 'complaints' ? 'complaint' : 'closed'} ticket data is available.</p>
+                <h3>No {TABS.find(tab => tab.id === activeTab)?.label.toLowerCase()} tickets found</h3>
+                <p>No tickets available for this category.</p>
                 <button onClick={loadTicketData} className="refresh-btn">
                   🔄 Refresh Data
                 </button>
@@ -800,7 +1001,8 @@ const TicketDashboard = () => {
                     <th onClick={() => handleSort('daysPending')} className="sortable">
                       Days Pending {sortField === 'daysPending' && (sortDirection === 'asc' ? '↑' : '↓')}
                     </th>
-                    {activeTab !== 'closed' && <th>Assigned To / Action</th>}
+                    <th>Type & Assignment</th>
+                    {activeTab !== 'closed' && <th>Manual Assignment</th>}
                     <th>Action Taken</th>
                     {activeTab !== 'closed' && <th>Status Management</th>}
                   </tr>
@@ -809,7 +1011,7 @@ const TicketDashboard = () => {
                   {filteredTickets.map(ticket => (
                     <tr 
                       key={ticket.ticketId} 
-                      className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')}`}
+                      className={`ticket-row status-${ticket.status.toLowerCase().replace(' ', '-')} ${ticket.autoAssigned ? 'auto-assigned' : ''}`}
                     >
                       <td className="ticket-id">#{ticket.ticketId}</td>
                       <td className="ticket-date">{formatDate(ticket.date)}</td>
@@ -848,9 +1050,26 @@ const TicketDashboard = () => {
                           {ticket.daysPending} day{ticket.daysPending !== 1 ? 's' : ''}
                         </span>
                       </td>
+                      <td className="ticket-type-assignment">
+                        <div className="type-info">
+                          <div className="ticket-type">
+                            <strong>{ticket.type}</strong>
+                          </div>
+                          <div className="assignee-info">
+                            👤 {ticket.assignedTo || 'Unassigned'}
+                          </div>
+                          {ticket.autoAssigned && (
+                            <span className="auto-badge">🤖 Auto</span>
+                          )}
+                        </div>
+                        <TypeReclassification 
+                          ticket={ticket} 
+                          onReclassify={loadTicketData}
+                        />
+                      </td>
                       {activeTab !== 'closed' && (
-                        <td className="ticket-assignment">
-                          {ticket.status === 'Open' ? (
+                        <td className="ticket-manual-assignment">
+                          {ticket.status === 'Open' || !ticket.assignedTo ? (
                             <div className="assignment-inline">
                               <select
                                 value={assignmentInputs[ticket.ticketId] || ''}
@@ -861,7 +1080,7 @@ const TicketDashboard = () => {
                                 disabled={assignmentLoading[ticket.ticketId]}
                                 className="assign-select-inline"
                               >
-                                <option value="">Select assignee...</option>
+                                <option value="">Manual assign...</option>
                                 {ASSIGNEE_OPTIONS.map(name => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
@@ -870,13 +1089,15 @@ const TicketDashboard = () => {
                                 onClick={() => assignTicket(ticket.ticketId, assignmentInputs[ticket.ticketId])}
                                 disabled={!assignmentInputs[ticket.ticketId]?.trim() || assignmentLoading[ticket.ticketId]}
                                 className="assign-btn-inline telegram-btn"
-                                title="Assigns ticket and sends Telegram notification"
+                                title="Override auto-assignment"
                               >
-                                {assignmentLoading[ticket.ticketId] ? '...' : '📱 Assign'}
+                                {assignmentLoading[ticket.ticketId] ? '...' : '🔄 Override'}
                               </button>
                             </div>
                           ) : (
-                            <div className="assigned-user">{ticket.assignedTo || 'Unassigned'}</div>
+                            <div className="already-assigned">
+                              ✅ Assigned
+                            </div>
                           )}
                         </td>
                       )}
