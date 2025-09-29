@@ -13,18 +13,18 @@ const RISTA_API_KEY = process.env.RISTA_API_KEY;
 const RISTA_SECRET_KEY = process.env.RISTA_SECRET_KEY;
 
 const BRANCH_CODES = {
-  'Sahakarnagar': 'SKN',
-  'Residency Road': 'RR',
-  'Whitefield': 'WF',
-  'Koramangala': 'KOR',
-  'Kalyan Nagar': 'KLN',
-  'Bellandur': 'BLN',
-  'Indiranagar': 'IND',
-  'Arekere': 'ARK',
-  'Jayanagar': 'JAY',
-  'HSR Layout': 'HSR',
-  'Electronic City': 'CK',
-  'Rajajinagar': 'RAJ'
+  'Sahakarnagar': 'AOD-6',
+  'Residency Road': 'AOD-01',
+  'Whitefield': 'AOD-4',
+  'Koramangala': 'AOD-02',
+  'Kalyan Nagar': 'AOD-5',
+  'Bellandur': 'AOD-3',
+  'Indiranagar': 'AOD-CVR',
+  'Arekere': 'AOD-ARK',
+  'Jayanagar': 'AOD-JAY',
+  'HSR Layout': 'CK - HSR',
+  'Rajajinagar': 'AOD-RAJ',
+  'Art Of Delight Central': 'HO AOD'
 };
 
 const ALLOWED_CATEGORIES = [
