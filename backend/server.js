@@ -7179,7 +7179,7 @@ app.get('/api/audit-data-live', async (req, res) => {
     
     // Call Ristaapps API
     const response = await axios.get(
-      'https://api.ristaapps.com/v1/inventory/audit/page',
+      'https://api.ristaapps.com/v1//inventory/audit/page',
       {
         params: {
           branch: branchCode,
@@ -7301,7 +7301,7 @@ app.get('/api/audit-summary', async (req, res) => {
         console.log(`Fetching summary for ${outletName}...`);
         
         const response = await axios.get(
-          'https://api.ristaapps.com/v1/inventory/audit/page',
+          'https://api.ristaapps.com/v1//inventory/audit/page',
           {
             params: {
               branch: branchCode,
@@ -7512,7 +7512,7 @@ app.get('/api/audit-data-all', async (req, res) => {
         console.log(`Fetching ${outletName} (${branchCode})...`);
         
         const response = await axios.get(
-          'https://api.ristaapps.com/v1/inventory/audit/page',
+          'https://api.ristaapps.com/v1//inventory/audit/page',
           {
             params: {
               branch: branchCode,
@@ -7641,7 +7641,7 @@ app.get('/api/debug-rista-raw', async (req, res) => {
     const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
     
     const response = await axios.get(
-      'https://api.ristaapps.com/v1/inventory/audit/page',
+      'https://api.ristaapps.com/v1//inventory/audit/page',
       {
         params: {
           branch: branch,
@@ -7671,7 +7671,7 @@ app.get('/api/debug-rista-raw', async (req, res) => {
       debug: {
         branch,
         day: targetDate,
-        apiUrl: 'https://api.ristaapps.com/v1/inventory/audit/page',
+        apiUrl: 'https://api.ristaapps.com/v1//inventory/audit/page',
         responseStatus: response.status,
         hasData: !!jsonResponse.data,
         dataLength: jsonResponse.data?.length || 0,
