@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import './HighRatedDashboard.css'; // Reuse existing styles
+import './HighRatedDashboard.css';
 
 const AuditDashboard = () => {
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://restaurant-dashboard-nqbi.onrender.com';
 
-  // Hardcoded outlet names
+  // Hardcoded outlet names (matching backend BRANCH_CODES)
   const hardcodedOutlets = [
     'Sahakarnagar', 'Residency Road', 'Whitefield', 'Koramangala',
     'Kalyan Nagar', 'Bellandur', 'Indiranagar', 'Arekere',
@@ -14,8 +14,7 @@ const AuditDashboard = () => {
   // State
   const [outlets] = useState(hardcodedOutlets);
   const [selectedOutlet, setSelectedOutlet] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [highVarianceOnly, setHighVarianceOnly] = useState(false);
   const [auditData, setAuditData] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -23,11 +22,12 @@ const AuditDashboard = () => {
   const [error, setError] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'absVariance', direction: 'desc' });
 
-  // Set default date to today
+  // Set default date to yesterday (matching backend default)
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setStartDate(today);
-    setEndDate(today);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    setSelectedDate(yesterdayStr);
   }, []);
 
   // Fetch audit data
@@ -36,15 +36,16 @@ const AuditDashboard = () => {
       setLoading(true);
       setError('');
 
+      // Build params
       const params = new URLSearchParams();
-      if (selectedOutlet) params.append('outlet', selectedOutlet);
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-      if (highVarianceOnly) params.append('highVarianceOnly', 'true');
+      if (selectedDate) {
+        params.append('day', selectedDate);
+      }
 
       console.log('Fetching audit data with params:', params.toString());
 
-      const response = await fetch(`${API_BASE_URL}/api/audit-data?${params.toString()}`);
+      // Fetch all outlets data
+      const response = await fetch(`${API_BASE_URL}/api/audit-data-all?${params.toString()}`);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -54,7 +55,19 @@ const AuditDashboard = () => {
       console.log('Received audit data:', data);
 
       if (data.success) {
-        setAuditData(data.audits || []);
+        let audits = data.audits || [];
+        
+        // Apply outlet filter on frontend
+        if (selectedOutlet) {
+          audits = audits.filter(a => a.branchName === selectedOutlet);
+        }
+        
+        // Apply high variance filter
+        if (highVarianceOnly) {
+          audits = audits.filter(a => a.absVariance >= 5);
+        }
+        
+        setAuditData(audits);
       } else {
         setError(data.error || 'Failed to fetch audit data');
       }
@@ -70,14 +83,17 @@ const AuditDashboard = () => {
   const fetchSummary = async () => {
     try {
       const params = new URLSearchParams();
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
+      if (selectedDate) {
+        params.append('day', selectedDate);
+      }
+      params.append('groupBy', 'outlet');
 
       const response = await fetch(`${API_BASE_URL}/api/audit-summary?${params.toString()}`);
       const data = await response.json();
 
       if (data.success) {
-        setSummary(data.stats);
+        setSummary(data.overallStats);
+        console.log('Summary received:', data.overallStats);
       }
     } catch (err) {
       console.error('Summary fetch error:', err);
@@ -86,17 +102,25 @@ const AuditDashboard = () => {
 
   // Initial load
   useEffect(() => {
-    fetchAuditData();
-    fetchSummary();
-  }, []);
+    if (selectedDate) {
+      fetchAuditData();
+      fetchSummary();
+    }
+  }, [selectedDate]);
 
   // Sort data
   const sortedData = React.useMemo(() => {
     let sorted = [...auditData];
     if (sortConfig.key) {
       sorted.sort((a, b) => {
-        const aVal = a[sortConfig.key];
-        const bVal = b[sortConfig.key];
+        let aVal = a[sortConfig.key];
+        let bVal = b[sortConfig.key];
+        
+        // Handle string comparisons
+        if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+        }
         
         if (sortConfig.direction === 'asc') {
           return aVal > bVal ? 1 : -1;
@@ -117,20 +141,19 @@ const AuditDashboard = () => {
   // Get variance color
   const getVarianceColor = (variance) => {
     const abs = Math.abs(variance);
-    if (abs === 0) return '#10b981'; // green
-    if (abs < 5) return '#f59e0b'; // orange
-    if (abs < 10) return '#ef4444'; // red
-    return '#dc2626'; // dark red
+    if (abs === 0) return '#10b981';
+    if (abs < 5) return '#f59e0b';
+    if (abs < 10) return '#ef4444';
+    return '#dc2626';
   };
 
-  // Format time from audit time string
+  // Format time
   const formatAuditTime = (auditTimeString) => {
     try {
       if (!auditTimeString) return '';
-      // Format: "2025-06-26 12:25:09"
       const parts = auditTimeString.split(' ');
       if (parts.length === 2) {
-        return parts[1]; // Return time part
+        return parts[1].substring(0, 5); // Return HH:MM
       }
       return auditTimeString;
     } catch {
@@ -138,14 +161,22 @@ const AuditDashboard = () => {
     }
   };
 
+  // Calculate filtered stats
+  const filteredStats = {
+    total: auditData.length,
+    withVariance: auditData.filter(a => a.hasVariance).length,
+    highVariance: auditData.filter(a => a.isHighVariance).length,
+    toleranceViolations: auditData.filter(a => a.toleranceViolation).length
+  };
+
   return (
     <div className="highrated-dashboard">
       {/* Header */}
       <div className="highrated-header">
-        <h1>Audit Variance Dashboard</h1>
+        <h1>🔍 Audit Variance Dashboard</h1>
         <div className="period-switch">
           <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
-            Track inventory variances
+            Live Inventory Audit Tracking
           </span>
         </div>
       </div>
@@ -153,31 +184,40 @@ const AuditDashboard = () => {
       {/* Stats */}
       <div className="highrated-stats">
         <div className="stat-card">
-          <div className="stat-number">{auditData.length}</div>
-          <div className="stat-label">Total Items Audited</div>
+          <div className="stat-number">{filteredStats.total}</div>
+          <div className="stat-label">Total Audits</div>
         </div>
         <div className="stat-card">
           <div className="stat-number" style={{ color: '#ef4444' }}>
-            {auditData.filter(a => a.hasVariance).length}
+            {filteredStats.withVariance}
           </div>
           <div className="stat-label">Items with Variance</div>
         </div>
         <div className="stat-card">
           <div className="stat-number" style={{ color: '#dc2626' }}>
-            {auditData.filter(a => a.isHighVariance).length}
+            {filteredStats.highVariance}
           </div>
           <div className="stat-label">High Variance (≥10)</div>
         </div>
         <div className="stat-card">
           <div className="stat-number" style={{ color: '#f59e0b' }}>
-            {auditData.filter(a => a.toleranceViolation).length}
+            {filteredStats.toleranceViolations}
           </div>
-          <div className="stat-label">Tolerance Violations</div>
+          <div className="stat-label">Tolerance Violations (&gt;8%)</div>
         </div>
       </div>
 
       {/* Filters */}
       <div className="highrated-filters">
+        <div className="filter-group">
+          <label>Date</label>
+          <input 
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+          />
+        </div>
+
         <div className="filter-group">
           <label>Outlet</label>
           <select 
@@ -189,24 +229,6 @@ const AuditDashboard = () => {
               <option key={outlet} value={outlet}>{outlet}</option>
             ))}
           </select>
-        </div>
-
-        <div className="filter-group">
-          <label>Start Date</label>
-          <input 
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-        </div>
-
-        <div className="filter-group">
-          <label>End Date</label>
-          <input 
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
         </div>
 
         <div className="filter-group">
@@ -232,11 +254,11 @@ const AuditDashboard = () => {
               padding: '14px 28px', 
               border: 'none', 
               borderRadius: '12px',
-              background: 'var(--primary-color, #007bff)',
+              background: loading ? '#ccc' : 'var(--primary-color, #007bff)',
               color: 'white',
               fontSize: '15px',
               fontWeight: '600',
-              cursor: 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
               width: '100%'
             }}
           >
@@ -253,9 +275,10 @@ const AuditDashboard = () => {
           border: '1px solid #fcc',
           borderRadius: '8px',
           color: '#c33',
-          marginBottom: '20px'
+          marginBottom: '20px',
+          fontWeight: '500'
         }}>
-          {error}
+          ⚠️ {error}
         </div>
       )}
 
@@ -264,7 +287,9 @@ const AuditDashboard = () => {
         <div className="graphs-section">
           <h4>
             <span style={{ marginRight: '12px' }}>📊</span>
-            Audit Results {selectedOutlet && `- ${selectedOutlet}`}
+            Audit Results
+            {selectedOutlet && ` - ${selectedOutlet}`}
+            {selectedDate && ` (${selectedDate})`}
           </h4>
 
           <div style={{ 
@@ -284,7 +309,6 @@ const AuditDashboard = () => {
                   background: 'linear-gradient(135deg, var(--surface-light) 0%, var(--surface-card) 100%)',
                   borderBottom: '2px solid var(--border-light)'
                 }}>
-                  <th onClick={() => handleSort('date')} style={thStyle}>Date</th>
                   <th onClick={() => handleSort('auditTime')} style={thStyle}>Time</th>
                   <th onClick={() => handleSort('branchName')} style={thStyle}>Outlet</th>
                   <th onClick={() => handleSort('itemName')} style={thStyle}>Item</th>
@@ -292,13 +316,13 @@ const AuditDashboard = () => {
                   <th onClick={() => handleSort('auditQty')} style={thStyle}>Qty</th>
                   <th onClick={() => handleSort('absVariance')} style={thStyle}>Variance</th>
                   <th onClick={() => handleSort('absVariancePercent')} style={thStyle}>Var %</th>
-                  <th onClick={() => handleSort('toleranceCheck')} style={thStyle}>Tolerance</th>
+                  <th onClick={() => handleSort('toleranceViolation')} style={thStyle}>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedData.map((audit, index) => (
                   <tr 
-                    key={audit.id}
+                    key={`${audit.branchName}-${audit.sku}-${audit.auditTime}-${index}`}
                     style={{ 
                       borderBottom: index < sortedData.length - 1 ? '1px solid var(--border-light)' : 'none',
                       transition: 'all 0.2s ease'
@@ -310,21 +334,30 @@ const AuditDashboard = () => {
                       e.currentTarget.style.backgroundColor = 'transparent';
                     }}
                   >
-                    <td style={tdStyle}>{audit.date}</td>
                     <td style={tdStyle}>{formatAuditTime(audit.auditTime)}</td>
-                    <td style={tdStyle}>{audit.branchName}</td>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: '600' }}>{audit.branchName}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {audit.branchCode}
+                      </div>
+                    </td>
                     <td style={{...tdStyle, fontWeight: '600'}}>
                       {audit.itemName}
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                         SKU: {audit.sku}
                       </div>
                     </td>
-                    <td style={tdStyle}>{audit.categoryName}</td>
-                    <td style={{...tdStyle, textAlign: 'center'}}>{audit.auditQty}</td>
+                    <td style={tdStyle}>
+                      <div style={{ fontSize: '0.85rem' }}>{audit.categoryName}</div>
+                    </td>
+                    <td style={{...tdStyle, textAlign: 'center', fontWeight: '600'}}>
+                      {audit.auditQty}
+                    </td>
                     <td style={{
                       ...tdStyle,
                       textAlign: 'center',
                       fontWeight: '700',
+                      fontSize: '1rem',
                       color: getVarianceColor(audit.variance)
                     }}>
                       {audit.variance > 0 ? '+' : ''}{audit.variance}
@@ -346,10 +379,10 @@ const AuditDashboard = () => {
                         borderRadius: '12px',
                         fontSize: '0.8rem',
                         fontWeight: '600',
-                        background: audit.toleranceCheck === 'Yes' ? '#d1fae5' : '#fee',
-                        color: audit.toleranceCheck === 'Yes' ? '#065f46' : '#991b1b'
+                        background: audit.toleranceViolation ? '#fee' : '#d1fae5',
+                        color: audit.toleranceViolation ? '#991b1b' : '#065f46'
                       }}>
-                        {audit.toleranceCheck}
+                        {audit.toleranceViolation ? '⚠️ Violation' : '✓ OK'}
                       </span>
                     </td>
                   </tr>
@@ -366,18 +399,22 @@ const AuditDashboard = () => {
               color: 'var(--text-muted)',
               fontWeight: '500'
             }}>
-              Showing {sortedData.length} audit entries
+              Showing {sortedData.length} audit {sortedData.length === 1 ? 'entry' : 'entries'}
+              {selectedOutlet && ` for ${selectedOutlet}`}
             </div>
           </div>
         </div>
       )}
 
       {/* No Data Message */}
-      {!loading && auditData.length === 0 && (
+      {!loading && auditData.length === 0 && !error && (
         <div className="bottom-outlets">
           <div className="outlet-card">
-            <h5>No Audit Data Found</h5>
-            <p>Try adjusting your filters or date range.</p>
+            <h5>📭 No Audit Data Found</h5>
+            <p>No variance data available for the selected filters.</p>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+              Try selecting a different date or outlet.
+            </p>
           </div>
         </div>
       )}
@@ -386,8 +423,8 @@ const AuditDashboard = () => {
       {loading && (
         <div className="graphs-section">
           <div className="outlet-card">
-            <h5>Loading Audit Data...</h5>
-            <p>Please wait while we fetch the audit records...</p>
+            <h5>⏳ Loading Audit Data...</h5>
+            <p>Fetching inventory variance records from Ristaapps API...</p>
           </div>
         </div>
       )}
@@ -405,7 +442,8 @@ const thStyle = {
   letterSpacing: '0.5px',
   cursor: 'pointer',
   userSelect: 'none',
-  borderRight: '1px solid var(--border-light)'
+  borderRight: '1px solid var(--border-light)',
+  transition: 'background 0.2s ease'
 };
 
 const tdStyle = {
