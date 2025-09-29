@@ -5839,7 +5839,8 @@ app.post('/api/debug-assignment', async (req, res) => {
 });
 
 // === RISTAAPPS JWT CREATION ===
-function createRistaJWT(secretKey, apiKey, expiresInHours = 1) {
+// === RISTAAPPS JWT CREATION (CORRECTED) ===
+function createRistaJWT(secretKey, apiKey, expiresInHours = 6) {
   const crypto = require('crypto');
   
   const header = {
@@ -5850,8 +5851,10 @@ function createRistaJWT(secretKey, apiKey, expiresInHours = 1) {
   const now = Math.floor(Date.now() / 1000);
   const expires = now + (expiresInHours * 60 * 60);
 
+  // CRITICAL FIX: Use 'iss' (issuer) instead of 'apiKey'
+  // This matches the Google Apps Script implementation
   const payload = {
-    apiKey: apiKey,
+    iss: apiKey,  // ← Changed from apiKey: apiKey
     iat: now,
     exp: expires,
     jti: 'server-' + Date.now()
@@ -5877,9 +5880,16 @@ function createRistaJWT(secretKey, apiKey, expiresInHours = 1) {
     .replace(/\//g, '_')
     .replace(/=/g, '');
 
-  return `${toSign}.${signature}`;
-}
+  const token = `${toSign}.${signature}`;
+  
+  console.log('JWT Token created:', {
+    header: header,
+    payload: payload,
+    tokenLength: token.length
+  });
 
+  return token;
+}
 // === TELEGRAM BROADCAST ENDPOINTS ===
 
 // Send broadcast message
