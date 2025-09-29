@@ -7505,6 +7505,34 @@ app.get('/api/audit-summary', async (req, res) => {
   }
 });
 
+function createRistaJWT(privateKey, apiKey) {
+  const payload = {
+    apiKey: apiKey,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour expiration
+  };
+  
+  try {
+    // Fix the private key format - replace \n with actual newlines
+    let formattedKey = privateKey;
+    
+    // If the key doesn't have actual newlines, it probably has \n as text
+    if (!formattedKey.includes('\n') && formattedKey.includes('\\n')) {
+      formattedKey = formattedKey.replace(/\\n/g, '\n');
+    }
+    
+    // Ensure proper PEM format
+    if (!formattedKey.startsWith('-----BEGIN')) {
+      throw new Error('Private key must be in PEM format starting with -----BEGIN PRIVATE KEY-----');
+    }
+    
+    return jwt.sign(payload, formattedKey, { algorithm: 'RS256' });
+  } catch (error) {
+    console.error('JWT creation error:', error.message);
+    throw new Error(`Failed to create JWT: ${error.message}`);
+  }
+}
+
 // Debug endpoint
 app.get('/api/debug-rista-audit', async (req, res) => {
   try {
