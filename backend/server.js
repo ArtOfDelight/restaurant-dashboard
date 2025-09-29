@@ -7623,53 +7623,72 @@ app.get('/api/audit-data-all', async (req, res) => {
 });
 
 // Debug endpoint to test Ristaapps API connection
-app.get('/api/debug-rista-audit', async (req, res) => {
+// Debug endpoint to see raw Ristaapps response
+app.get('/api/debug-rista-raw', async (req, res) => {
   try {
+    const { branch = 'BLN', day } = req.query;
+    
+    // Default to yesterday
+    let targetDate = day;
+    if (!targetDate) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      targetDate = yesterday.toISOString().split('T')[0];
+    }
+
+    console.log(`Debug: Fetching raw data for ${branch} on ${targetDate}`);
+    
     const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
-    
-    // Test with one outlet
-    const testBranch = 'SKN';
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const testDate = yesterday.toISOString().split('T')[0];
-    
-    console.log(`Testing Ristaapps API with branch: ${testBranch}, date: ${testDate}`);
     
     const response = await axios.get(
       'https://api.ristaapps.com/v1/inventory/audit/page',
       {
         params: {
-          branch: testBranch,
-          day: testDate
+          branch: branch,
+          day: targetDate
         },
         headers: {
           'x-api-key': RISTA_API_KEY,
           'x-api-token': accessToken,
           'content-type': 'application/json'
-        }
+        },
+        timeout: 15000
       }
     );
     
+    const jsonResponse = response.data;
+    
+    // Log detailed info
+    console.log('API Response Status:', response.status);
+    console.log('Has data array:', !!jsonResponse.data);
+    console.log('Data length:', jsonResponse.data?.length || 0);
+    if (jsonResponse.data && jsonResponse.data.length > 0) {
+      console.log('First audit items count:', jsonResponse.data[0].items?.length || 0);
+    }
+    
     res.json({
       success: true,
-      message: 'Ristaapps API connection successful',
-      testParameters: {
-        branch: testBranch,
-        day: testDate
+      debug: {
+        branch,
+        day: targetDate,
+        apiUrl: 'https://api.ristaapps.com/v1/inventory/audit/page',
+        responseStatus: response.status,
+        hasData: !!jsonResponse.data,
+        dataLength: jsonResponse.data?.length || 0,
+        firstAuditSample: jsonResponse.data?.[0] || null,
+        allowedCategories: ALLOWED_CATEGORIES,
+        allowedSKUs: ALLOWED_SKUS
       },
-      apiKey: RISTA_API_KEY.substring(0, 8) + '...',
-      tokenGenerated: true,
-      responseStatus: response.status,
-      dataReceived: response.data.data?.length || 0,
-      sampleData: response.data.data?.[0] || null,
+      rawResponse: jsonResponse,
       timestamp: new Date().toISOString()
     });
     
   } catch (error) {
+    console.error('Debug error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
-      details: error.response?.data || 'No additional details'
+      stack: error.stack
     });
   }
 });
