@@ -9,7 +9,7 @@ const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
 const RISTA_API_KEY = process.env.RISTA_API_KEY;
 const RISTA_PRIVATE_KEY = process.env.RISTA_PRIVATE_KEY;
-
+const jwt = require('jsonwebtoken');
 const TICKET_TYPES = {
   REPAIR_MAINTENANCE: 'Repair and Maintenance',
   DIFFICULTY_IN_ORDER: 'Difficulty in Order', // NEW: Missing from original
