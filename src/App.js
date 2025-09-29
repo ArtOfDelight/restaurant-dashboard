@@ -48,6 +48,12 @@ const StockDashboard = lazy(() =>
   }))
 );
 
+const AuditDashboard = lazy(() => 
+  import('./AuditDashboard').catch(() => ({ 
+    default: () => <MissingComponent componentName="AUDIT DASHBOARD" fileName="AuditDashboard" />
+  }))
+);
+
 // Loading component
 const LoadingComponent = () => (
   <div style={{
@@ -105,7 +111,6 @@ const MissingComponent = ({ componentName, fileName }) => (
     position: 'relative',
     overflow: 'hidden'
   }}>
-    {/* Animated background pattern */}
     <div style={{
       position: 'absolute',
       top: '0',
@@ -277,12 +282,13 @@ function App() {
   const [currentView, setCurrentView] = useState('checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - Updated to include stock dashboard (9 items)
+  // Navigation configuration - Updated to include audit dashboard (10 items)
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'stock', label: 'STOCK DB', icon: '📦' },
+    { key: 'audit', label: 'AUDIT DB', icon: '📋' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
@@ -308,6 +314,7 @@ function App() {
       swiggy: <SwiggyDashboard />,
       product: <ProductAnalysisDashboard />,
       stock: <StockDashboard />,
+      audit: <AuditDashboard />,
       outlet: <HighRatedDashboard />,
       employee: <EmployeeDashboard />,
       checklist: <ChecklistDashboard />,
@@ -332,7 +339,7 @@ function App() {
     );
   };
 
-  // Create navigation button with enhanced styling - Updated for 9 items
+  // Create navigation button with enhanced styling - Updated for 10 items
   const createNavButton = (item, isActive) => {
     const { key, label, icon } = item;
     
@@ -342,11 +349,11 @@ function App() {
         : 'var(--surface-light)',
       color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
       border: isActive ? '2px solid var(--border-light)' : '1px solid var(--border-light)',
-      padding: '6px 10px', // Further reduced padding for 9 items
-      borderRadius: '6px', // Smaller radius
+      padding: '6px 9px',
+      borderRadius: '6px',
       cursor: 'pointer',
       fontWeight: isActive ? '700' : '600',
-      fontSize: '0.7rem', // Further reduced font size for 9 items
+      fontSize: '0.65rem',
       transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
       transform: isActive ? 'translateY(-2px) scale(1.01)' : 'translateY(0) scale(1)',
       boxShadow: isActive 
@@ -354,14 +361,14 @@ function App() {
         : '0 2px 8px rgba(0, 0, 0, 0.1)',
       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
       textTransform: 'uppercase',
-      letterSpacing: '0.3px', // Further reduced letter spacing
+      letterSpacing: '0.3px',
       backdropFilter: 'blur(15px)',
       position: 'relative',
       overflow: 'hidden',
       display: 'flex',
       alignItems: 'center',
-      gap: '4px', // Further reduced gap
-      minWidth: '80px', // Further reduced min width for 9 items
+      gap: '4px',
+      minWidth: '75px',
       justifyContent: 'center',
       whiteSpace: 'nowrap'
     };
@@ -410,7 +417,7 @@ function App() {
     );
   };
 
-  // Keyboard navigation - Updated to include stock dashboard (9 items)
+  // Keyboard navigation - Updated to include audit dashboard
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey) {
@@ -419,11 +426,12 @@ function App() {
           '2': 'swiggy', 
           '3': 'product',
           '4': 'stock',
-          '5': 'outlet',
-          '6': 'employee',
-          '7': 'checklist',
-          '8': 'tickets',
-          '9': 'broadcast'
+          '5': 'audit',
+          '6': 'outlet',
+          '7': 'employee',
+          '8': 'checklist',
+          '9': 'tickets',
+          '0': 'broadcast'
         };
         
         if (keyMap[e.key]) {
@@ -454,7 +462,6 @@ function App() {
             50% { opacity: 1; }
           }
           
-          /* Scrollbar styling */
           ::-webkit-scrollbar {
             width: 8px;
           }
@@ -474,18 +481,18 @@ function App() {
         `}
       </style>
 
-      {/* Navigation Header - Updated for 9 items */}
+      {/* Navigation Header - Updated for 10 items */}
       <nav style={{
         background: 'var(--surface-dark)',
         border: 'none',
-        padding: '10px 15px', // Further reduced padding for 9 items
+        padding: '10px 15px',
         display: 'flex',
-        gap: '10px', // Reduced gap for 9 items
+        gap: '8px',
         justifyContent: 'space-between',
         alignItems: 'center',
         backdropFilter: 'blur(20px)',
         boxShadow: 'var(--shadow-dark), 0 1px 0 rgba(255, 255, 255, 0.05)',
-        marginBottom: '15px', // Reduced margin
+        marginBottom: '15px',
         position: 'sticky',
         top: '0px',
         zIndex: '1000',
@@ -497,13 +504,13 @@ function App() {
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '8px' // Further reduced gap
+          gap: '8px'
         }}>
           <img
             src={logo}
             alt="Logo"
             style={{
-              height: '30px', // Further reduced height for 9 items
+              height: '30px',
               width: 'auto',
               backdropFilter: 'blur(10px)',
               transition: 'transform 0.3s ease'
@@ -513,10 +520,10 @@ function App() {
           />
         </div>
         
-        {/* Navigation Buttons - Updated layout for 9 items */}
+        {/* Navigation Buttons - Updated for 10 items */}
         <div style={{ 
           display: 'flex', 
-          gap: '6px', // Further reduced gap for 9 items
+          gap: '5px',
           flexWrap: 'wrap',
           alignItems: 'center',
           justifyContent: 'center',
@@ -527,16 +534,16 @@ function App() {
           )}
         </div>
 
-        {/* Keyboard Shortcuts Indicator - Updated for 9 shortcuts */}
+        {/* Keyboard Shortcuts Indicator */}
         <div style={{
-          fontSize: '0.6rem', // Further reduced font size
+          fontSize: '0.6rem',
           color: 'var(--text-muted)',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
           textAlign: 'right',
           lineHeight: '1.2',
-          minWidth: '55px' // Reduced minimum width
+          minWidth: '60px'
         }}>
-          <div>ALT + 1-9</div>
+          <div>ALT+1-9,0</div>
           <div>SHORTCUTS</div>
         </div>
       </nav>
@@ -574,7 +581,7 @@ function App() {
         {renderCurrentView()}
       </main>
 
-      {/* Footer - Updated for 9 dashboards */}
+      {/* Footer - Updated for 10 dashboards */}
       <footer style={{
         background: 'var(--surface-dark)',
         borderTop: '1px solid var(--border-light)',
@@ -585,10 +592,10 @@ function App() {
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
         <div>
-          DASHBOARD SUITE v2.3 • POWERED BY REACT & GOOGLE SHEETS API • 9 INTEGRATED DASHBOARDS
+          DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 10 INTEGRATED DASHBOARDS
         </div>
         <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-          USE ALT + 1-9 FOR QUICK NAVIGATION • STOCK MANAGEMENT • AI-POWERED INSIGHTS
+          USE ALT + 1-9,0 FOR QUICK NAVIGATION • LIVE AUDIT TRACKING • AI-POWERED INSIGHTS
         </div>
       </footer>
     </div>

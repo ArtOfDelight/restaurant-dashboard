@@ -7096,6 +7096,363 @@ app.post('/api/test-group-message', async (req, res) => {
   }
 });
 
+// === AUDIT MANAGEMENT ENDPOINTS (RISTAAPPS API) ===
+
+const jwt = require('jsonwebtoken');
+
+// Environment variables for Ristaapps API
+const RISTA_API_KEY = process.env.RISTA_API_KEY || '0693b6bd-4dbd-4ff3-806e-37f28b9b8c21';
+const RISTA_PRIVATE_KEY = process.env.RISTA_PRIVATE_KEY || 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
+
+// JWT creation matching your Apps Script
+function createRistaJWT(privateKey, apiKey) {
+  const payload = {
+    iss: apiKey,
+    userId: 123,
+    name: 'Amit Agarwal',
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (6 * 60 * 60) // 6 hours
+  };
+  
+  return jwt.sign(payload, privateKey, { algorithm: 'HS256' });
+}
+
+// Branch code mapping (from your Apps Script Branch List sheet)
+const BRANCH_CODES = {
+  'Sahakarnagar': 'SKN',
+  'Residency Road': 'RR',
+  'Whitefield': 'WF',
+  'Koramangala': 'KOR',
+  'Kalyan Nagar': 'KLN',
+  'Bellandur': 'BLN',
+  'Indiranagar': 'IND',
+  'Arekere': 'ARK',
+  'Jayanagar': 'JAY',
+  'HSR Layout': 'HSR',
+  'Electronic City': 'EC',
+  'Rajajinagar': 'RAJ'
+};
+
+// Allowed categories and SKUs (from your Apps Script)
+const ALLOWED_CATEGORIES = [
+  "Celebration Box - Craft Ice Creams",
+  "Ice Cream (2 kg Box)",
+  "Ice Cream (2.5 kg RR Pan)",
+  "Cookies and Brownies",
+  "Cheesecake & Dessert Jars"
+];
+
+const ALLOWED_SKUS = ["O", "314", "1472", "1513", "1395", "1512", "530", "1514", "1608", "1502"];
+
+// Get audit data for a specific outlet and date
+app.get('/api/audit-data-live', async (req, res) => {
+  try {
+    const { outlet, day } = req.query;
+    
+    if (!outlet) {
+      return res.status(400).json({
+        success: false,
+        error: 'Outlet parameter is required'
+      });
+    }
+
+    const branchCode = BRANCH_CODES[outlet];
+    if (!branchCode) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid outlet: ${outlet}. Must be one of: ${Object.keys(BRANCH_CODES).join(', ')}`
+      });
+    }
+
+    // Default to yesterday (matching your Apps Script logic)
+    let targetDate = day;
+    if (!targetDate) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      targetDate = yesterday.toISOString().split('T')[0]; // YYYY-MM-DD format
+    }
+
+    console.log(`Fetching audit data for ${outlet} (${branchCode}) on ${targetDate}`);
+    
+    // Generate JWT token
+    const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
+    
+    // Call Ristaapps API
+    const response = await axios.get(
+      'https://api.ristaapps.com/v1/inventory/audit/page',
+      {
+        params: {
+          branch: branchCode,
+          day: targetDate
+        },
+        headers: {
+          'x-api-key': RISTA_API_KEY,
+          'x-api-token': accessToken,
+          'content-type': 'application/json'
+        }
+      }
+    );
+    
+    const jsonResponse = response.data;
+    console.log(`Received ${jsonResponse.data?.length || 0} audit records from API`);
+    
+    // Process the response (matching your Apps Script logic)
+    const processedData = [];
+    
+    if (jsonResponse.data && jsonResponse.data.length > 0) {
+      jsonResponse.data.forEach(audit => {
+        const auditDateTime = audit.auditDateTime;
+        const auditBusinessDay = audit.auditBusinessDay;
+        const auditOrderNumber = audit.auditOrderNumber;
+        
+        if (audit.items && audit.items.length > 0) {
+          audit.items.forEach(item => {
+            // Apply category and SKU filters (matching your Apps Script)
+            const categoryAllowed = ALLOWED_CATEGORIES.includes(item.categoryName);
+            const skuAllowed = ALLOWED_SKUS.includes(item.skuCode);
+            
+            if (item.variance !== 0 && (categoryAllowed || (!categoryAllowed && skuAllowed))) {
+              const variancePercent = item.auditQuantity > 0 
+                ? (item.variance / item.auditQuantity * 100) 
+                : 0;
+              
+              processedData.push({
+                branchName: outlet,
+                date: targetDate,
+                auditTime: auditDateTime,
+                categoryName: item.categoryName,
+                sku: item.skuCode,
+                itemName: item.itemName,
+                auditQty: item.auditQuantity,
+                variance: item.variance,
+                auditDate: auditBusinessDay,
+                auditNumber: auditOrderNumber,
+                variancePercent: Math.abs(variancePercent),
+                unitCost: item.unitCost || 0,
+                // Computed fields
+                hasVariance: true,
+                isHighVariance: Math.abs(item.variance) >= 10,
+                toleranceViolation: Math.abs(variancePercent) > 8, // 8% threshold from your script
+                absVariance: Math.abs(item.variance),
+                absVariancePercent: Math.abs(variancePercent)
+              });
+            }
+          });
+        }
+      });
+    }
+    
+    console.log(`Processed ${processedData.length} items with variance`);
+    
+    res.json({
+      success: true,
+      audits: processedData,
+      count: processedData.length,
+      metadata: {
+        outlet: outlet,
+        branchCode: branchCode,
+        date: targetDate,
+        source: 'ristaapps-api-live'
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Error fetching live audit data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
+// Get audit data for all outlets (bulk fetch)
+app.get('/api/audit-data-all', async (req, res) => {
+  try {
+    const { day } = req.query;
+    
+    // Default to yesterday
+    let targetDate = day;
+    if (!targetDate) {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      targetDate = yesterday.toISOString().split('T')[0];
+    }
+
+    console.log(`Fetching audit data for all outlets on ${targetDate}`);
+    
+    const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
+    const allAudits = [];
+    
+    // Fetch data for each outlet
+    for (const [outletName, branchCode] of Object.entries(BRANCH_CODES)) {
+      try {
+        console.log(`Fetching ${outletName} (${branchCode})...`);
+        
+        const response = await axios.get(
+          'https://api.ristaapps.com/v1/inventory/audit/page',
+          {
+            params: {
+              branch: branchCode,
+              day: targetDate
+            },
+            headers: {
+              'x-api-key': RISTA_API_KEY,
+              'x-api-token': accessToken,
+              'content-type': 'application/json'
+            }
+          }
+        );
+        
+        const jsonResponse = response.data;
+        
+        if (jsonResponse.data && jsonResponse.data.length > 0) {
+          jsonResponse.data.forEach(audit => {
+            const auditDateTime = audit.auditDateTime;
+            const auditBusinessDay = audit.auditBusinessDay;
+            const auditOrderNumber = audit.auditOrderNumber;
+            
+            if (audit.items && audit.items.length > 0) {
+              audit.items.forEach(item => {
+                const categoryAllowed = ALLOWED_CATEGORIES.includes(item.categoryName);
+                const skuAllowed = ALLOWED_SKUS.includes(item.skuCode);
+                
+                if (item.variance !== 0 && (categoryAllowed || (!categoryAllowed && skuAllowed))) {
+                  const variancePercent = item.auditQuantity > 0 
+                    ? (item.variance / item.auditQuantity * 100) 
+                    : 0;
+                  
+                  allAudits.push({
+                    branchName: outletName,
+                    branchCode: branchCode,
+                    date: targetDate,
+                    auditTime: auditDateTime,
+                    categoryName: item.categoryName,
+                    sku: item.skuCode,
+                    itemName: item.itemName,
+                    auditQty: item.auditQuantity,
+                    variance: item.variance,
+                    auditDate: auditBusinessDay,
+                    auditNumber: auditOrderNumber,
+                    variancePercent: Math.abs(variancePercent),
+                    unitCost: item.unitCost || 0,
+                    hasVariance: true,
+                    isHighVariance: Math.abs(item.variance) >= 10,
+                    toleranceViolation: Math.abs(variancePercent) > 8,
+                    absVariance: Math.abs(item.variance),
+                    absVariancePercent: Math.abs(variancePercent)
+                  });
+                }
+              });
+            }
+          });
+        }
+        
+        // Small delay between requests to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+      } catch (error) {
+        console.error(`Error fetching ${outletName}:`, error.message);
+      }
+    }
+    
+    console.log(`Total processed: ${allAudits.length} items across all outlets`);
+    
+    // Calculate summary statistics
+    const summary = {
+      totalAudits: allAudits.length,
+      totalVarianceItems: allAudits.length,
+      highVarianceItems: allAudits.filter(a => a.isHighVariance).length,
+      toleranceViolations: allAudits.filter(a => a.toleranceViolation).length,
+      byOutlet: {}
+    };
+    
+    allAudits.forEach(audit => {
+      if (!summary.byOutlet[audit.branchName]) {
+        summary.byOutlet[audit.branchName] = { total: 0, variances: 0, violations: 0 };
+      }
+      summary.byOutlet[audit.branchName].total++;
+      summary.byOutlet[audit.branchName].variances++;
+      if (audit.toleranceViolation) {
+        summary.byOutlet[audit.branchName].violations++;
+      }
+    });
+    
+    res.json({
+      success: true,
+      audits: allAudits,
+      summary: summary,
+      count: allAudits.length,
+      metadata: {
+        date: targetDate,
+        outletsProcessed: Object.keys(BRANCH_CODES).length,
+        source: 'ristaapps-api-live-all'
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Error fetching all audit data:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint to test Ristaapps API connection
+app.get('/api/debug-rista-audit', async (req, res) => {
+  try {
+    const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
+    
+    // Test with one outlet
+    const testBranch = 'SKN';
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const testDate = yesterday.toISOString().split('T')[0];
+    
+    console.log(`Testing Ristaapps API with branch: ${testBranch}, date: ${testDate}`);
+    
+    const response = await axios.get(
+      'https://api.ristaapps.com/v1/inventory/audit/page',
+      {
+        params: {
+          branch: testBranch,
+          day: testDate
+        },
+        headers: {
+          'x-api-key': RISTA_API_KEY,
+          'x-api-token': accessToken,
+          'content-type': 'application/json'
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      message: 'Ristaapps API connection successful',
+      testParameters: {
+        branch: testBranch,
+        day: testDate
+      },
+      apiKey: RISTA_API_KEY.substring(0, 8) + '...',
+      tokenGenerated: true,
+      responseStatus: response.status,
+      dataReceived: response.data.data?.length || 0,
+      sampleData: response.data.data?.[0] || null,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
 // New API endpoint for manual type reclassification
 function getAutoAssignee(ticketType, issueDescription = '') {
   // First try explicit type matching
