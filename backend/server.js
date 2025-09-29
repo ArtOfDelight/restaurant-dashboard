@@ -7269,6 +7269,7 @@ app.get('/api/audit-data-live', async (req, res) => {
 
 // === AUDIT SUMMARY ENDPOINT ===
 // Get aggregated audit summary across all outlets
+// === AUDIT SUMMARY ENDPOINT (FIXED) ===
 app.get('/api/audit-summary', async (req, res) => {
   try {
     const { day, groupBy = 'outlet' } = req.query;
@@ -7283,12 +7284,22 @@ app.get('/api/audit-summary', async (req, res) => {
 
     console.log(`Generating audit summary for ${targetDate}, grouped by: ${groupBy}`);
     
+    // Validate environment variables
+    if (!RISTA_API_KEY || !RISTA_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Ristaapps API credentials not configured'
+      });
+    }
+
     const accessToken = createRistaJWT(RISTA_PRIVATE_KEY, RISTA_API_KEY);
     const allAudits = [];
     
-    // Fetch data for each outlet
+    // Fetch data for each outlet with error handling
     for (const [outletName, branchCode] of Object.entries(BRANCH_CODES)) {
       try {
+        console.log(`Fetching summary for ${outletName}...`);
+        
         const response = await axios.get(
           'https://api.ristaapps.com/v1/inventory/audit/page',
           {
@@ -7300,15 +7311,16 @@ app.get('/api/audit-summary', async (req, res) => {
               'x-api-key': RISTA_API_KEY,
               'x-api-token': accessToken,
               'content-type': 'application/json'
-            }
+            },
+            timeout: 10000 // 10 second timeout
           }
         );
         
         const jsonResponse = response.data;
         
-        if (jsonResponse.data && jsonResponse.data.length > 0) {
+        if (jsonResponse.data && Array.isArray(jsonResponse.data)) {
           jsonResponse.data.forEach(audit => {
-            if (audit.items && audit.items.length > 0) {
+            if (audit.items && Array.isArray(audit.items)) {
               audit.items.forEach(item => {
                 const categoryAllowed = ALLOWED_CATEGORIES.includes(item.categoryName);
                 const skuAllowed = ALLOWED_SKUS.includes(item.skuCode);
@@ -7321,13 +7333,13 @@ app.get('/api/audit-summary', async (req, res) => {
                   allAudits.push({
                     branchName: outletName,
                     branchCode: branchCode,
-                    categoryName: item.categoryName,
-                    sku: item.skuCode,
-                    itemName: item.itemName,
-                    variance: item.variance,
-                    absVariance: Math.abs(item.variance),
+                    categoryName: item.categoryName || 'Unknown',
+                    sku: item.skuCode || 'N/A',
+                    itemName: item.itemName || 'Unknown Item',
+                    variance: item.variance || 0,
+                    absVariance: Math.abs(item.variance || 0),
                     variancePercent: Math.abs(variancePercent),
-                    auditQty: item.auditQuantity,
+                    auditQty: item.auditQuantity || 0,
                     unitCost: item.unitCost || 0,
                     toleranceViolation: Math.abs(variancePercent) > 8
                   });
@@ -7337,19 +7349,21 @@ app.get('/api/audit-summary', async (req, res) => {
           });
         }
         
+        // Small delay between requests
         await new Promise(resolve => setTimeout(resolve, 200));
         
       } catch (error) {
         console.error(`Error fetching ${outletName}:`, error.message);
+        // Continue with other outlets even if one fails
       }
     }
+    
+    console.log(`Collected ${allAudits.length} audit items for summary`);
     
     // Generate summary based on groupBy parameter
     let summary = {};
     
     if (groupBy === 'outlet') {
-      // Group by outlet
-      summary = {};
       allAudits.forEach(audit => {
         if (!summary[audit.branchName]) {
           summary[audit.branchName] = {
@@ -7362,29 +7376,28 @@ app.get('/api/audit-summary', async (req, res) => {
             items: []
           };
         }
-        summary[audit.branchName].totalVariances++;
-        if (audit.absVariance >= 10) summary[audit.branchName].highVariances++;
-        if (audit.toleranceViolation) summary[audit.branchName].toleranceViolations++;
-        summary[audit.branchName].totalAbsVariance += audit.absVariance;
-        summary[audit.branchName].categories.add(audit.categoryName);
-        summary[audit.branchName].items.push({
+        const s = summary[audit.branchName];
+        s.totalVariances++;
+        if (audit.absVariance >= 10) s.highVariances++;
+        if (audit.toleranceViolation) s.toleranceViolations++;
+        s.totalAbsVariance += audit.absVariance;
+        s.categories.add(audit.categoryName);
+        s.items.push({
           itemName: audit.itemName,
           variance: audit.variance,
           variancePercent: audit.variancePercent
         });
       });
       
-      // Convert Set to Array and calculate averages
+      // Convert to array format
       Object.keys(summary).forEach(key => {
         summary[key].categories = Array.from(summary[key].categories);
         summary[key].avgVariance = summary[key].totalVariances > 0 
           ? (summary[key].totalAbsVariance / summary[key].totalVariances).toFixed(2)
-          : 0;
+          : '0';
       });
       
     } else if (groupBy === 'category') {
-      // Group by category
-      summary = {};
       allAudits.forEach(audit => {
         if (!summary[audit.categoryName]) {
           summary[audit.categoryName] = {
@@ -7397,29 +7410,27 @@ app.get('/api/audit-summary', async (req, res) => {
             items: []
           };
         }
-        summary[audit.categoryName].totalVariances++;
-        if (audit.absVariance >= 10) summary[audit.categoryName].highVariances++;
-        if (audit.toleranceViolation) summary[audit.categoryName].toleranceViolations++;
-        summary[audit.categoryName].totalAbsVariance += audit.absVariance;
-        summary[audit.categoryName].outlets.add(audit.branchName);
-        summary[audit.categoryName].items.push({
+        const s = summary[audit.categoryName];
+        s.totalVariances++;
+        if (audit.absVariance >= 10) s.highVariances++;
+        if (audit.toleranceViolation) s.toleranceViolations++;
+        s.totalAbsVariance += audit.absVariance;
+        s.outlets.add(audit.branchName);
+        s.items.push({
           itemName: audit.itemName,
           outlet: audit.branchName,
           variance: audit.variance
         });
       });
       
-      // Convert Set to Array
       Object.keys(summary).forEach(key => {
         summary[key].outlets = Array.from(summary[key].outlets);
         summary[key].avgVariance = summary[key].totalVariances > 0 
           ? (summary[key].totalAbsVariance / summary[key].totalVariances).toFixed(2)
-          : 0;
+          : '0';
       });
       
     } else if (groupBy === 'item') {
-      // Group by item
-      summary = {};
       allAudits.forEach(audit => {
         if (!summary[audit.itemName]) {
           summary[audit.itemName] = {
@@ -7431,17 +7442,17 @@ app.get('/api/audit-summary', async (req, res) => {
             outlets: new Set()
           };
         }
-        summary[audit.itemName].totalVariances++;
-        summary[audit.itemName].totalAbsVariance += audit.absVariance;
-        summary[audit.itemName].outlets.add(audit.branchName);
+        const s = summary[audit.itemName];
+        s.totalVariances++;
+        s.totalAbsVariance += audit.absVariance;
+        s.outlets.add(audit.branchName);
       });
       
-      // Convert Set to Array
       Object.keys(summary).forEach(key => {
         summary[key].outlets = Array.from(summary[key].outlets);
         summary[key].avgVariance = summary[key].totalVariances > 0 
           ? (summary[key].totalAbsVariance / summary[key].totalVariances).toFixed(2)
-          : 0;
+          : '0';
       });
     }
     
@@ -7456,7 +7467,7 @@ app.get('/api/audit-summary', async (req, res) => {
       date: targetDate
     };
     
-    console.log(`Audit summary generated: ${allAudits.length} variances across ${Object.keys(summary).length} ${groupBy}s`);
+    console.log(`Summary generated successfully: ${Object.keys(summary).length} groups`);
     
     res.json({
       success: true,
@@ -7468,9 +7479,11 @@ app.get('/api/audit-summary', async (req, res) => {
     
   } catch (error) {
     console.error('Error generating audit summary:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
