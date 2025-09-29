@@ -26,6 +26,23 @@ const AUTO_ASSIGNMENT_RULES = {
   [TICKET_TYPES.OTHERS]: ['Kim']
 };
 
+
+// JWT creation function for Ristaapps API
+function createRistaJWT(privateKey, apiKey) {
+  const payload = {
+    apiKey: apiKey,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour expiration
+  };
+  
+  try {
+    return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+  } catch (error) {
+    console.error('JWT creation error:', error.message);
+    throw new Error(`Failed to create JWT: ${error.message}`);
+  }
+}
+
 // Keywords for automatic type classification (optional)
 const TYPE_CLASSIFICATION_KEYWORDS = {
   [TICKET_TYPES.REPAIR_MAINTENANCE]: [
