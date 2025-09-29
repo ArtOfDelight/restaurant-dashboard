@@ -7,6 +7,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const CRITICAL_STOCK_BOT_TOKEN = process.env.CRITICAL_STOCK_BOT_TOKEN;
 const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
+const RISTA_API_KEY = process.env.RISTA_API_KEY;
+const RISTA_PRIVATE_KEY = process.env.RISTA_PRIVATE_KEY;
 
 const TICKET_TYPES = {
   REPAIR_MAINTENANCE: 'Repair and Maintenance',
