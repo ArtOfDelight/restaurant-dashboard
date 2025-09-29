@@ -7962,6 +7962,23 @@ app.get('/api/debug-rista-raw', async (req, res) => {
   }
 });
 
+// Test endpoint to verify Ristaapps setup
+app.get('/api/test-rista-setup', (req, res) => {
+  res.json({
+    success: true,
+    checks: {
+      jwtLibrary: typeof jwt !== 'undefined',
+      ristaApiKey: !!RISTA_API_KEY,
+      ristaPrivateKey: !!RISTA_PRIVATE_KEY,
+      branchCodes: typeof BRANCH_CODES !== 'undefined' ? Object.keys(BRANCH_CODES).length : 0,
+      allowedCategories: typeof ALLOWED_CATEGORIES !== 'undefined' ? ALLOWED_CATEGORIES.length : 0,
+      allowedSkus: typeof ALLOWED_SKUS !== 'undefined' ? ALLOWED_SKUS.length : 0,
+      createJwtFunction: typeof createRistaJWT === 'function'
+    },
+    message: 'All checks should be true/positive numbers'
+  });
+});
+
 // New API endpoint for manual type reclassification
 function getAutoAssignee(ticketType, issueDescription = '') {
   // First try explicit type matching
