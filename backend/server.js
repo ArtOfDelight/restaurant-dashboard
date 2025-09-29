@@ -41,6 +41,14 @@ const BRANCH_CODES = {
   'Rajajinagar': 'RAJ'
 };
 
+const ALLOWED_CATEGORIES = [
+  'Celebration Box - Craft Ice Creams',
+  'Ice Cream (2 kg Box)',
+  'Ice Cream (2.5 kg RR Pan)',
+  'Cookies and Brownies',
+  'Cheesecake & Dessert Jars'
+];
+
 // JWT creation function for Ristaapps API
 function createRistaJWT(privateKey, apiKey) {
   const payload = {
