@@ -26,6 +26,20 @@ const AUTO_ASSIGNMENT_RULES = {
   [TICKET_TYPES.OTHERS]: ['Kim']
 };
 
+const BRANCH_CODES = {
+  'Sahakarnagar': 'SKN',
+  'Residency Road': 'RR',
+  'Whitefield': 'WF',
+  'Koramangala': 'KOR',
+  'Kalyan Nagar': 'KLN',
+  'Bellandur': 'BLN',
+  'Indiranagar': 'IND',
+  'Arekere': 'ARK',
+  'Jayanagar': 'JAY',
+  'HSR Layout': 'HSR',
+  'Electronic City': 'CK',
+  'Rajajinagar': 'RAJ'
+};
 
 // JWT creation function for Ristaapps API
 function createRistaJWT(privateKey, apiKey) {
