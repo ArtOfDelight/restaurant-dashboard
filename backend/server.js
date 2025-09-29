@@ -36,12 +36,27 @@ function createRistaJWT(privateKey, apiKey) {
   };
   
   try {
-    return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+    // Fix the private key format - replace \n with actual newlines
+    let formattedKey = privateKey;
+    
+    // If the key doesn't have actual newlines, it probably has \n as text
+    if (!formattedKey.includes('\n') && formattedKey.includes('\\n')) {
+      formattedKey = formattedKey.replace(/\\n/g, '\n');
+    }
+    
+    // Ensure proper PEM format
+    if (!formattedKey.startsWith('-----BEGIN')) {
+      throw new Error('Private key must be in PEM format starting with -----BEGIN PRIVATE KEY-----');
+    }
+    
+    return jwt.sign(payload, formattedKey, { algorithm: 'RS256' });
   } catch (error) {
     console.error('JWT creation error:', error.message);
     throw new Error(`Failed to create JWT: ${error.message}`);
   }
 }
+
+
 
 // Keywords for automatic type classification (optional)
 const TYPE_CLASSIFICATION_KEYWORDS = {
