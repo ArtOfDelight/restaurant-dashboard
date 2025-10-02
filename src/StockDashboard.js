@@ -266,7 +266,7 @@ const StockDashboard = () => {
     <div className="highrated-dashboard">
       {/* Header */}
       <div className="highrated-header">
-        <h1>Stock Management</h1>
+        <h1>Out of Stock Management</h1>
         <div className="period-switch">
           <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>
             Stock Management System
