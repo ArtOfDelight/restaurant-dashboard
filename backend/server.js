@@ -857,6 +857,15 @@ async function initializeServicesWithTickets() {
   // ADD THIS BLOCK
   if (criticalStockBot) {
     console.log('Critical Stock Bot ready for alerts');
+    // Add this after initializing criticalStockBot
+
+    criticalStockBot.on('message', (msg) => {
+      const chat = msg.chat;
+      if (chat.type === 'group' || chat.type === 'supergroup') {
+        console.log(`Critical Stock Bot Group title: ${chat.title}, Group ID: ${chat.id}`);
+      }
+    });
+    console.log('Critical Stock Bot group ID listener enabled. Send any message in your group to see its chat ID in the server logs.');
   }
   
   // Initialize user mapping tab
