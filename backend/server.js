@@ -2466,37 +2466,61 @@ app.get('/api/checklist-completion-status', async (req, res) => {
       }
     }
 
-    console.log(`Fetching ${SUBMISSIONS_TAB} for completion analysis...`);
     const submissionsResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: CHECKLIST_SPREADSHEET_ID,
       range: `${SUBMISSIONS_TAB}!A:Z`,
     });
 
     const submissionsData = submissionsResponse.data.values || [];
-    console.log(`Found ${submissionsData.length} submission rows for completion analysis`);
-
-    // Define standard time slots and allowed outlet codes
     const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+    const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
 
-    // Process submissions for the selected date
+    // Helper to parse date string to Date object (YYYY-MM-DD)
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+      return new Date(dateStr);
+    };
+
+    const selectedDateObj = parseDate(selectedDate);
+
+    // Map for submissions by outlet and slot
     const submissionsByOutletAndSlot = new Map();
-    
+
     if (submissionsData.length > 1) {
       for (let i = 1; i < submissionsData.length; i++) {
         const row = submissionsData[i];
         if (!row || row.length === 0) continue;
-        
+
         const submissionDate = formatDate(getCellValue(row, 1));
         const timeSlot = getCellValue(row, 2);
         const outlet = getCellValue(row, 3);
         const submittedBy = getCellValue(row, 4);
         const timestamp = getCellValue(row, 5);
-        
-        // Only process submissions for the selected date
-        if (submissionDate === selectedDate && outlet && timeSlot) {
+
+        let includeSubmission = false;
+        if (timeSlot === 'Closing') {
+          // Accept "Closing" submissions from selectedDate or next day (after midnight)
+          const submissionDateObj = parseDate(submissionDate);
+          if (
+            submissionDateObj.getTime() === selectedDateObj.getTime() ||
+            submissionDateObj.getTime() === selectedDateObj.getTime() + 24 * 60 * 60 * 1000
+          ) {
+            includeSubmission = true;
+          }
+        } else {
+          // For other slots, only accept submissions from selectedDate
+          if (submissionDate === selectedDate) {
+            includeSubmission = true;
+          }
+        }
+
+        if (includeSubmission && outlet && timeSlot) {
           const key = `${outlet}|${timeSlot}`;
-          
           if (!submissionsByOutletAndSlot.has(key)) {
             submissionsByOutletAndSlot.set(key, {
               outlet,
@@ -2524,12 +2548,16 @@ app.get('/api/checklist-completion-status', async (req, res) => {
 
     // Create completion status for each allowed outlet
     const completionData = [];
-    
+
     ALLOWED_OUTLET_CODES.forEach(outletCode => {
-      const timeSlotStatus = TIME_SLOT_ORDER.map(timeSlot => {
+      // Exclude "Mid Day" for cloud kitchens
+      const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+      const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : TIME_SLOT_ORDER;
+
+      const timeSlotStatus = timeSlots.map(timeSlot => {
         const key = `${outletCode}|${timeSlot}`;
         const submission = submissionsByOutletAndSlot.get(key);
-        
+
         return {
           timeSlot,
           status: submission ? 'Completed' : 'Pending',
@@ -2537,39 +2565,37 @@ app.get('/api/checklist-completion-status', async (req, res) => {
           timestamp: submission ? submission.timestamp : ''
         };
       });
-      
+
       // Calculate overall status
       const completedSlots = timeSlotStatus.filter(slot => slot.status === 'Completed').length;
       const totalSlots = timeSlotStatus.length;
       const completionPercentage = Math.round((completedSlots / totalSlots) * 100);
-      
+
       let overallStatus = 'Pending';
       if (completedSlots === totalSlots) {
         overallStatus = 'Completed';
       } else if (completedSlots > 0) {
         overallStatus = 'Partial';
       }
-      
+
       // Find last submission time
       const lastSubmissionTime = timeSlotStatus
         .filter(slot => slot.timestamp)
         .map(slot => slot.timestamp)
         .sort()
         .pop() || '';
-      
+
       completionData.push({
         outletCode: outletCode,
-        outletName: `${outletCode} Outlet`, // You might want to map this to actual names
-        outletType: 'Restaurant', // You might want to determine this dynamically
+        outletName: `${outletCode} Outlet`,
+        outletType: isCloudKitchen ? 'Cloud Kitchen' : 'Restaurant',
         overallStatus,
         completionPercentage,
         timeSlotStatus,
         lastSubmissionTime,
-        isCloudDays: false // You might want to determine this based on your data
+        isCloudDays: isCloudKitchen
       });
     });
-
-    console.log(`Generated completion status for ${completionData.length} outlets`);
 
     res.set('Content-Type', 'application/json');
     res.json({

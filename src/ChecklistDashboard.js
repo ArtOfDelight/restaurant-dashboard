@@ -5,19 +5,16 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
-  
   try {
     if (dateStr.includes('-')) {
       return dateStr;
     }
-    
     const date = new Date(dateStr);
     if (!isNaN(date.getTime())) {
-      return date.getFullYear() + '-' + 
-             String(date.getMonth() + 1).padStart(2, '0') + '-' + 
-             String(date.getDate()).padStart(2, '0');
+      return date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0');
     }
-    
     return dateStr;
   } catch (error) {
     return dateStr;
@@ -27,37 +24,31 @@ const formatDateForDisplay = (dateStr) => {
 // Transform functions for debug endpoint (unchanged)
 const transformDebugSubmissions = (rawSubmissions) => {
   if (!rawSubmissions || rawSubmissions.length <= 1) return [];
-  
   const dataRows = rawSubmissions.slice(1);
-  
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
-    
     return {
       submissionId: safeRow[0] || `SUB-${index + 1}`,
       date: formatDateForDisplay(safeRow[0] || safeRow[1] || ''),
       timeSlot: safeRow[2] || 'Unknown',
-      outlet: safeRow[3] || 'Unknown Outlet', 
+      outlet: safeRow[3] || 'Unknown Outlet',
       submittedBy: safeRow[4] || 'Unknown User',
       timestamp: safeRow[5] || '',
     };
   }).filter(submission => {
-    const hasAnyData = submission.outlet !== 'Unknown Outlet' || 
-                       submission.submittedBy !== 'Unknown User' || 
-                       submission.date || 
-                       submission.timeSlot !== 'Unknown';
+    const hasAnyData = submission.outlet !== 'Unknown Outlet' ||
+      submission.submittedBy !== 'Unknown User' ||
+      submission.date ||
+      submission.timeSlot !== 'Unknown';
     return hasAnyData;
   });
 };
 
 const transformDebugResponses = (rawResponses) => {
   if (!rawResponses || rawResponses.length <= 1) return [];
-  
   const dataRows = rawResponses.slice(1);
-  
   return dataRows.map((row, index) => {
     const safeRow = Array.isArray(row) ? row : [];
-    
     return {
       submissionId: safeRow[0] || `AUTO-${index + 1}`,
       question: (safeRow[1] || '').toString().trim(),
@@ -81,11 +72,17 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterOutletType, setFilterOutletType] = useState('All');
 
-  // Define standard time slot order
+  // Standard time slot order
   const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
-  
-  // WHITELIST: Only these outlet codes are allowed
   const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+  const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
+
+  // Helper to get correct time slots for each outlet
+  const getTimeSlotOrderForOutlet = (outletCode) => {
+    return CLOUD_KITCHEN_CODES.includes(outletCode.toUpperCase())
+      ? ['Morning', 'Closing']
+      : TIME_SLOT_ORDER;
+  };
 
   const loadCompletionData = useCallback(async () => {
     setLoading(true);
@@ -114,28 +111,26 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         throw new Error(summaryResult.error || 'Failed to fetch summary data');
       }
 
-      // Sort completion data time slots according to standard order
+      // Sort completion data time slots according to correct order per outlet
       const sortedCompletionData = completionResult.data.map(outlet => ({
         ...outlet,
-        timeSlotStatus: sortTimeSlotsByOrder(outlet.timeSlotStatus, TIME_SLOT_ORDER)
+        timeSlotStatus: sortTimeSlotsByOrder(
+          outlet.timeSlotStatus,
+          getTimeSlotOrderForOutlet(outlet.outletCode)
+        )
       }));
 
       // FILTER OUTLETS: Only include whitelisted outlet codes
       const filteredCompletionData = sortedCompletionData.filter(outlet => {
-        // Must have outlet code
         if (!outlet.outletCode || !outlet.outletCode.trim()) {
           console.log(`Excluding outlet without code: ${outlet.outletName}`);
           return false;
         }
-        
-        // Must be in whitelist
         const outletCode = outlet.outletCode.trim().toUpperCase();
         if (!ALLOWED_OUTLET_CODES.includes(outletCode)) {
           console.log(`Excluding outlet not in whitelist: ${outletCode}`);
           return false;
         }
-        
-        console.log(`✅ Including whitelisted outlet: ${outletCode}`);
         return true;
       });
 
@@ -144,13 +139,9 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         const statusOrder = { 'Pending': 2, 'Partial': 1, 'Completed': 0 };
         const statusA = statusOrder[a.overallStatus] || 3;
         const statusB = statusOrder[b.overallStatus] || 3;
-
         if (statusA !== statusB) {
-              return statusA - statusB;
+          return statusA - statusB;
         }
-
-
-
         const indexA = ALLOWED_OUTLET_CODES.indexOf(a.outletCode.toUpperCase());
         const indexB = ALLOWED_OUTLET_CODES.indexOf(b.outletCode.toUpperCase());
         return indexA - indexB;
@@ -165,14 +156,11 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         completedOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Completed').length,
         partialOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Partial').length,
         pendingOutlets: filteredCompletionData.filter(o => o.overallStatus === 'Pending').length,
-        overallCompletionRate: filteredCompletionData.length > 0 ? 
+        overallCompletionRate: filteredCompletionData.length > 0 ?
           ((filteredCompletionData.filter(o => o.overallStatus === 'Completed').length / filteredCompletionData.length) * 100).toFixed(1) : '0.0'
       };
 
       setSummaryData(updatedSummary);
-
-      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets (filtered from ${completionResult.data.length})`);
-      console.log(`Whitelisted outlets found: ${filteredCompletionData.map(o => o.outletCode).join(', ')}`);
 
     } catch (err) {
       setError(`Failed to load completion data: ${err.message}`);
@@ -182,16 +170,13 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     }
   }, [selectedDate, API_URL]);
 
-  // Helper function to sort time slots by standard order
+  // Helper function to sort time slots by correct order
   const sortTimeSlotsByOrder = (timeSlots, order) => {
     return timeSlots.sort((a, b) => {
       const indexA = order.indexOf(a.timeSlot);
       const indexB = order.indexOf(b.timeSlot);
-      
-      // If slot not found in order, put it at the end
       if (indexA === -1) return 1;
       if (indexB === -1) return -1;
-      
       return indexA - indexB;
     });
   };
@@ -238,22 +223,20 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     }
   };
 
-  // Helper function to display outlet name (ONLY show outlet codes)
   const getOutletDisplayName = (outlet) => {
     if (outlet.outletCode && outlet.outletCode.trim()) {
       return outlet.outletCode.trim().toUpperCase();
     }
-    return 'No Code'; // Fallback for outlets without codes
+    return 'No Code';
   };
 
-  // Helper function to get completion status text for each time slot
-  const getTimeSlotCompletionText = (timeSlotStatus) => {
+  const getTimeSlotCompletionText = (timeSlotStatus, outletCode) => {
     const completedSlots = [];
     const pendingSlots = [];
-    
-    // Sort by our standard order
-    const sortedSlots = sortTimeSlotsByOrder(timeSlotStatus, TIME_SLOT_ORDER);
-    
+    const sortedSlots = sortTimeSlotsByOrder(
+      timeSlotStatus,
+      getTimeSlotOrderForOutlet(outletCode)
+    );
     sortedSlots.forEach(slot => {
       if (slot.status === 'Completed') {
         completedSlots.push(slot.timeSlot);
@@ -261,7 +244,6 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         pendingSlots.push(slot.timeSlot);
       }
     });
-    
     if (completedSlots.length === 0) {
       return 'None Completed';
     } else if (pendingSlots.length === 0) {
@@ -273,6 +255,15 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
 
   const filteredData = getFilteredData();
   const uniqueOutletTypes = [...new Set(completionData.map(o => o.outletType).filter(Boolean))];
+
+  // Get all time slots for summary cards (union of all used slots)
+  const allTimeSlots = Array.from(
+    new Set(
+      filteredData.flatMap(outlet =>
+        getTimeSlotOrderForOutlet(outlet.outletCode)
+      )
+    )
+  );
 
   if (loading) {
     return (
@@ -305,13 +296,12 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
       {/* Time Slot Summary Cards */}
       {completionData && (
         <div className="completion-summary">
-          {TIME_SLOT_ORDER.map(timeSlot => {
-            const completedCount = completionData.filter(outlet => 
+          {allTimeSlots.map(timeSlot => {
+            const completedCount = filteredData.filter(outlet =>
               outlet.timeSlotStatus.some(ts => ts.timeSlot === timeSlot && ts.status === 'Completed')
             ).length;
-            const totalCount = completionData.length;
+            const totalCount = filteredData.length;
             const completionRate = totalCount > 0 ? ((completedCount / totalCount) * 100).toFixed(1) : '0.0';
-            
             return (
               <div key={timeSlot} className="summary-card">
                 <div className="summary-number">{completedCount}/{totalCount}</div>
@@ -384,7 +374,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
                 <td>{outlet.outletType || 'N/A'}</td>
                 <td>
                   <div className="status-cell">
-                    <span 
+                    <span
                       className="status-badge"
                       style={{ backgroundColor: getStatusColor(outlet.overallStatus) }}
                     >
@@ -408,7 +398,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
                 <td>
                   <div className="completion-text">
                     <span className="completion-status-text">
-                      {getTimeSlotCompletionText(outlet.timeSlotStatus)}
+                      {getTimeSlotCompletionText(outlet.timeSlotStatus, outlet.outletCode)}
                     </span>
                     <small className="completion-percentage-small">
                       ({outlet.completionPercentage}%)
