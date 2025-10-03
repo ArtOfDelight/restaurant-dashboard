@@ -691,7 +691,7 @@ async function sendCriticalStockAlerts() {
 
     const trackerData = trackerResponse.data.values || [];
     const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yesterday = new Date(now.getTime() - 15 * 60 * 1000);
 
     // Step 3: Find critical items that are recently out of stock
     const alertsToSend = [];
