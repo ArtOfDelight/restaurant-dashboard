@@ -2646,20 +2646,47 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
     const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
+    // Helper to parse date string to Date object (YYYY-MM-DD)
+    const parseDate = (dateStr) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+      return new Date(dateStr);
+    };
+
+    const selectedDateObj = parseDate(selectedDate);
+
     // Process submissions for the selected date
     const submissionsByOutletAndSlot = new Map();
-    
+
     if (submissionsData.length > 1) {
       for (let i = 1; i < submissionsData.length; i++) {
         const row = submissionsData[i];
         if (!row || row.length === 0) continue;
-        
+
         const submissionDate = formatDate(getCellValue(row, 1));
         const timeSlot = getCellValue(row, 2);
         const outlet = getCellValue(row, 3);
-        
-        // Only process submissions for the selected date
-        if (submissionDate === selectedDate && outlet && timeSlot && ALLOWED_OUTLET_CODES.includes(outlet.toUpperCase())) {
+
+        let includeSubmission = false;
+        if (timeSlot === 'Closing') {
+          // Accept "Closing" submissions ONLY from the next calendar day (after midnight)
+          const submissionDateObj = parseDate(submissionDate);
+          if (
+            submissionDateObj.getTime() === selectedDateObj.getTime() + 24 * 60 * 60 * 1000
+          ) {
+            includeSubmission = true;
+          }
+        } else {
+          // For other slots, only accept submissions from selectedDate
+          if (submissionDate === selectedDate) {
+            includeSubmission = true;
+          }
+        }
+
+        if (includeSubmission && outlet && timeSlot && ALLOWED_OUTLET_CODES.includes(outlet.toUpperCase())) {
           const key = `${outlet}|${timeSlot}`;
           submissionsByOutletAndSlot.set(key, true);
         }
