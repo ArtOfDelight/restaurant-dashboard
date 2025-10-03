@@ -152,6 +152,8 @@ async function initializeGoogleServices() {
   }
 }
 
+
+
 // Initialize Broadcasts tab
 async function initializeBroadcastTab() {
   try {
@@ -7088,7 +7090,7 @@ app.post('/api/schedule-critical-alerts', async (req, res) => {
       } catch (error) {
         console.error('Error in scheduled critical stock check:', error.message);
       }
-    }, intervalHours * 60 * 60 * 1000);
+    }, intervalHours  * 60 * 60 * 1000);
     
     console.log(`Critical stock alerts scheduled every ${intervalHours} hours`);
     
@@ -7993,6 +7995,16 @@ app.use((req, res) => {
   });
 });
 
+app.get('/api/critical-stock-status', (req, res) => {
+  res.json({
+    success: true,
+    intervalActive: !!global.criticalStockInterval,
+    intervalMs: global.criticalStockInterval ? global.criticalStockInterval._idleTimeout : null,
+    lastRun: global.lastCriticalStockRun || null,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Start server
 // Start server with bot initialization
 app.listen(PORT, async () => {
@@ -8002,6 +8014,24 @@ app.listen(PORT, async () => {
   console.log('');
   console.log('🚀 Initializing services...');
   await initializeServicesWithTickets();
+
+  // --- AUTO START CRITICAL STOCK SCHEDULER EVERY 1 HOUR ---
+  if (criticalStockBot) {
+    if (global.criticalStockInterval) {
+      clearInterval(global.criticalStockInterval);
+    }
+    global.criticalStockInterval = setInterval(async () => {
+      console.log('Scheduled critical stock check (every 1 hour)');
+      try {
+        await sendCriticalStockAlerts();
+        global.lastCriticalStockRun = new Date().toISOString();
+      } catch (error) {
+        console.error('Error in scheduled critical stock check:', error.message);
+      }
+    }, 60 * 60 * 1000); // 1 hour in milliseconds
+    console.log('✅ Critical stock alert scheduler started (every 1 hour)');
+  }
+
   console.log('✅ Service initialization complete');
   console.log('');
   
@@ -8073,11 +8103,17 @@ app.listen(PORT, async () => {
   console.log('   NEW: Proper graceful shutdown for all processes');
   console.log('   NEW: Enhanced ticket workflow with notifications');
   console.log('   NEW: User mapping and Chat ID management');
+  console.log('   NEW: Critical stock alert scheduler (every 1 hour)');
   console.log('');
   console.log('Ticket Notification Workflow:');
   console.log('   1. Assign ticket → Employee gets instant Telegram notification');
   console.log('   2. Mark as "Resolved" → Ticket creator gets approval request');
   console.log('   3. Approve/Reject directly from Telegram → Auto close/reopen');
+  console.log('');
+  console.log('Critical Stock Monitoring:');
+  console.log('   - Automated hourly checks for items below reorder level');
+  console.log('   - Instant Telegram alerts to management group');
+  console.log('   - Last run time tracked for debugging');
   console.log('');
   console.log('Ready to serve requests with full Telegram functionality!');
 });
