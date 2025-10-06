@@ -2510,7 +2510,7 @@ app.get('/api/checklist-completion-status', async (req, res) => {
           const submissionDateObj = parseDate(submissionDate);
           if (
             submissionDateObj.getTime() === selectedDateObj.getTime() ||
-            submissionDateObj.getTime() === selectedDateObj.getTime() - 24 * 60 * 60 * 1000
+            submissionDateObj.getTime() === selectedDateObj.getTime() + 24 * 60 * 60 * 1000
           ) {
             includeSubmission = true;
           }
