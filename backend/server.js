@@ -2456,6 +2456,7 @@ app.post('/api/checklist-filter', async (req, res) => {
 // Add these endpoints to your server.js file after the existing checklist endpoints
 
 // Checklist completion status endpoint
+// Checklist completion status endpoint
 app.get('/api/checklist-completion-status', async (req, res) => {
   try {
     const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
@@ -2478,18 +2479,6 @@ app.get('/api/checklist-completion-status', async (req, res) => {
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
     const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
 
-    // Helper to parse date string to Date object (YYYY-MM-DD)
-    const parseDate = (dateStr) => {
-      if (!dateStr) return null;
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        return new Date(parts[0], parts[1] - 1, parts[2]);
-      }
-      return new Date(dateStr);
-    };
-
-    const selectedDateObj = parseDate(selectedDate);
-
     // Map for submissions by outlet and slot
     const submissionsByOutletAndSlot = new Map();
 
@@ -2504,22 +2493,8 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         const submittedBy = getCellValue(row, 4);
         const timestamp = getCellValue(row, 5);
 
-        let includeSubmission = false;
-        if (timeSlot === 'Closing') {
-          // Accept "Closing" submissions from selectedDate or next day (after midnight)
-          const submissionDateObj = parseDate(submissionDate);
-          if (
-            submissionDateObj.getTime() === selectedDateObj.getTime() ||
-            submissionDateObj.getTime() === selectedDateObj.getTime() + 24 * 60 * 60 * 1000
-          ) {
-            includeSubmission = true;
-          }
-        } else {
-          // For other slots, only accept submissions from selectedDate
-          if (submissionDate === selectedDate) {
-            includeSubmission = true;
-          }
-        }
+        // Simple logic: ALL time slots (including Closing) only match on exact date
+        const includeSubmission = (submissionDate === selectedDate);
 
         if (includeSubmission && outlet && timeSlot) {
           const key = `${outlet}|${timeSlot}`;
@@ -2623,6 +2598,7 @@ app.get('/api/checklist-completion-status', async (req, res) => {
 });
 
 // Checklist completion summary endpoint
+// Checklist completion summary endpoint
 app.get('/api/checklist-completion-summary', async (req, res) => {
   try {
     const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
@@ -2648,19 +2624,7 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
     const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
-    // Helper to parse date string to Date object (YYYY-MM-DD)
-    const parseDate = (dateStr) => {
-      if (!dateStr) return null;
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        return new Date(parts[0], parts[1] - 1, parts[2]);
-      }
-      return new Date(dateStr);
-    };
-
-    const selectedDateObj = parseDate(selectedDate);
-
-    // Process submissions for the selected date
+    // Map for submissions by outlet and slot
     const submissionsByOutletAndSlot = new Map();
 
     if (submissionsData.length > 1) {
@@ -2672,21 +2636,8 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
         const timeSlot = getCellValue(row, 2);
         const outlet = getCellValue(row, 3);
 
-        let includeSubmission = false;
-        if (timeSlot === 'Closing') {
-          // Accept "Closing" submissions ONLY from the next calendar day (after midnight)
-          const submissionDateObj = parseDate(submissionDate);
-          if (
-            submissionDateObj.getTime() === selectedDateObj.getTime() + 24 * 60 * 60 * 1000
-          ) {
-            includeSubmission = true;
-          }
-        } else {
-          // For other slots, only accept submissions from selectedDate
-          if (submissionDate === selectedDate) {
-            includeSubmission = true;
-          }
-        }
+        // Simple logic: ALL time slots (including Closing) only match on exact date
+        const includeSubmission = (submissionDate === selectedDate);
 
         if (includeSubmission && outlet && timeSlot && ALLOWED_OUTLET_CODES.includes(outlet.toUpperCase())) {
           const key = `${outlet}|${timeSlot}`;
