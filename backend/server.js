@@ -1794,6 +1794,31 @@ function formatDate(dateString) {
   }
 }
 
+// Helper function to check if closing should count for previous day
+function isEarlyMorningClosing(timestamp) {
+  if (!timestamp) return false;
+  
+  try {
+    const date = new Date(timestamp);
+    const hours = date.getHours();
+    // If done between 00:00 and 03:00, it's previous day's closing
+    return hours >= 0 && hours < 3;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Helper function to get the effective date for a submission
+function getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp) {
+  // For Closing slot done in early morning hours, use previous day
+  if (timeSlot === 'Closing' && isEarlyMorningClosing(timestamp)) {
+    const date = new Date(submissionDate);
+    date.setDate(date.getDate() - 1);
+    return date.toISOString().split('T')[0];
+  }
+  return submissionDate;
+}
+
 // Helper function to validate Google Drive image accessibility
 async function validateImageLink(imageLink) {
   if (!imageLink || !imageLink.trim()) {
@@ -2494,7 +2519,8 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         const timestamp = getCellValue(row, 5);
 
         // Simple logic: ALL time slots (including Closing) only match on exact date
-        const includeSubmission = (submissionDate === selectedDate);
+        const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp);
+        const includeSubmission = (effectiveDate === selectedDate);
 
         if (includeSubmission && outlet && timeSlot) {
           const key = `${outlet}|${timeSlot}`;
@@ -2637,7 +2663,8 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
         const outlet = getCellValue(row, 3);
 
         // Simple logic: ALL time slots (including Closing) only match on exact date
-        const includeSubmission = (submissionDate === selectedDate);
+        const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, getCellValue(row, 5));
+        const includeSubmission = (effectiveDate === selectedDate);
 
         if (includeSubmission && outlet && timeSlot && ALLOWED_OUTLET_CODES.includes(outlet.toUpperCase())) {
           const key = `${outlet}|${timeSlot}`;
