@@ -48,11 +48,7 @@ const StockDashboard = lazy(() =>
   }))
 );
 
-const AuditDashboard = lazy(() => 
-  import('./AuditDashboard').catch(() => ({ 
-    default: () => <MissingComponent componentName="AUDIT DASHBOARD" fileName="AuditDashboard" />
-  }))
-);
+
 
 // Loading component
 const LoadingComponent = () => (
