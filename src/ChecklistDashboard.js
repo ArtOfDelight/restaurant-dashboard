@@ -416,6 +416,647 @@ const ChecklistReportGenerator = ({ selectedDate }) => {
   );
 };
 
+// Add this new component after ChecklistReportGenerator component
+
+// NEW: Weekly Report Generator Component
+const WeeklyReportGenerator = () => {
+  const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [activeTab, setActiveTab] = useState('summary');
+
+  const generateWeeklyReport = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/checklist-weekly-report`);
+      
+      if (response.data.success) {
+        setReportData(response.data.report);
+        setShowModal(true);
+        setActiveTab('summary');
+      }
+    } catch (error) {
+      console.error('Error generating weekly report:', error);
+      alert('Failed to generate weekly report. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadWeeklyReport = async (format = 'csv') => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/checklist-download-weekly-report`,
+        {
+          params: { format },
+          responseType: format === 'csv' ? 'blob' : 'json'
+        }
+      );
+
+      if (format === 'csv') {
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        const filename = `weekly-report-${new Date().toISOString().split('T')[0]}.csv`;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        const dataStr = JSON.stringify(response.data, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = window.URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        const filename = `weekly-report-${new Date().toISOString().split('T')[0]}.json`;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Error downloading weekly report:', error);
+      alert('Failed to download report. Please try again.');
+    }
+  };
+
+  return (
+    <>
+      {/* Weekly Report Button */}
+      <button
+        onClick={generateWeeklyReport}
+        disabled={loading}
+        style={{
+          padding: '12px 24px',
+          backgroundColor: loading ? '#9ca3af' : '#8b5cf6',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          fontSize: '14px',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          transition: 'all 0.2s'
+        }}
+        onMouseEnter={(e) => !loading && (e.target.style.backgroundColor = '#7c3aed')}
+        onMouseLeave={(e) => !loading && (e.target.style.backgroundColor = '#8b5cf6')}
+      >
+        {loading ? (
+          <>
+            <span className="loading-spinner" style={{
+              width: '16px',
+              height: '16px',
+              border: '2px solid white',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></span>
+            Generating...
+          </>
+        ) : (
+          <>
+            <span>📅</span>
+            Weekly Report
+          </>
+        )}
+      </button>
+
+      {/* Weekly Report Modal */}
+      {showModal && reportData && (
+        <div 
+          className="report-modal-overlay"
+          onClick={() => setShowModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px'
+          }}
+        >
+          <div 
+            className="report-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              maxWidth: '1400px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(to right, #8b5cf6, #7c3aed)',
+              color: 'white',
+              padding: '24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>
+                  📅 Weekly Checklist Report
+                </h2>
+                <p style={{ fontSize: '14px', opacity: 0.9, marginTop: '4px' }}>
+                  {reportData.summary.reportPeriod.startDate} to {reportData.summary.reportPeriod.endDate} 
+                  ({reportData.summary.reportPeriod.totalDays} days)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  cursor: 'pointer',
+                  fontSize: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {/* Summary Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px',
+                marginBottom: '24px'
+              }}>
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #ddd6fe, #c4b5fd)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #a78bfa'
+                }}>
+                  <div style={{ color: '#6d28d9', fontSize: '12px', fontWeight: '500' }}>Avg Weekly Completion</div>
+                  <div style={{ color: '#5b21b6', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.avgWeeklyCompletion}%
+                  </div>
+                  <div style={{ color: '#6d28d9', fontSize: '11px', marginTop: '4px' }}>
+                    Across {reportData.summary.totalOutlets} outlets
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #dbeafe, #bfdbfe)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #93c5fd'
+                }}>
+                  <div style={{ color: '#2563eb', fontSize: '12px', fontWeight: '500' }}>Total Submissions</div>
+                  <div style={{ color: '#1d4ed8', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.totalSubmissions}
+                  </div>
+                  <div style={{ color: '#2563eb', fontSize: '11px', marginTop: '4px' }}>
+                    By {reportData.summary.totalEmployees} employees
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #dcfce7, #bbf7d0)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #86efac'
+                }}>
+                  <div style={{ color: '#16a34a', fontSize: '12px', fontWeight: '500' }}>Top Performer</div>
+                  <div style={{ color: '#15803d', fontSize: '18px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.topPerformers[0]?.outletCode || 'N/A'}
+                  </div>
+                  <div style={{ color: '#16a34a', fontSize: '11px', marginTop: '4px' }}>
+                    {reportData.summary.topPerformers[0]?.rate || '0'}% completion
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #fef9c3, #fef08a)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #fde047'
+                }}>
+                  <div style={{ color: '#ca8a04', fontSize: '12px', fontWeight: '500' }}>Most Active</div>
+                  <div style={{ color: '#a16207', fontSize: '14px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.mostActiveEmployee?.name || 'N/A'}
+                  </div>
+                  <div style={{ color: '#ca8a04', fontSize: '11px', marginTop: '4px' }}>
+                    {reportData.summary.mostActiveEmployee?.totalSubmissions || 0} submissions
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: '16px' }}>
+                <nav style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                  {['summary', 'daily', 'outlets', 'employees'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        border: 'none',
+                        background: 'none',
+                        borderBottom: `2px solid ${activeTab === tab ? '#8b5cf6' : 'transparent'}`,
+                        color: activeTab === tab ? '#8b5cf6' : '#6b7280',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Tab Content */}
+              <WeeklyReportTabContent
+                activeTab={activeTab}
+                reportData={reportData}
+              />
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              backgroundColor: '#f9fafb',
+              padding: '16px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                Generated: {new Date().toLocaleString('en-IN')}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => downloadWeeklyReport('csv')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#16a34a',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>📥</span>
+                  Download CSV
+                </button>
+                <button
+                  onClick={() => downloadWeeklyReport('json')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>💾</span>
+                  Download JSON
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// NEW: Weekly Report Tab Content Component
+const WeeklyReportTabContent = ({ activeTab, reportData }) => {
+  if (activeTab === 'summary') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Top Performers */}
+        <div>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+            🏆 Top Performers
+          </h3>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {reportData.summary.topPerformers.map((outlet, idx) => (
+              <div key={idx} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '12px 16px',
+                backgroundColor: '#dcfce7',
+                border: '1px solid #86efac',
+                borderRadius: '8px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ 
+                    fontSize: '24px', 
+                    fontWeight: 'bold',
+                    color: idx === 0 ? '#fbbf24' : idx === 1 ? '#9ca3af' : '#cd7f32'
+                  }}>
+                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}
+                  </span>
+                  <div>
+                    <div style={{ fontWeight: '600', color: '#1f2937' }}>{outlet.outletCode}</div>
+                    <div style={{ fontSize: '12px', color: '#6b7280' }}>{outlet.outletName}</div>
+                  </div>
+                </div>
+                <div style={{
+                  padding: '4px 12px',
+                  backgroundColor: '#16a34a',
+                  color: 'white',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}>
+                  {outlet.rate}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom Performers */}
+        <div>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+            ⚠️ Needs Improvement
+          </h3>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {reportData.summary.bottomPerformers.map((outlet, idx) => (
+              <div key={idx} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '12px 16px',
+                backgroundColor: '#fee2e2',
+                border: '1px solid #fca5a5',
+                borderRadius: '8px'
+              }}>
+                <div>
+                  <div style={{ fontWeight: '600', color: '#1f2937' }}>{outlet.outletCode}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>{outlet.outletName}</div>
+                </div>
+                <div style={{
+                  padding: '4px 12px',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}>
+                  {outlet.rate}%
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'daily') {
+    return (
+      <div>
+        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+          📈 Daily Average Completion
+        </h3>
+        <div style={{ display: 'grid', gap: '8px' }}>
+          {reportData.summary.dailyAverages.map((day, idx) => (
+            <div key={idx} style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '12px 16px',
+              backgroundColor: '#f3f4f6',
+              borderRadius: '8px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ fontWeight: '600', color: '#1f2937', minWidth: '100px' }}>
+                  {new Date(day.date).toLocaleDateString('en-IN', { 
+                    month: 'short', 
+                    day: 'numeric' 
+                  })}
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: '#6b7280',
+                  padding: '2px 8px',
+                  backgroundColor: '#fff',
+                  borderRadius: '4px'
+                }}>
+                  {day.dayName}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '200px',
+                  height: '8px',
+                  backgroundColor: '#e5e7eb',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${day.avgCompletion}%`,
+                    height: '100%',
+                    backgroundColor: parseFloat(day.avgCompletion) >= 80 ? '#16a34a' : 
+                                     parseFloat(day.avgCompletion) >= 50 ? '#f59e0b' : '#dc2626',
+                    transition: 'width 0.3s'
+                  }}></div>
+                </div>
+                <div style={{ 
+                  fontWeight: '600', 
+                  color: '#1f2937',
+                  minWidth: '50px',
+                  textAlign: 'right'
+                }}>
+                  {day.avgCompletion}%
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'outlets') {
+    return (
+      <div>
+        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+          🏪 Outlet Weekly Performance
+        </h3>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ 
+            width: '100%', 
+            borderCollapse: 'collapse',
+            fontSize: '14px'
+          }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f3f4f6' }}>
+                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '2px solid #e5e7eb' }}>Outlet</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Type</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Completion</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Slots</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Consistency</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Best Day</th>
+                <th style={{ padding: '12px', textAlign: 'center', borderBottom: '2px solid #e5e7eb' }}>Worst Day</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportData.outletDetails
+                .sort((a, b) => parseFloat(b.weeklyCompletionRate) - parseFloat(a.weeklyCompletionRate))
+                .map((outlet, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '12px' }}>
+                    <div style={{ fontWeight: '600' }}>{outlet.outletCode}</div>
+                    <div style={{ fontSize: '12px', color: '#6b7280' }}>{outlet.outletName}</div>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center' }}>
+                    <span style={{
+                      padding: '2px 8px',
+                      backgroundColor: outlet.outletType === 'Cloud Kitchen' ? '#dbeafe' : '#fef3c7',
+                      color: outlet.outletType === 'Cloud Kitchen' ? '#1e40af' : '#92400e',
+                      borderRadius: '4px',
+                      fontSize: '11px'
+                    }}>
+                      {outlet.outletType}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center' }}>
+                    <span style={{
+                      padding: '4px 8px',
+                      backgroundColor: parseFloat(outlet.weeklyCompletionRate) >= 80 ? '#dcfce7' : 
+                                       parseFloat(outlet.weeklyCompletionRate) >= 50 ? '#fef9c3' : '#fee2e2',
+                      color: parseFloat(outlet.weeklyCompletionRate) >= 80 ? '#15803d' : 
+                             parseFloat(outlet.weeklyCompletionRate) >= 50 ? '#a16207' : '#b91c1c',
+                      borderRadius: '4px',
+                      fontWeight: '600'
+                    }}>
+                      {outlet.weeklyCompletionRate}%
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center', color: '#6b7280' }}>
+                    {outlet.completedSlots}/{outlet.totalSlots}
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center' }}>
+                    <span style={{ fontWeight: '500', color: '#6b7280' }}>
+                      {outlet.consistencyScore}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center', fontSize: '12px' }}>
+                    <div>{new Date(outlet.bestDay?.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}</div>
+                    <div style={{ color: '#16a34a', fontWeight: '600' }}>{outlet.bestDay?.rate}%</div>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'center', fontSize: '12px' }}>
+                    <div>{new Date(outlet.worstDay?.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}</div>
+                    <div style={{ color: '#dc2626', fontWeight: '600' }}>{outlet.worstDay?.rate}%</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'employees') {
+    return (
+      <div>
+        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+          👥 Employee Performance ({reportData.employeeReport.length} employees)
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+          {reportData.employeeReport.map((emp, idx) => (
+            <div key={idx} style={{
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              padding: '16px',
+              backgroundColor: idx < 3 ? '#dbeafe' : '#f9fafb'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: '600', color: '#1f2937', fontSize: '16px' }}>
+                    {idx < 3 && <span style={{ marginRight: '4px' }}>
+                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}
+                    </span>}
+                    {emp.name}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                    Avg: {emp.avgDailySubmissions} submissions/day
+                  </div>
+                </div>
+                <div style={{
+                  padding: '4px 12px',
+                  backgroundColor: '#2563eb',
+                  color: 'white',
+                  borderRadius: '12px',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}>
+                  {emp.totalSubmissions}
+                </div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
+                <div style={{ fontWeight: '500', marginBottom: '4px' }}>Outlets covered:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {emp.outletsCovered.map((outlet, oidx) => (
+                    <span 
+                      key={oidx}
+                      style={{
+                        padding: '2px 6px',
+                        backgroundColor: 'white',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '3px',
+                        fontSize: '11px'
+                      }}
+                    >
+                      {outlet}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
 // NEW: Report Tab Content Component
 const ReportTabContent = ({ 
   activeTab, 
@@ -721,7 +1362,10 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterOutletType, setFilterOutletType] = useState('All');
 
+  // Define standard time slot order
   const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+  
+  // WHITELIST: Only these outlet codes are allowed
   const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
   const loadCompletionData = useCallback(async () => {
@@ -731,6 +1375,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     try {
       const baseUrl = API_URL;
 
+      // Fetch completion status
       const completionResponse = await fetch(
         `${baseUrl}/api/checklist-completion-status?date=${selectedDate}`
       );
@@ -740,6 +1385,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         throw new Error(completionResult.error || 'Failed to fetch completion data');
       }
 
+      // Fetch summary
       const summaryResponse = await fetch(
         `${baseUrl}/api/checklist-completion-summary?date=${selectedDate}`
       );
@@ -749,17 +1395,21 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         throw new Error(summaryResult.error || 'Failed to fetch summary data');
       }
 
+      // Sort completion data time slots according to standard order
       const sortedCompletionData = completionResult.data.map(outlet => ({
         ...outlet,
         timeSlotStatus: sortTimeSlotsByOrder(outlet.timeSlotStatus, TIME_SLOT_ORDER)
       }));
 
+      // FILTER OUTLETS: Only include whitelisted outlet codes
       const filteredCompletionData = sortedCompletionData.filter(outlet => {
+        // Must have outlet code
         if (!outlet.outletCode || !outlet.outletCode.trim()) {
           console.log(`Excluding outlet without code: ${outlet.outletName}`);
           return false;
         }
         
+        // Must be in whitelist
         const outletCode = outlet.outletCode.trim().toUpperCase();
         if (!ALLOWED_OUTLET_CODES.includes(outletCode)) {
           console.log(`Excluding outlet not in whitelist: ${outletCode}`);
@@ -770,6 +1420,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         return true;
       });
 
+      // Sort by status first, then by whitelist order
       filteredCompletionData.sort((a, b) => {
         const statusOrder = { 'Pending': 2, 'Partial': 1, 'Completed': 0 };
         const statusA = statusOrder[a.overallStatus] || 3;
@@ -786,6 +1437,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
 
       setCompletionData(filteredCompletionData);
 
+      // Update summary to reflect filtered count
       const updatedSummary = {
         ...summaryResult.summary,
         totalOutlets: filteredCompletionData.length,
@@ -798,7 +1450,8 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
 
       setSummaryData(updatedSummary);
 
-      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets`);
+      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets (filtered from ${completionResult.data.length})`);
+      console.log(`Whitelisted outlets found: ${filteredCompletionData.map(o => o.outletCode).join(', ')}`);
 
     } catch (err) {
       setError(`Failed to load completion data: ${err.message}`);
@@ -808,11 +1461,13 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     }
   }, [selectedDate]);
 
+  // Helper function to sort time slots by standard order
   const sortTimeSlotsByOrder = (timeSlots, order) => {
     return timeSlots.sort((a, b) => {
       const indexA = order.indexOf(a.timeSlot);
       const indexB = order.indexOf(b.timeSlot);
       
+      // If slot not found in order, put it at the end
       if (indexA === -1) return 1;
       if (indexB === -1) return -1;
       
@@ -862,17 +1517,20 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     }
   };
 
+  // Helper function to display outlet name (ONLY show outlet codes)
   const getOutletDisplayName = (outlet) => {
     if (outlet.outletCode && outlet.outletCode.trim()) {
       return outlet.outletCode.trim().toUpperCase();
     }
-    return 'No Code';
+    return 'No Code'; // Fallback for outlets without codes
   };
 
+  // Helper function to get completion status text for each time slot
   const getTimeSlotCompletionText = (timeSlotStatus) => {
     const completedSlots = [];
     const pendingSlots = [];
     
+    // Sort by our standard order
     const sortedSlots = sortTimeSlotsByOrder(timeSlotStatus, TIME_SLOT_ORDER);
     
     sortedSlots.forEach(slot => {
@@ -908,9 +1566,14 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     <div className="checklist-completion-tracker">
       <div className="completion-header">
         <h2>📋 Checklist Completion Status</h2>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {/* NEW: Add Generate Report button here */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Daily Report Button */}
           <ChecklistReportGenerator selectedDate={selectedDate} />
+          
+          {/* Weekly Report Button */}
+          <WeeklyReportGenerator />
+          
+          {/* Refresh Button */}
           <button onClick={loadCompletionData} className="refresh-btn">
             🔄 Refresh
           </button>
@@ -1059,6 +1722,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         )}
       </div>
 
+      {/* Debug Info for Whitelisted Outlets */}
       <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '5px', fontSize: '12px', color: '#666' }}>
         <strong>Whitelisted Outlets:</strong> {ALLOWED_OUTLET_CODES.join(', ')} ({ALLOWED_OUTLET_CODES.length} total)
         <br />

@@ -2983,103 +2983,348 @@ app.get('/api/checklist-generate-report', async (req, res) => {
 });
 
 // Generate downloadable CSV report
-app.get('/api/checklist-download-report', async (req, res) => {
-  try {
-    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
-    const format = req.query.format || 'csv'; // csv or json
-    
-    console.log(`Generating downloadable ${format} report for date: ${selectedDate}`);
+// === WEEKLY REPORT GENERATION ENDPOINTS ===
 
-    // Reuse the report generation logic
-    const reportEndpoint = `${req.protocol}://${req.get('host')}/api/checklist-generate-report?date=${selectedDate}`;
+// Generate weekly checklist report (last 7 days)
+app.get('/api/checklist-weekly-report', async (req, res) => {
+  try {
+    console.log('Generating weekly checklist report for last 7 days');
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    // Calculate date range for last 7 days
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 6); // Last 7 days including today
+
+    const dateRange = [];
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dateRange.push(new Date(d).toISOString().split('T')[0]);
+    }
+
+    console.log(`Fetching data for dates: ${dateRange.join(', ')}`);
+
+    // Fetch submissions data
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${SUBMISSIONS_TAB}!A:Z`,
+    });
+
+    const submissionsData = submissionsResponse.data.values || [];
+    const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+    const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+    const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
+
+    // Aggregate data by outlet and date
+    const weeklyData = {};
+    const employeeData = new Map();
+
+    // Initialize weekly data structure
+    ALLOWED_OUTLET_CODES.forEach(outletCode => {
+      weeklyData[outletCode] = {
+        outletCode,
+        outletName: getOutletFullName(outletCode),
+        outletType: CLOUD_KITCHEN_CODES.includes(outletCode) ? 'Cloud Kitchen' : 'Restaurant',
+        dailyCompletion: {},
+        totalSlots: 0,
+        completedSlots: 0,
+        weeklyCompletionRate: 0,
+        bestDay: null,
+        worstDay: null,
+        consistencyScore: 0
+      };
+
+      // Initialize each day
+      dateRange.forEach(date => {
+        const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+        const expectedSlots = isCloudKitchen ? 2 : 3; // Cloud kitchens don't have Mid Day
+        
+        weeklyData[outletCode].dailyCompletion[date] = {
+          date,
+          completed: 0,
+          expected: expectedSlots,
+          slots: {},
+          completionRate: 0
+        };
+      });
+    });
+
+    // Process submissions
+    if (submissionsData.length > 1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || row.length === 0) continue;
+
+        const submissionDate = formatDate(getCellValue(row, 1));
+        const timeSlot = getCellValue(row, 2);
+        const outlet = getCellValue(row, 3);
+        const submittedBy = getCellValue(row, 4);
+        const timestamp = getCellValue(row, 5);
+
+        // Check if date is in our range
+        if (!dateRange.includes(submissionDate)) continue;
+        if (!ALLOWED_OUTLET_CODES.includes(outlet)) continue;
+
+        const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp);
+        
+        if (dateRange.includes(effectiveDate) && weeklyData[outlet]) {
+          const dayData = weeklyData[outlet].dailyCompletion[effectiveDate];
+          if (dayData && !dayData.slots[timeSlot]) {
+            dayData.slots[timeSlot] = {
+              completed: true,
+              submittedBy,
+              timestamp
+            };
+            dayData.completed++;
+          }
+
+          // Track employee submissions
+          if (!employeeData.has(submittedBy)) {
+            employeeData.set(submittedBy, {
+              name: submittedBy,
+              totalSubmissions: 0,
+              outletsCovered: new Set(),
+              dailySubmissions: {}
+            });
+          }
+          const empData = employeeData.get(submittedBy);
+          empData.totalSubmissions++;
+          empData.outletsCovered.add(outlet);
+          if (!empData.dailySubmissions[effectiveDate]) {
+            empData.dailySubmissions[effectiveDate] = 0;
+          }
+          empData.dailySubmissions[effectiveDate]++;
+        }
+      }
+    }
+
+    // Calculate statistics for each outlet
+    Object.keys(weeklyData).forEach(outletCode => {
+      const outlet = weeklyData[outletCode];
+      const dailyRates = [];
+
+      Object.keys(outlet.dailyCompletion).forEach(date => {
+        const day = outlet.dailyCompletion[date];
+        day.completionRate = day.expected > 0 ? (day.completed / day.expected * 100) : 0;
+        dailyRates.push(day.completionRate);
+
+        outlet.totalSlots += day.expected;
+        outlet.completedSlots += day.completed;
+      });
+
+      outlet.weeklyCompletionRate = outlet.totalSlots > 0 
+        ? ((outlet.completedSlots / outlet.totalSlots) * 100).toFixed(1)
+        : '0.0';
+
+      // Find best and worst days
+      const sortedDays = Object.entries(outlet.dailyCompletion)
+        .sort((a, b) => b[1].completionRate - a[1].completionRate);
+      
+      if (sortedDays.length > 0) {
+        outlet.bestDay = {
+          date: sortedDays[0][0],
+          rate: sortedDays[0][1].completionRate.toFixed(1)
+        };
+        outlet.worstDay = {
+          date: sortedDays[sortedDays.length - 1][0],
+          rate: sortedDays[sortedDays.length - 1][1].completionRate.toFixed(1)
+        };
+      }
+
+      // Calculate consistency score (100 - standard deviation)
+      if (dailyRates.length > 0) {
+        const mean = dailyRates.reduce((a, b) => a + b, 0) / dailyRates.length;
+        const variance = dailyRates.reduce((sum, rate) => sum + Math.pow(rate - mean, 2), 0) / dailyRates.length;
+        const stdDev = Math.sqrt(variance);
+        outlet.consistencyScore = Math.max(0, (100 - stdDev)).toFixed(1);
+      }
+    });
+
+    // Convert employee map to array
+    const employeeReport = Array.from(employeeData.values()).map(emp => ({
+      name: emp.name,
+      totalSubmissions: emp.totalSubmissions,
+      outletsCovered: Array.from(emp.outletsCovered),
+      dailySubmissions: emp.dailySubmissions,
+      avgDailySubmissions: (emp.totalSubmissions / dateRange.length).toFixed(1)
+    })).sort((a, b) => b.totalSubmissions - a.totalSubmissions);
+
+    // Calculate overall summary
+    const allOutlets = Object.values(weeklyData);
+    const summary = {
+      reportPeriod: {
+        startDate: dateRange[0],
+        endDate: dateRange[dateRange.length - 1],
+        totalDays: dateRange.length
+      },
+      totalOutlets: allOutlets.length,
+      avgWeeklyCompletion: allOutlets.length > 0
+        ? (allOutlets.reduce((sum, o) => sum + parseFloat(o.weeklyCompletionRate), 0) / allOutlets.length).toFixed(1)
+        : '0.0',
+      topPerformers: allOutlets
+        .sort((a, b) => parseFloat(b.weeklyCompletionRate) - parseFloat(a.weeklyCompletionRate))
+        .slice(0, 3)
+        .map(o => ({ 
+          outletCode: o.outletCode, 
+          outletName: o.outletName,
+          rate: o.weeklyCompletionRate 
+        })),
+      bottomPerformers: allOutlets
+        .sort((a, b) => parseFloat(a.weeklyCompletionRate) - parseFloat(b.weeklyCompletionRate))
+        .slice(0, 3)
+        .map(o => ({ 
+          outletCode: o.outletCode, 
+          outletName: o.outletName,
+          rate: o.weeklyCompletionRate 
+        })),
+      totalEmployees: employeeReport.length,
+      totalSubmissions: employeeReport.reduce((sum, e) => sum + e.totalSubmissions, 0),
+      mostActiveEmployee: employeeReport[0] || null,
+      dailyAverages: dateRange.map(date => {
+        const dayTotal = allOutlets.reduce((sum, o) => {
+          const dayData = o.dailyCompletion[date];
+          return sum + (dayData.expected > 0 ? (dayData.completed / dayData.expected * 100) : 0);
+        }, 0);
+        return {
+          date,
+          avgCompletion: allOutlets.length > 0 ? (dayTotal / allOutlets.length).toFixed(1) : '0.0',
+          dayName: new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
+        };
+      })
+    };
+
+    console.log(`Weekly report generated successfully for ${allOutlets.length} outlets`);
+
+    res.json({
+      success: true,
+      report: {
+        summary,
+        outletDetails: allOutlets,
+        employeeReport,
+        dateRange
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error generating weekly report:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Download weekly report as CSV
+app.get('/api/checklist-download-weekly-report', async (req, res) => {
+  try {
+    const format = req.query.format || 'csv';
+    console.log(`Generating downloadable weekly ${format} report`);
+
+    // Fetch the weekly report data
+    const reportEndpoint = `${req.protocol}://${req.get('host')}/api/checklist-weekly-report`;
     const reportResponse = await axios.get(reportEndpoint);
     
     if (!reportResponse.data.success) {
-      throw new Error('Failed to generate report data');
+      throw new Error('Failed to generate weekly report data');
     }
 
     const reportData = reportResponse.data.report;
     const summary = reportData.summary;
 
     if (format === 'csv') {
-      // Generate CSV content
       let csvContent = '';
       
       // Header
-      csvContent += `Checklist Completion Report\n`;
-      csvContent += `Date: ${selectedDate}\n`;
+      csvContent += `Weekly Checklist Completion Report\n`;
+      csvContent += `Period: ${summary.reportPeriod.startDate} to ${summary.reportPeriod.endDate} (${summary.reportPeriod.totalDays} days)\n`;
       csvContent += `Generated: ${new Date().toLocaleString()}\n`;
       csvContent += `\n`;
       
       // Summary
       csvContent += `SUMMARY\n`;
       csvContent += `Total Outlets,${summary.totalOutlets}\n`;
-      csvContent += `Completed,${summary.completedOutlets}\n`;
-      csvContent += `Partial,${summary.partialOutlets}\n`;
-      csvContent += `Pending,${summary.pendingOutlets}\n`;
-      csvContent += `Overall Completion Rate,${summary.overallCompletionRate}%\n`;
-      csvContent += `Total Employees Submitted,${summary.totalEmployeesSubmitted}\n`;
-      csvContent += `Total Employees Not Submitted,${summary.totalEmployeesNotSubmitted}\n`;
+      csvContent += `Average Weekly Completion,${summary.avgWeeklyCompletion}%\n`;
+      csvContent += `Total Employees,${summary.totalEmployees}\n`;
+      csvContent += `Total Submissions,${summary.totalSubmissions}\n`;
       csvContent += `\n`;
 
-      // Completed Outlets
-      csvContent += `\nCOMPLETED OUTLETS (${reportData.completed.length})\n`;
-      csvContent += `Outlet Code,Outlet Name,Type,Completion %,Time Slot,Submitted By,Time\n`;
-      reportData.completed.forEach(outlet => {
-        outlet.timeSlotStatus.forEach(slot => {
-          csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},${outlet.completionPercentage}%,${slot.timeSlot},${slot.submittedBy},${slot.formattedTime}\n`;
+      // Top Performers
+      csvContent += `TOP PERFORMERS\n`;
+      csvContent += `Rank,Outlet Code,Outlet Name,Weekly Completion Rate\n`;
+      summary.topPerformers.forEach((outlet, idx) => {
+        csvContent += `${idx + 1},${outlet.outletCode},${outlet.outletName},${outlet.rate}%\n`;
+      });
+      csvContent += `\n`;
+
+      // Bottom Performers
+      csvContent += `NEEDS IMPROVEMENT\n`;
+      csvContent += `Outlet Code,Outlet Name,Weekly Completion Rate\n`;
+      summary.bottomPerformers.forEach(outlet => {
+        csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.rate}%\n`;
+      });
+      csvContent += `\n`;
+
+      // Daily Averages
+      csvContent += `DAILY AVERAGES\n`;
+      csvContent += `Date,Day,Average Completion\n`;
+      summary.dailyAverages.forEach(day => {
+        csvContent += `${day.date},${day.dayName},${day.avgCompletion}%\n`;
+      });
+      csvContent += `\n`;
+
+      // Outlet Details
+      csvContent += `OUTLET WEEKLY DETAILS\n`;
+      csvContent += `Outlet Code,Outlet Name,Type,Weekly Completion,Completed Slots,Total Slots,Consistency Score,Best Day,Worst Day\n`;
+      reportData.outletDetails.forEach(outlet => {
+        csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},${outlet.weeklyCompletionRate}%,${outlet.completedSlots},${outlet.totalSlots},${outlet.consistencyScore},${outlet.bestDay?.date || 'N/A'} (${outlet.bestDay?.rate || 0}%),${outlet.worstDay?.date || 'N/A'} (${outlet.worstDay?.rate || 0}%)\n`;
+      });
+      csvContent += `\n`;
+
+      // Daily breakdown for each outlet
+      csvContent += `DAILY BREAKDOWN BY OUTLET\n`;
+      csvContent += `Outlet Code,Date,Completed Slots,Expected Slots,Completion Rate,Morning,Mid Day,Closing\n`;
+      reportData.outletDetails.forEach(outlet => {
+        Object.keys(outlet.dailyCompletion).forEach(date => {
+          const day = outlet.dailyCompletion[date];
+          const morning = day.slots['Morning'] ? '✓' : '✗';
+          const midDay = day.slots['Mid Day'] ? '✓' : '✗';
+          const closing = day.slots['Closing'] ? '✓' : '✗';
+          csvContent += `${outlet.outletCode},${date},${day.completed},${day.expected},${day.completionRate.toFixed(1)}%,${morning},${midDay},${closing}\n`;
         });
       });
-
-      // Partial Outlets
-      csvContent += `\nPARTIAL OUTLETS (${reportData.partial.length})\n`;
-      csvContent += `Outlet Code,Outlet Name,Type,Completion %,Time Slot,Status,Submitted By,Time\n`;
-      reportData.partial.forEach(outlet => {
-        outlet.timeSlotStatus.forEach(slot => {
-          csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},${outlet.completionPercentage}%,${slot.timeSlot},${slot.status},${slot.submittedBy},${slot.formattedTime}\n`;
-        });
-      });
-
-      // Pending Outlets
-      csvContent += `\nPENDING OUTLETS (${reportData.pending.length})\n`;
-      csvContent += `Outlet Code,Outlet Name,Type,Missing Time Slots\n`;
-      reportData.pending.forEach(outlet => {
-        csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},"${outlet.missingSlots.join(', ')}"\n`;
-      });
+      csvContent += `\n`;
 
       // Employee Report
-      csvContent += `\nEMPLOYEE SUBMISSIONS\n`;
-      csvContent += `Employee Name,Total Submissions,Outlets Covered\n`;
+      csvContent += `EMPLOYEE PERFORMANCE\n`;
+      csvContent += `Employee Name,Total Submissions,Outlets Covered,Avg Daily Submissions\n`;
       reportData.employeeReport.forEach(emp => {
-        const outlets = [...new Set(emp.submissions.map(s => s.outlet))].join(', ');
-        csvContent += `${emp.name},${emp.totalSubmissions},"${outlets}"\n`;
+        csvContent += `${emp.name},${emp.totalSubmissions},"${emp.outletsCovered.join(', ')}",${emp.avgDailySubmissions}\n`;
       });
 
-      // Employees Not Submitted
-      if (reportData.employeesNotSubmitted.length > 0) {
-        csvContent += `\nEMPLOYEES WHO DID NOT SUBMIT\n`;
-        csvContent += `Employee Name\n`;
-        reportData.employeesNotSubmitted.forEach(emp => {
-          csvContent += `${emp}\n`;
-        });
-      }
-
       // Set headers for CSV download
+      const filename = `checklist-weekly-report-${summary.reportPeriod.startDate}-to-${summary.reportPeriod.endDate}.csv`;
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=checklist-report-${selectedDate}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
       res.send(csvContent);
       
     } else if (format === 'json') {
-      // Return JSON for download
+      const filename = `checklist-weekly-report-${summary.reportPeriod.startDate}-to-${summary.reportPeriod.endDate}.json`;
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename=checklist-report-${selectedDate}.json`);
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
       res.json(reportData);
     } else {
       throw new Error('Invalid format. Use csv or json');
     }
 
   } catch (error) {
-    console.error('Error generating downloadable report:', error.message);
+    console.error('Error generating downloadable weekly report:', error.message);
     res.status(500).json({
       success: false,
       error: error.message
