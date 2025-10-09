@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import './ChecklistDashboard.css';
+
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 // Helper functions
@@ -71,7 +73,645 @@ const transformDebugResponses = (rawResponses) => {
   });
 };
 
-// Checklist Completion Tracker Component
+// NEW: Checklist Report Generator Component
+const ChecklistReportGenerator = ({ selectedDate }) => {
+  const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [activeReportTab, setActiveReportTab] = useState('completed');
+
+  const generateReport = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/checklist-generate-report`,
+        { params: { date: selectedDate } }
+      );
+      
+      if (response.data.success) {
+        setReportData(response.data.report);
+        setShowModal(true);
+        setActiveReportTab('completed'); // Reset to first tab
+      }
+    } catch (error) {
+      console.error('Error generating report:', error);
+      alert('Failed to generate report. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadReport = async (format = 'csv') => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/checklist-download-report`,
+        {
+          params: { date: selectedDate, format },
+          responseType: format === 'csv' ? 'blob' : 'json'
+        }
+      );
+
+      if (format === 'csv') {
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `checklist-report-${selectedDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        const dataStr = JSON.stringify(response.data, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = window.URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `checklist-report-${selectedDate}.json`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Error downloading report:', error);
+      alert('Failed to download report. Please try again.');
+    }
+  };
+
+  return (
+    <>
+      {/* Generate Report Button */}
+      <button
+        onClick={generateReport}
+        disabled={loading}
+        className="generate-report-btn"
+        style={{
+          padding: '12px 24px',
+          backgroundColor: loading ? '#9ca3af' : '#3b82f6',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          fontSize: '14px',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          transition: 'all 0.2s'
+        }}
+      >
+        {loading ? (
+          <>
+            <span className="loading-spinner" style={{
+              width: '16px',
+              height: '16px',
+              border: '2px solid white',
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></span>
+            Generating...
+          </>
+        ) : (
+          <>
+            <span>📊</span>
+            Generate Report
+          </>
+        )}
+      </button>
+
+      {/* Report Modal */}
+      {showModal && reportData && (
+        <div 
+          className="report-modal-overlay"
+          onClick={() => setShowModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px'
+          }}
+        >
+          <div 
+            className="report-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              maxWidth: '1200px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(to right, #2563eb, #1d4ed8)',
+              color: 'white',
+              padding: '24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>
+                  Checklist Completion Report
+                </h2>
+                <p style={{ fontSize: '14px', opacity: 0.9, marginTop: '4px' }}>
+                  Date: {new Date(selectedDate).toLocaleDateString('en-IN', { 
+                    day: '2-digit', month: 'short', year: 'numeric' 
+                  })}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  cursor: 'pointer',
+                  fontSize: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(255, 255, 255, 0.2)'}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {/* Summary Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px',
+                marginBottom: '24px'
+              }}>
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #dcfce7, #bbf7d0)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #86efac'
+                }}>
+                  <div style={{ color: '#16a34a', fontSize: '12px', fontWeight: '500' }}>Completed</div>
+                  <div style={{ color: '#15803d', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.completedOutlets}
+                  </div>
+                  <div style={{ color: '#16a34a', fontSize: '11px', marginTop: '4px' }}>
+                    {((reportData.summary.completedOutlets / reportData.summary.totalOutlets) * 100).toFixed(0)}% of total
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #fef9c3, #fef08a)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #fde047'
+                }}>
+                  <div style={{ color: '#ca8a04', fontSize: '12px', fontWeight: '500' }}>Partial</div>
+                  <div style={{ color: '#a16207', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.partialOutlets}
+                  </div>
+                  <div style={{ color: '#ca8a04', fontSize: '11px', marginTop: '4px' }}>Need attention</div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #fee2e2, #fecaca)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #fca5a5'
+                }}>
+                  <div style={{ color: '#dc2626', fontSize: '12px', fontWeight: '500' }}>Pending</div>
+                  <div style={{ color: '#b91c1c', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.pendingOutlets}
+                  </div>
+                  <div style={{ color: '#dc2626', fontSize: '11px', marginTop: '4px' }}>Not started</div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #dbeafe, #bfdbfe)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #93c5fd'
+                }}>
+                  <div style={{ color: '#2563eb', fontSize: '12px', fontWeight: '500' }}>Overall Rate</div>
+                  <div style={{ color: '#1d4ed8', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.overallCompletionRate}%
+                  </div>
+                  <div style={{ color: '#2563eb', fontSize: '11px', marginTop: '4px' }}>
+                    {reportData.summary.totalEmployeesSubmitted} employees
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: '16px' }}>
+                <nav style={{ display: 'flex', gap: '16px' }}>
+                  {['completed', 'partial', 'pending', 'employees'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveReportTab(tab)}
+                      style={{
+                        padding: '8px 16px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        border: 'none',
+                        background: 'none',
+                        borderBottom: `2px solid ${activeReportTab === tab ? '#2563eb' : 'transparent'}`,
+                        color: activeReportTab === tab ? '#2563eb' : '#6b7280',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Tab Content */}
+              <ReportTabContent
+                activeTab={activeReportTab}
+                completed={reportData.completed}
+                partial={reportData.partial}
+                pending={reportData.pending}
+                employeeReport={reportData.employeeReport}
+                employeesNotSubmitted={reportData.employeesNotSubmitted}
+              />
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              backgroundColor: '#f9fafb',
+              padding: '16px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                Generated: {new Date(reportData.summary.reportGeneratedAt).toLocaleString('en-IN')}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => downloadReport('csv')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#16a34a',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>📥</span>
+                  Download CSV
+                </button>
+                <button
+                  onClick={() => downloadReport('json')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>💾</span>
+                  Download JSON
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// NEW: Report Tab Content Component
+const ReportTabContent = ({ 
+  activeTab, 
+  completed, 
+  partial, 
+  pending, 
+  employeeReport, 
+  employeesNotSubmitted 
+}) => {
+  if (activeTab === 'completed') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {completed.map((outlet, index) => (
+          <div key={index} style={{
+            border: '1px solid #86efac',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#dcfce7'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', margin: 0 }}>
+                  {outlet.outletName}
+                </h3>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  {outlet.outletCode} • {outlet.outletType}
+                </span>
+              </div>
+              <span style={{
+                padding: '4px 12px',
+                backgroundColor: '#16a34a',
+                color: 'white',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '500'
+              }}>
+                100% Complete
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              {outlet.timeSlotStatus.map((slot, idx) => (
+                <div key={idx} style={{
+                  backgroundColor: 'white',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  border: '1px solid #86efac'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: '500', color: '#1f2937' }}>{slot.timeSlot}</span>
+                    <span style={{ color: '#16a34a', fontSize: '18px' }}>✓</span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    <div>By: {slot.submittedBy}</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>{slot.formattedTime}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {completed.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px', color: '#6b7280' }}>
+            No outlets have completed all checklists yet.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (activeTab === 'partial') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {partial.map((outlet, index) => (
+          <div key={index} style={{
+            border: '1px solid #fde047',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#fef9c3'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', margin: 0 }}>
+                  {outlet.outletName}
+                </h3>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  {outlet.outletCode} • {outlet.outletType}
+                </span>
+              </div>
+              <span style={{
+                padding: '4px 12px',
+                backgroundColor: '#ca8a04',
+                color: 'white',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '500'
+              }}>
+                {outlet.completionPercentage}% Complete
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              {outlet.timeSlotStatus.map((slot, idx) => (
+                <div 
+                  key={idx} 
+                  style={{
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: `1px solid ${slot.status === 'Completed' ? '#86efac' : '#d1d5db'}`,
+                    backgroundColor: slot.status === 'Completed' ? '#dcfce7' : 'white'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: '500', color: '#1f2937' }}>{slot.timeSlot}</span>
+                    {slot.status === 'Completed' ? (
+                      <span style={{ color: '#16a34a', fontSize: '18px' }}>✓</span>
+                    ) : (
+                      <span style={{ color: '#9ca3af', fontSize: '18px' }}>✗</span>
+                    )}
+                  </div>
+                  {slot.status === 'Completed' ? (
+                    <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                      <div>By: {slot.submittedBy}</div>
+                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>{slot.formattedTime}</div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: '500' }}>Not Submitted</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {partial.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px', color: '#6b7280' }}>
+            No partially completed outlets.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (activeTab === 'pending') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {pending.map((outlet, index) => (
+          <div key={index} style={{
+            border: '1px solid #fca5a5',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#fee2e2'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', margin: 0 }}>
+                  {outlet.outletName}
+                </h3>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  {outlet.outletCode} • {outlet.outletType}
+                </span>
+              </div>
+              <span style={{
+                padding: '4px 12px',
+                backgroundColor: '#dc2626',
+                color: 'white',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: '500'
+              }}>
+                0% Complete
+              </span>
+            </div>
+            <div style={{ marginTop: '12px', padding: '12px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #fca5a5' }}>
+              <div style={{ fontSize: '14px', fontWeight: '500', color: '#1f2937', marginBottom: '8px' }}>
+                Missing Submissions:
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {outlet.missingSlots.map((slot, idx) => (
+                  <span 
+                    key={idx}
+                    style={{
+                      padding: '4px 12px',
+                      backgroundColor: '#fee2e2',
+                      color: '#b91c1c',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '500'
+                    }}
+                  >
+                    {slot}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+        {pending.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px', color: '#6b7280' }}>
+            No pending outlets - all have at least started!
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (activeTab === 'employees') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Employees Who Submitted */}
+        <div>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
+            Employees Who Submitted ({employeeReport.length})
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+            {employeeReport.map((emp, index) => (
+              <div key={index} style={{
+                border: '1px solid #93c5fd',
+                borderRadius: '8px',
+                padding: '16px',
+                backgroundColor: '#dbeafe'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <div style={{ fontWeight: '600', color: '#1f2937' }}>{emp.name}</div>
+                  <span style={{
+                    padding: '2px 8px',
+                    backgroundColor: '#2563eb',
+                    color: 'white',
+                    borderRadius: '10px',
+                    fontSize: '11px'
+                  }}>
+                    {emp.totalSubmissions} submissions
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                  <div style={{ fontWeight: '500', marginBottom: '4px' }}>Outlets covered:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {[...new Set(emp.submissions.map(s => s.outlet))].map((outlet, idx) => (
+                      <span 
+                        key={idx}
+                        style={{
+                          padding: '2px 6px',
+                          backgroundColor: 'white',
+                          border: '1px solid #93c5fd',
+                          borderRadius: '3px',
+                          fontSize: '10px'
+                        }}
+                      >
+                        {outlet}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Employees Who Haven't Submitted */}
+        {employeesNotSubmitted.length > 0 && (
+          <div>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#dc2626', marginBottom: '12px' }}>
+              Employees Who Haven't Submitted ({employeesNotSubmitted.length})
+            </h3>
+            <div style={{
+              border: '1px solid #fca5a5',
+              borderRadius: '8px',
+              padding: '16px',
+              backgroundColor: '#fee2e2'
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                {employeesNotSubmitted.map((emp, index) => (
+                  <div 
+                    key={index}
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: 'white',
+                      border: '1px solid #fca5a5',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      color: '#1f2937'
+                    }}
+                  >
+                    {emp}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+};
+
+// Checklist Completion Tracker Component (unchanged from your original)
 const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
@@ -81,10 +721,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterOutletType, setFilterOutletType] = useState('All');
 
-  // Define standard time slot order
   const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
-  
-  // WHITELIST: Only these outlet codes are allowed
   const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
 
   const loadCompletionData = useCallback(async () => {
@@ -94,7 +731,6 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     try {
       const baseUrl = API_URL;
 
-      // Fetch completion status
       const completionResponse = await fetch(
         `${baseUrl}/api/checklist-completion-status?date=${selectedDate}`
       );
@@ -104,7 +740,6 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         throw new Error(completionResult.error || 'Failed to fetch completion data');
       }
 
-      // Fetch summary
       const summaryResponse = await fetch(
         `${baseUrl}/api/checklist-completion-summary?date=${selectedDate}`
       );
@@ -114,21 +749,17 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         throw new Error(summaryResult.error || 'Failed to fetch summary data');
       }
 
-      // Sort completion data time slots according to standard order
       const sortedCompletionData = completionResult.data.map(outlet => ({
         ...outlet,
         timeSlotStatus: sortTimeSlotsByOrder(outlet.timeSlotStatus, TIME_SLOT_ORDER)
       }));
 
-      // FILTER OUTLETS: Only include whitelisted outlet codes
       const filteredCompletionData = sortedCompletionData.filter(outlet => {
-        // Must have outlet code
         if (!outlet.outletCode || !outlet.outletCode.trim()) {
           console.log(`Excluding outlet without code: ${outlet.outletName}`);
           return false;
         }
         
-        // Must be in whitelist
         const outletCode = outlet.outletCode.trim().toUpperCase();
         if (!ALLOWED_OUTLET_CODES.includes(outletCode)) {
           console.log(`Excluding outlet not in whitelist: ${outletCode}`);
@@ -139,17 +770,14 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         return true;
       });
 
-      // Sort by outlet code order in whitelist for consistent ordering
       filteredCompletionData.sort((a, b) => {
         const statusOrder = { 'Pending': 2, 'Partial': 1, 'Completed': 0 };
         const statusA = statusOrder[a.overallStatus] || 3;
         const statusB = statusOrder[b.overallStatus] || 3;
 
         if (statusA !== statusB) {
-              return statusA - statusB;
+          return statusA - statusB;
         }
-
-
 
         const indexA = ALLOWED_OUTLET_CODES.indexOf(a.outletCode.toUpperCase());
         const indexB = ALLOWED_OUTLET_CODES.indexOf(b.outletCode.toUpperCase());
@@ -158,7 +786,6 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
 
       setCompletionData(filteredCompletionData);
 
-      // Update summary to reflect filtered count
       const updatedSummary = {
         ...summaryResult.summary,
         totalOutlets: filteredCompletionData.length,
@@ -171,8 +798,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
 
       setSummaryData(updatedSummary);
 
-      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets (filtered from ${completionResult.data.length})`);
-      console.log(`Whitelisted outlets found: ${filteredCompletionData.map(o => o.outletCode).join(', ')}`);
+      console.log(`✅ Loaded completion data for ${filteredCompletionData.length} whitelisted outlets`);
 
     } catch (err) {
       setError(`Failed to load completion data: ${err.message}`);
@@ -180,15 +806,13 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, API_URL]);
+  }, [selectedDate]);
 
-  // Helper function to sort time slots by standard order
   const sortTimeSlotsByOrder = (timeSlots, order) => {
     return timeSlots.sort((a, b) => {
       const indexA = order.indexOf(a.timeSlot);
       const indexB = order.indexOf(b.timeSlot);
       
-      // If slot not found in order, put it at the end
       if (indexA === -1) return 1;
       if (indexB === -1) return -1;
       
@@ -238,20 +862,17 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     }
   };
 
-  // Helper function to display outlet name (ONLY show outlet codes)
   const getOutletDisplayName = (outlet) => {
     if (outlet.outletCode && outlet.outletCode.trim()) {
       return outlet.outletCode.trim().toUpperCase();
     }
-    return 'No Code'; // Fallback for outlets without codes
+    return 'No Code';
   };
 
-  // Helper function to get completion status text for each time slot
   const getTimeSlotCompletionText = (timeSlotStatus) => {
     const completedSlots = [];
     const pendingSlots = [];
     
-    // Sort by our standard order
     const sortedSlots = sortTimeSlotsByOrder(timeSlotStatus, TIME_SLOT_ORDER);
     
     sortedSlots.forEach(slot => {
@@ -287,9 +908,13 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
     <div className="checklist-completion-tracker">
       <div className="completion-header">
         <h2>📋 Checklist Completion Status</h2>
-        <button onClick={loadCompletionData} className="refresh-btn">
-          🔄 Refresh
-        </button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {/* NEW: Add Generate Report button here */}
+          <ChecklistReportGenerator selectedDate={selectedDate} />
+          <button onClick={loadCompletionData} className="refresh-btn">
+            🔄 Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -434,7 +1059,6 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         )}
       </div>
 
-      {/* Debug Info for Whitelisted Outlets */}
       <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#f5f5f5', borderRadius: '5px', fontSize: '12px', color: '#666' }}>
         <strong>Whitelisted Outlets:</strong> {ALLOWED_OUTLET_CODES.join(', ')} ({ALLOWED_OUTLET_CODES.length} total)
         <br />
@@ -446,7 +1070,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   );
 };
 
-// Main ChecklistDashboard Component
+// Main ChecklistDashboard Component (rest of your original code continues...)
 const ChecklistDashboard = () => {
   const [submissions, setSubmissions] = useState([]);
   const [responses, setResponses] = useState([]);
@@ -460,12 +1084,12 @@ const ChecklistDashboard = () => {
   });
   const [expandedSubmission, setExpandedSubmission] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
-  const [activeTab, setActiveTab] = useState('submissions'); // New state for tab management
+  const [activeTab, setActiveTab] = useState('submissions');
 
   const [filterOptions, setFilterOptions] = useState({
     outlets: [],
     employees: [],
-    timeSlots: ['Morning', 'Mid Day', 'Closing'], // Fixed order
+    timeSlots: ['Morning', 'Mid Day', 'Closing'],
   });
 
   const updateFilterOptions = useCallback((submissionsData) => {
@@ -476,7 +1100,7 @@ const ChecklistDashboard = () => {
       ...prev,
       outlets: outlets.sort(),
       employees: employees.sort(),
-      timeSlots: ['Morning', 'Mid Day', 'Closing'], // Always maintain this order
+      timeSlots: ['Morning', 'Mid Day', 'Closing'],
     }));
   }, []);
 
@@ -627,7 +1251,7 @@ const ChecklistDashboard = () => {
     loadChecklistData();
     const interval = setInterval(loadChecklistData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [loadChecklistData]);
+  }, [loadChecklistData, updateFilterOptions]);
 
   const getFilteredSubmissions = () => {
     return submissions.filter(submission => {
@@ -682,11 +1306,11 @@ const ChecklistDashboard = () => {
 
   const getTimeSlotEmoji = (timeSlot) => {
     const emojis = {
-      'Morning': '',
-      'Mid Day': '',
-      'Closing': '',
+      'Morning': '🌅',
+      'Mid Day': '☀️',
+      'Closing': '🌙',
     };
-    return emojis[timeSlot] || '';
+    return emojis[timeSlot] || '📋';
   };
 
   const getImageUrl = (imageLink) => {
@@ -922,7 +1546,7 @@ const ChecklistDashboard = () => {
   );
 };
 
-// SubmissionCard and ResponseItem components remain unchanged
+// SubmissionCard Component (unchanged)
 const SubmissionCard = ({ 
   submission, 
   responses, 
@@ -1001,6 +1625,7 @@ const SubmissionCard = ({
   );
 };
 
+// ResponseItem Component (unchanged)
 const ResponseItem = ({ response, onImageClick, getImageUrl }) => {
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);

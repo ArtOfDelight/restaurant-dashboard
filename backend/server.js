@@ -2784,6 +2784,346 @@ app.get('/api/debug-checklist', async (req, res) => {
   }
 });
 
+// === CHECKLIST REPORT GENERATION ENDPOINTS ===
+
+// Generate comprehensive checklist report
+app.get('/api/checklist-generate-report', async (req, res) => {
+  try {
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+    console.log(`Generating checklist report for date: ${selectedDate}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    // Fetch submissions data
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${SUBMISSIONS_TAB}!A:Z`,
+    });
+
+    const submissionsData = submissionsResponse.data.values || [];
+    const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
+    const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+    const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
+
+    // Map for submissions by outlet and slot
+    const submissionsByOutletAndSlot = new Map();
+
+    if (submissionsData.length > 1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || row.length === 0) continue;
+
+        const submissionDate = formatDate(getCellValue(row, 1));
+        const timeSlot = getCellValue(row, 2);
+        const outlet = getCellValue(row, 3);
+        const submittedBy = getCellValue(row, 4);
+        const timestamp = getCellValue(row, 5);
+
+        const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp);
+        const includeSubmission = (effectiveDate === selectedDate);
+
+        if (includeSubmission && outlet && timeSlot) {
+          const key = `${outlet}|${timeSlot}`;
+          if (!submissionsByOutletAndSlot.has(key)) {
+            submissionsByOutletAndSlot.set(key, {
+              outlet,
+              timeSlot,
+              submittedBy,
+              timestamp,
+              count: 1
+            });
+          } else {
+            const existing = submissionsByOutletAndSlot.get(key);
+            if (new Date(timestamp) > new Date(existing.timestamp)) {
+              submissionsByOutletAndSlot.set(key, {
+                outlet,
+                timeSlot,
+                submittedBy,
+                timestamp,
+                count: existing.count + 1
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Build report data
+    const completed = [];
+    const partial = [];
+    const pending = [];
+    const employeeSubmissions = new Map(); // Track submissions per employee
+
+    ALLOWED_OUTLET_CODES.forEach(outletCode => {
+      const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+      const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : TIME_SLOT_ORDER;
+
+      const timeSlotStatus = timeSlots.map(timeSlot => {
+        const key = `${outletCode}|${timeSlot}`;
+        const submission = submissionsByOutletAndSlot.get(key);
+
+        if (submission) {
+          // Track employee submissions
+          const employee = submission.submittedBy;
+          if (!employeeSubmissions.has(employee)) {
+            employeeSubmissions.set(employee, {
+              name: employee,
+              submissions: [],
+              totalSubmissions: 0
+            });
+          }
+          const empData = employeeSubmissions.get(employee);
+          empData.submissions.push({
+            outlet: outletCode,
+            timeSlot: timeSlot,
+            timestamp: submission.timestamp
+          });
+          empData.totalSubmissions++;
+        }
+
+        return {
+          timeSlot,
+          status: submission ? 'Completed' : 'Pending',
+          submittedBy: submission ? submission.submittedBy : '',
+          timestamp: submission ? submission.timestamp : '',
+          formattedTime: submission ? formatTimestamp(submission.timestamp) : ''
+        };
+      });
+
+      const completedSlots = timeSlotStatus.filter(slot => slot.status === 'Completed').length;
+      const totalSlots = timeSlotStatus.length;
+      const completionPercentage = Math.round((completedSlots / totalSlots) * 100);
+
+      let overallStatus = 'Pending';
+      if (completedSlots === totalSlots) {
+        overallStatus = 'Completed';
+      } else if (completedSlots > 0) {
+        overallStatus = 'Partial';
+      }
+
+      const outletData = {
+        outletCode: outletCode,
+        outletName: getOutletFullName(outletCode),
+        outletType: isCloudKitchen ? 'Cloud Kitchen' : 'Restaurant',
+        overallStatus,
+        completionPercentage,
+        completedSlots,
+        totalSlots,
+        timeSlotStatus,
+        missingSlots: timeSlotStatus.filter(slot => slot.status === 'Pending').map(slot => slot.timeSlot)
+      };
+
+      // Categorize outlets
+      if (overallStatus === 'Completed') {
+        completed.push(outletData);
+      } else if (overallStatus === 'Partial') {
+        partial.push(outletData);
+      } else {
+        pending.push(outletData);
+      }
+    });
+
+    // Convert employee map to array and sort
+    const employeeReport = Array.from(employeeSubmissions.values())
+      .sort((a, b) => b.totalSubmissions - a.totalSubmissions);
+
+    // Find employees who haven't submitted anything
+    const allEmployees = new Set();
+    submissionsData.slice(1).forEach(row => {
+      if (row && row[4]) {
+        allEmployees.add(getCellValue(row, 4));
+      }
+    });
+
+    const employeesNotSubmitted = Array.from(allEmployees)
+      .filter(emp => !employeeSubmissions.has(emp));
+
+    // Calculate summary
+    const summary = {
+      reportDate: selectedDate,
+      reportGeneratedAt: new Date().toISOString(),
+      totalOutlets: ALLOWED_OUTLET_CODES.length,
+      completedOutlets: completed.length,
+      partialOutlets: partial.length,
+      pendingOutlets: pending.length,
+      overallCompletionRate: ((completed.length / ALLOWED_OUTLET_CODES.length) * 100).toFixed(1),
+      totalEmployeesSubmitted: employeeSubmissions.size,
+      totalEmployeesNotSubmitted: employeesNotSubmitted.length,
+      totalSubmissions: Array.from(employeeSubmissions.values()).reduce((sum, emp) => sum + emp.totalSubmissions, 0)
+    };
+
+    console.log(`Report generated: ${completed.length} completed, ${partial.length} partial, ${pending.length} pending`);
+
+    res.json({
+      success: true,
+      report: {
+        summary,
+        completed,
+        partial,
+        pending,
+        employeeReport,
+        employeesNotSubmitted
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error generating checklist report:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Generate downloadable CSV report
+app.get('/api/checklist-download-report', async (req, res) => {
+  try {
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+    const format = req.query.format || 'csv'; // csv or json
+    
+    console.log(`Generating downloadable ${format} report for date: ${selectedDate}`);
+
+    // Reuse the report generation logic
+    const reportEndpoint = `${req.protocol}://${req.get('host')}/api/checklist-generate-report?date=${selectedDate}`;
+    const reportResponse = await axios.get(reportEndpoint);
+    
+    if (!reportResponse.data.success) {
+      throw new Error('Failed to generate report data');
+    }
+
+    const reportData = reportResponse.data.report;
+    const summary = reportData.summary;
+
+    if (format === 'csv') {
+      // Generate CSV content
+      let csvContent = '';
+      
+      // Header
+      csvContent += `Checklist Completion Report\n`;
+      csvContent += `Date: ${selectedDate}\n`;
+      csvContent += `Generated: ${new Date().toLocaleString()}\n`;
+      csvContent += `\n`;
+      
+      // Summary
+      csvContent += `SUMMARY\n`;
+      csvContent += `Total Outlets,${summary.totalOutlets}\n`;
+      csvContent += `Completed,${summary.completedOutlets}\n`;
+      csvContent += `Partial,${summary.partialOutlets}\n`;
+      csvContent += `Pending,${summary.pendingOutlets}\n`;
+      csvContent += `Overall Completion Rate,${summary.overallCompletionRate}%\n`;
+      csvContent += `Total Employees Submitted,${summary.totalEmployeesSubmitted}\n`;
+      csvContent += `Total Employees Not Submitted,${summary.totalEmployeesNotSubmitted}\n`;
+      csvContent += `\n`;
+
+      // Completed Outlets
+      csvContent += `\nCOMPLETED OUTLETS (${reportData.completed.length})\n`;
+      csvContent += `Outlet Code,Outlet Name,Type,Completion %,Time Slot,Submitted By,Time\n`;
+      reportData.completed.forEach(outlet => {
+        outlet.timeSlotStatus.forEach(slot => {
+          csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},${outlet.completionPercentage}%,${slot.timeSlot},${slot.submittedBy},${slot.formattedTime}\n`;
+        });
+      });
+
+      // Partial Outlets
+      csvContent += `\nPARTIAL OUTLETS (${reportData.partial.length})\n`;
+      csvContent += `Outlet Code,Outlet Name,Type,Completion %,Time Slot,Status,Submitted By,Time\n`;
+      reportData.partial.forEach(outlet => {
+        outlet.timeSlotStatus.forEach(slot => {
+          csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},${outlet.completionPercentage}%,${slot.timeSlot},${slot.status},${slot.submittedBy},${slot.formattedTime}\n`;
+        });
+      });
+
+      // Pending Outlets
+      csvContent += `\nPENDING OUTLETS (${reportData.pending.length})\n`;
+      csvContent += `Outlet Code,Outlet Name,Type,Missing Time Slots\n`;
+      reportData.pending.forEach(outlet => {
+        csvContent += `${outlet.outletCode},${outlet.outletName},${outlet.outletType},"${outlet.missingSlots.join(', ')}"\n`;
+      });
+
+      // Employee Report
+      csvContent += `\nEMPLOYEE SUBMISSIONS\n`;
+      csvContent += `Employee Name,Total Submissions,Outlets Covered\n`;
+      reportData.employeeReport.forEach(emp => {
+        const outlets = [...new Set(emp.submissions.map(s => s.outlet))].join(', ');
+        csvContent += `${emp.name},${emp.totalSubmissions},"${outlets}"\n`;
+      });
+
+      // Employees Not Submitted
+      if (reportData.employeesNotSubmitted.length > 0) {
+        csvContent += `\nEMPLOYEES WHO DID NOT SUBMIT\n`;
+        csvContent += `Employee Name\n`;
+        reportData.employeesNotSubmitted.forEach(emp => {
+          csvContent += `${emp}\n`;
+        });
+      }
+
+      // Set headers for CSV download
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=checklist-report-${selectedDate}.csv`);
+      res.send(csvContent);
+      
+    } else if (format === 'json') {
+      // Return JSON for download
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename=checklist-report-${selectedDate}.json`);
+      res.json(reportData);
+    } else {
+      throw new Error('Invalid format. Use csv or json');
+    }
+
+  } catch (error) {
+    console.error('Error generating downloadable report:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Helper function to format timestamp
+function formatTimestamp(timestamp) {
+  if (!timestamp) return '';
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch (error) {
+    return timestamp;
+  }
+}
+
+// Helper function to get full outlet names
+function getOutletFullName(code) {
+  const outletNames = {
+    'RR': 'Residency Road',
+    'KOR': 'Koramangala',
+    'JAY': 'Jayanagar',
+    'SKN': 'Sahakarnagar',
+    'RAJ': 'Rajajinagar',
+    'KLN': 'Kalyan Nagar',
+    'BLN': 'Bellandur',
+    'WF': 'Whitefield',
+    'HSR': 'HSR Layout',
+    'ARK': 'Arekere',
+    'IND': 'Indiranagar',
+    'CK': 'Central Kitchen'
+  };
+  return outletNames[code] || code;
+}
+
 // Dashboard data endpoint - UPDATED
 app.get('/api/dashboard-data', async (req, res) => {
   try {
