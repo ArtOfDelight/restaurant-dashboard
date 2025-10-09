@@ -48,8 +48,6 @@ const StockDashboard = lazy(() =>
   }))
 );
 
-
-
 // Loading component
 const LoadingComponent = () => (
   <div style={{
@@ -278,13 +276,12 @@ function App() {
   const [currentView, setCurrentView] = useState('checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - Updated to include audit dashboard (10 items)
+  // Navigation configuration - 9 dashboards
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'stock', label: 'STOCK DB', icon: '📦' },
-    { key: 'audit', label: 'AUDIT DB', icon: '📋' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
@@ -310,7 +307,6 @@ function App() {
       swiggy: <SwiggyDashboard />,
       product: <ProductAnalysisDashboard />,
       stock: <StockDashboard />,
-      audit: <AuditDashboard />,
       outlet: <HighRatedDashboard />,
       employee: <EmployeeDashboard />,
       checklist: <ChecklistDashboard />,
@@ -335,7 +331,7 @@ function App() {
     );
   };
 
-  // Create navigation button with enhanced styling - Updated for 10 items
+  // Create navigation button with enhanced styling
   const createNavButton = (item, isActive) => {
     const { key, label, icon } = item;
     
@@ -413,7 +409,7 @@ function App() {
     );
   };
 
-  // Keyboard navigation - Updated to include audit dashboard
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey) {
@@ -422,12 +418,11 @@ function App() {
           '2': 'swiggy', 
           '3': 'product',
           '4': 'stock',
-          '5': 'audit',
-          '6': 'outlet',
-          '7': 'employee',
-          '8': 'checklist',
-          '9': 'tickets',
-          '0': 'broadcast'
+          '5': 'outlet',
+          '6': 'employee',
+          '7': 'checklist',
+          '8': 'tickets',
+          '9': 'broadcast'
         };
         
         if (keyMap[e.key]) {
@@ -477,7 +472,7 @@ function App() {
         `}
       </style>
 
-      {/* Navigation Header - Updated for 10 items */}
+      {/* Navigation Header */}
       <nav style={{
         background: 'var(--surface-dark)',
         border: 'none',
@@ -516,7 +511,7 @@ function App() {
           />
         </div>
         
-        {/* Navigation Buttons - Updated for 10 items */}
+        {/* Navigation Buttons */}
         <div style={{ 
           display: 'flex', 
           gap: '5px',
@@ -539,7 +534,7 @@ function App() {
           lineHeight: '1.2',
           minWidth: '60px'
         }}>
-          <div>ALT+1-9,0</div>
+          <div>ALT+1-9</div>
           <div>SHORTCUTS</div>
         </div>
       </nav>
@@ -577,7 +572,7 @@ function App() {
         {renderCurrentView()}
       </main>
 
-      {/* Footer - Updated for 10 dashboards */}
+      {/* Footer */}
       <footer style={{
         background: 'var(--surface-dark)',
         borderTop: '1px solid var(--border-light)',
@@ -588,10 +583,10 @@ function App() {
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
       }}>
         <div>
-          DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 10 INTEGRATED DASHBOARDS
+          DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 9 INTEGRATED DASHBOARDS
         </div>
         <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-          USE ALT + 1-9,0 FOR QUICK NAVIGATION • LIVE AUDIT TRACKING • AI-POWERED INSIGHTS
+          USE ALT + 1-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS
         </div>
       </footer>
     </div>
