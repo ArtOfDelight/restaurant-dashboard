@@ -4303,29 +4303,39 @@ function processZomatoOrdersData(rawData) {
   const itemCounts = new Map();
   const itemRatings = new Map();
   
+  let totalOrders = 0;
+  let ordersWithRatings = 0;
+  let ordersWithoutRatings = 0;
+  
   dataRows.forEach(row => {
     const itemsCell = getCellValue(row, itemsIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
     
-    if (itemsCell && itemsCell.trim()) {
-      // Parse multiple items from the cell (they might be separated by commas, semicolons, etc.)
-      const items = parseItemsFromCell(itemsCell);
-      
-      items.forEach(item => {
-        if (item && item.trim()) {
-          const cleanItem = item.trim().toLowerCase();
-          itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
-          
-          // Store ratings for averaging
-          if (!itemRatings.has(cleanItem)) {
-            itemRatings.set(cleanItem, []);
-          }
-          if (rating > 0) {
-            itemRatings.get(cleanItem).push(rating);
-          }
-        }
-      });
+    totalOrders++;
+    
+    // MODIFIED: Only process orders with valid ratings (rating > 0)
+    if (!itemsCell || !itemsCell.trim() || rating <= 0) {
+      if (rating <= 0) ordersWithoutRatings++;
+      return; // Skip this order if no items or no valid rating
     }
+    
+    ordersWithRatings++;
+    
+    // Parse multiple items from the cell (they might be separated by commas, semicolons, etc.)
+    const items = parseItemsFromCell(itemsCell);
+    
+    items.forEach(item => {
+      if (item && item.trim()) {
+        const cleanItem = item.trim().toLowerCase();
+        itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
+        
+        // Store ratings for averaging
+        if (!itemRatings.has(cleanItem)) {
+          itemRatings.set(cleanItem, []);
+        }
+        itemRatings.get(cleanItem).push(rating);
+      }
+    });
   });
   
   // Convert to array format
@@ -4342,6 +4352,8 @@ function processZomatoOrdersData(rawData) {
   });
   
   console.log(`Processed ${result.length} unique items from Zomato orders`);
+  console.log(`Total orders: ${totalOrders}, With ratings: ${ordersWithRatings}, Without ratings: ${ordersWithoutRatings}`);
+  
   return result;
 }
 
