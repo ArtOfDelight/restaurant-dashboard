@@ -4111,7 +4111,7 @@ async function processProductAnalysisData(spreadsheetId) {
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
-        range: `swiggy_review!A:Z`,
+        range: `Copy of swiggy_review!A:Z`,
       }),
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
