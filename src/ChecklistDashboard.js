@@ -4,6 +4,22 @@ import './ChecklistDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
+// ✨ NEW: Auto-detect standalone mode
+const isStandaloneMode = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('view') === 'checklist';
+};
+
+// ✨ NEW: Use public endpoints in standalone mode
+const getAPIEndpoint = (endpoint) => {
+  const standalone = isStandaloneMode();
+  if (standalone) {
+    // Replace /api/ with /api/public- for standalone mode
+    return endpoint.replace('/api/checklist-', '/api/public-checklist-');
+  }
+  return endpoint;
+};
+
 // Helper functions
 const formatDateForDisplay = (dateStr) => {
   if (!dateStr) return '';
@@ -939,7 +955,7 @@ const WeeklyReportTabContent = ({ activeTab, reportData }) => {
                 .map((outlet, idx) => (
                 <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
                   <td style={{ padding: '12px' }}>
-                    <div style={{ fontWeight: '600' }}>{outlet.outletCode}</div>
+                    <div style={{ fontWeight: '600', color: '#1f2937' }}>{outlet.outletCode}</div>
                     <div style={{ fontSize: '12px', color: '#6b7280' }}>{outlet.outletName}</div>
                   </td>
                   <td style={{ padding: '12px', textAlign: 'center' }}>

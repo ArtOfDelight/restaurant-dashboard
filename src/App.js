@@ -273,7 +273,11 @@ class ErrorBoundary extends React.Component {
 
 // Main App Component
 function App() {
-  const [currentView, setCurrentView] = useState('checklist');
+  // ✨ NEW: Check if standalone mode (checklist-only view)
+  const urlParams = new URLSearchParams(window.location.search);
+  const isStandalone = urlParams.get('view') === 'checklist';
+  
+  const [currentView, setCurrentView] = useState(isStandalone ? 'checklist' : 'checklist');
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Navigation configuration - 9 dashboards
@@ -409,8 +413,10 @@ function App() {
     );
   };
 
-  // Keyboard navigation
+  // Keyboard navigation (disabled in standalone mode)
   useEffect(() => {
+    if (isStandalone) return; // ✨ NEW: Disable keyboard shortcuts in standalone
+    
     const handleKeyDown = (e) => {
       if (e.altKey) {
         const keyMap = {
@@ -434,7 +440,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isStandalone]);
 
   return (
     <div style={{
@@ -472,123 +478,162 @@ function App() {
         `}
       </style>
 
-      {/* Navigation Header */}
-      <nav style={{
-        background: 'var(--surface-dark)',
-        border: 'none',
-        padding: '10px 15px',
-        display: 'flex',
-        gap: '8px',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backdropFilter: 'blur(20px)',
-        boxShadow: 'var(--shadow-dark), 0 1px 0 rgba(255, 255, 255, 0.05)',
-        marginBottom: '15px',
-        position: 'sticky',
-        top: '0px',
-        zIndex: '1000',
-        backgroundImage: 'linear-gradient(var(--surface-dark), var(--surface-dark)), var(--primary-gradient)',
-        backgroundOrigin: 'padding-box',
-        backgroundClip: 'padding-box, border-box'
-      }}>
-        {/* Logo Section */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '8px'
-        }}>
-          <img
-            src={logo}
-            alt="Logo"
-            style={{
-              height: '30px',
-              width: 'auto',
-              backdropFilter: 'blur(10px)',
-              transition: 'transform 0.3s ease'
-            }}
-            onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-            onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-          />
-        </div>
-        
-        {/* Navigation Buttons */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '5px',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flex: '1'
-        }}>
-          {navigationItems.map(item => 
-            createNavButton(item, currentView === item.key)
-          )}
-        </div>
-
-        {/* Keyboard Shortcuts Indicator */}
+      {/* ✨ NEW: Standalone Header - Only shown in standalone mode */}
+      {isStandalone && (
         <div style={{
-          fontSize: '0.6rem',
+          background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)',
+          padding: '24px 20px',
+          textAlign: 'center',
+          borderBottom: '3px solid #60a5fa',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+          marginBottom: '0'
+        }}>
+          <h1 style={{
+            color: 'white',
+            fontSize: '2rem',
+            margin: 0,
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            textTransform: 'uppercase',
+            letterSpacing: '3px',
+            textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
+          }}>
+            📋 Checklist Dashboard
+          </h1>
+          <p style={{
+            color: '#dbeafe',
+            fontSize: '0.95rem',
+            marginTop: '8px',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            letterSpacing: '1px'
+          }}>
+            View-Only Access • Read-Only Mode
+          </p>
+        </div>
+      )}
+
+      {/* Navigation Header - ✨ HIDDEN in standalone mode */}
+      {!isStandalone && (
+        <nav style={{
+          background: 'var(--surface-dark)',
+          border: 'none',
+          padding: '10px 15px',
+          display: 'flex',
+          gap: '8px',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backdropFilter: 'blur(20px)',
+          boxShadow: 'var(--shadow-dark), 0 1px 0 rgba(255, 255, 255, 0.05)',
+          marginBottom: '15px',
+          position: 'sticky',
+          top: '0px',
+          zIndex: '1000',
+          backgroundImage: 'linear-gradient(var(--surface-dark), var(--surface-dark)), var(--primary-gradient)',
+          backgroundOrigin: 'padding-box',
+          backgroundClip: 'padding-box, border-box'
+        }}>
+          {/* Logo Section */}
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px'
+          }}>
+            <img
+              src={logo}
+              alt="Logo"
+              style={{
+                height: '30px',
+                width: 'auto',
+                backdropFilter: 'blur(10px)',
+                transition: 'transform 0.3s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
+              onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+            />
+          </div>
+          
+          {/* Navigation Buttons */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '5px',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flex: '1'
+          }}>
+            {navigationItems.map(item => 
+              createNavButton(item, currentView === item.key)
+            )}
+          </div>
+
+          {/* Keyboard Shortcuts Indicator */}
+          <div style={{
+            fontSize: '0.6rem',
+            color: 'var(--text-muted)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            textAlign: 'right',
+            lineHeight: '1.2',
+            minWidth: '60px'
+          }}>
+            <div>ALT+1-9</div>
+            <div>SHORTCUTS</div>
+          </div>
+        </nav>
+      )}
+
+      {/* Status Bar - ✨ HIDDEN in standalone mode */}
+      {!isStandalone && (
+        <div style={{
+          background: 'rgba(0, 0, 0, 0.5)',
+          padding: '6px 20px',
+          fontSize: '0.7rem',
           color: 'var(--text-muted)',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-          textAlign: 'right',
-          lineHeight: '1.2',
-          minWidth: '60px'
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          borderBottom: '1px solid var(--border-light)',
+          marginBottom: '15px'
         }}>
-          <div>ALT+1-9</div>
-          <div>SHORTCUTS</div>
+          <div>
+            ACTIVE: {navigationItems.find(item => item.key === currentView)?.label || 'UNKNOWN'}
+          </div>
+          <div>
+            STATUS: {isNavigating ? 'SWITCHING...' : 'READY'}
+          </div>
+          <div>
+            SESSION: {new Date().toLocaleTimeString()}
+          </div>
         </div>
-      </nav>
-
-      {/* Status Bar */}
-      <div style={{
-        background: 'rgba(0, 0, 0, 0.5)',
-        padding: '6px 20px',
-        fontSize: '0.7rem',
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid var(--border-light)',
-        marginBottom: '15px'
-      }}>
-        <div>
-          ACTIVE: {navigationItems.find(item => item.key === currentView)?.label || 'UNKNOWN'}
-        </div>
-        <div>
-          STATUS: {isNavigating ? 'SWITCHING...' : 'READY'}
-        </div>
-        <div>
-          SESSION: {new Date().toLocaleTimeString()}
-        </div>
-      </div>
+      )}
 
       {/* Content Area */}
       <main style={{ 
-        padding: '0 20px',
+        padding: isStandalone ? '0' : '0 20px', // ✨ NEW: No padding in standalone
         paddingBottom: '50px',
         minHeight: 'calc(100vh - 200px)'
       }}>
         {renderCurrentView()}
       </main>
 
-      {/* Footer */}
-      <footer style={{
-        background: 'var(--surface-dark)',
-        borderTop: '1px solid var(--border-light)',
-        padding: '15px 20px',
-        textAlign: 'center',
-        fontSize: '0.75rem',
-        color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-      }}>
-        <div>
-          DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 9 INTEGRATED DASHBOARDS
-        </div>
-        <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-          USE ALT + 1-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS
-        </div>
-      </footer>
+      {/* Footer - ✨ HIDDEN in standalone mode */}
+      {!isStandalone && (
+        <footer style={{
+          background: 'var(--surface-dark)',
+          borderTop: '1px solid var(--border-light)',
+          padding: '15px 20px',
+          textAlign: 'center',
+          fontSize: '0.75rem',
+          color: 'var(--text-muted)',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+        }}>
+          <div>
+            DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 9 INTEGRATED DASHBOARDS
+          </div>
+          <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
+            USE ALT + 1-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
