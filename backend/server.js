@@ -1957,116 +1957,78 @@ app.options('/api/image-proxy/:fileId', (req, res) => {
 // Checklist data endpoint - FIXED FOR DUPLICATES
 app.get('/api/checklist-data', async (req, res) => {
   try {
-    console.log('Fetching checklist data...');
+    console.log('Fetching checklist data via Apps Script...');
 
-    if (!sheets || !drive) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
+    const { startDate, endDate } = req.query;
+    
+    let dateParams = {};
+    if (startDate && endDate) {
+      dateParams = { startDate, endDate };
+      console.log(`Custom date range: ${startDate} to ${endDate}`);
+    } else {
+      const now = new Date();
+      const lastWeekEnd = now.toISOString().split('T')[0];
+      const lastWeekStart = new Date(now);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      dateParams = { 
+        startDate: lastWeekStart.toISOString().split('T')[0], 
+        endDate: lastWeekEnd 
+      };
+      console.log(`Default range: ${dateParams.startDate} to ${dateParams.endDate}`);
     }
 
-    console.log(`Using spreadsheet: ${CHECKLIST_SPREADSHEET_ID}`);
-    console.log(`Submissions tab: ${SUBMISSIONS_TAB}`);
-    console.log(`Responses tab: ${RESPONSES_TAB}`);
-
-    console.log(`Fetching ${SUBMISSIONS_TAB}...`);
-    const submissionsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${SUBMISSIONS_TAB}!A:Z`,
+    // ⚠️⚠️⚠️ PASTE YOUR APPS SCRIPT WEB APP URL HERE ⚠️⚠️⚠️
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxCAIzlT_9jXyQjWdoOmMSy_IwgsmNooiK7jLgdA7o7Ea4SKT8eA0tZhotD2Vm2Df8S/exec';
+    
+    console.log('Calling Apps Script...');
+    const response = await axios.get(APPS_SCRIPT_URL, {
+      params: dateParams,
+      timeout: 30000
     });
 
-    console.log(`Fetching ${RESPONSES_TAB}...`);
-    const responsesResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${RESPONSES_TAB}!A:Z`,
-    });
+    const data = response.data;
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Apps Script error');
+    }
 
-    const submissionsData = submissionsResponse.data.values || [];
-    const responsesData = responsesResponse.data.values || [];
-    console.log(`Found ${submissionsData.length} submission rows and ${responsesData.length} response rows`);
+    console.log(`✓ Received ${data.metadata.submissionCount} submissions, ${data.metadata.responseCount} responses (SERVER-SIDE FILTERED)`);
 
-    // Process submissions with deduplication
-    const submissionsMap = new Map(); // Use Map to track unique submissionIds
-    if (submissionsData.length > 1) {
-      const headers = submissionsData[0];
-      console.log('Submission headers:', headers);
-
-      for (let i = 1; i < submissionsData.length; i++) {
-        const row = submissionsData[i];
-
-        // Skip completely empty rows
-        if (!row || (Array.isArray(row) && row.every(cell => !cell && cell !== 0))) {
-          console.log(`Skipping completely empty row ${i + 1}`);
-          continue;
-        }
-
-        const rawSubmissionId = getCellValue(row, 0);
-        const submissionId = rawSubmissionId || `AUTO-${i}`;
-        const submission = {
-          submissionId,
-          date: formatDate(getCellValue(row, 1)),
-          timeSlot: getCellValue(row, 2),
-          outlet: getCellValue(row, 3),
-          submittedBy: getCellValue(row, 4),
-          timestamp: getCellValue(row, 5),
+    // Transform submissions
+    const submissions = [];
+    if (data.submissions.length > 1) {
+      for (let i = 1; i < data.submissions.length; i++) {
+        const row = data.submissions[i];
+        submissions.push({
+          submissionId: row[0] || `AUTO-${i}`,
+          date: formatDate(row[1]),
+          timeSlot: row[2] || '',
+          outlet: row[3] || '',
+          submittedBy: row[4] || '',
+          timestamp: row[5] || '',
           rowNumber: i + 1,
-        };
-
-        // Only add if not a duplicate
-        if (submissionsMap.has(submissionId)) {
-          console.warn(`Duplicate submissionId detected: ${submissionId} at row ${i + 1}, keeping first occurrence`);
-        } else {
-          submissionsMap.set(submissionId, submission);
-          console.log(`Processed submission at row ${i + 1}:`, {
-            submissionId,
-            outlet: submission.outlet,
-            submittedBy: submission.submittedBy,
-            date: submission.date,
-          });
-        }
+        });
       }
     }
 
-    const submissions = Array.from(submissionsMap.values());
-    console.log(`After deduplication, ${submissions.length} unique submissions remain`);
-
-    // Process responses
+    // Transform responses
     const tempResponses = [];
-    if (responsesData.length > 1) {
-      const headers = responsesData[0];
-      console.log('Response headers:', headers);
-
-      for (let i = 1; i < responsesData.length; i++) {
-        const row = responsesData[i];
-
-        // Skip completely empty rows
-        if (!row || (Array.isArray(row) && row.every(cell => !cell && cell !== 0))) {
-          continue;
-        }
-
-        const submissionId = getCellValue(row, 0) || `AUTO-${i}`;
-        const question = getCellValue(row, 1);
-        const answer = getCellValue(row, 2);
-        const imageLink = getCellValue(row, 3);
-        const imageCode = getCellValue(row, 4);
-
-        // Only include responses with minimal data
-        if (question || answer || submissionId) {
-          tempResponses.push({
-            submissionId,
-            question,
-            answer,
-            imageLink,
-            imageCode,
-            rowNumber: i + 1,
-          });
-        }
+    if (data.responses.length > 1) {
+      for (let i = 1; i < data.responses.length; i++) {
+        const row = data.responses[i];
+        tempResponses.push({
+          submissionId: row[0] || `AUTO-${i}`,
+          question: row[1] || '',
+          answer: row[2] || '',
+          imageLink: row[3] || '',
+          imageCode: row[4] || '',
+          rowNumber: i + 1,
+        });
       }
     }
 
-    // Parallelize image validations
-    console.log(`Validating ${tempResponses.length} responses with images`);
+    // Validate images
+    console.log(`Validating ${tempResponses.length} images...`);
     const validationPromises = tempResponses.map(r =>
       r.imageLink
         ? validateImageLink(r.imageLink)
@@ -2075,15 +2037,14 @@ app.get('/api/checklist-data', async (req, res) => {
 
     const validations = await Promise.all(validationPromises);
 
-    // Build final responses array
     const responses = tempResponses.map((r, idx) => {
       const v = validations[idx];
       return {
         submissionId: r.submissionId,
-        question: r.question || '',
-        answer: r.answer || '',
+        question: r.question,
+        answer: r.answer,
         image: v.url || r.imageLink || '',
-        imageCode: r.imageCode || '',
+        imageCode: r.imageCode,
         imageAccessible: v.accessible || false,
         imageError: v.error || null,
         fileId: v.fileId || null,
@@ -2091,66 +2052,26 @@ app.get('/api/checklist-data', async (req, res) => {
       };
     });
 
-    // Filter responses to match unique submission IDs
-    const submissionIds = new Set(submissions.map(s => s.submissionId));
-    const filteredResponses = responses.filter(r => {
-      const included = submissionIds.has(r.submissionId);
-      if (!included) {
-        console.log(`Filtered out response for submissionId ${r.submissionId} at row ${r.rowNumber}: no matching submission`);
-      }
-      return included;
-    });
-
-    // Log unmatched responses for debugging
-    const unmatchedSubmissionIds = [...new Set(responses.map(r => r.submissionId))].filter(id => !submissionIds.has(id));
-    if (unmatchedSubmissionIds.length > 0) {
-      console.warn(`Found ${unmatchedSubmissionIds.length} submissionIds in responses with no matching submissions:`, unmatchedSubmissionIds);
-    }
-
-    console.log(`Processed ${submissions.length} submissions and ${filteredResponses.length} responses`);
-
-    // Calculate metadata
-    const droppedSubmissions = (submissionsData.length - 1) - submissions.length;
-    const droppedResponses = (responsesData.length - 1) - responses.length;
-
-    res.set('Content-Type', 'application/json');
     res.json({
       success: true,
       submissions,
-      responses: filteredResponses,
+      responses,
       metadata: {
-        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-        submissionsTab: SUBMISSIONS_TAB,
-        responsesTab: RESPONSES_TAB,
-        submissionCount: submissions.length,
-        responseCount: filteredResponses.length,
-        originalSubmissionRows: submissionsData.length - 1,
-        originalResponseRows: responsesData.length - 1,
-        droppedSubmissions,
-        droppedResponses,
-        unmatchedSubmissionIds,
-        duplicateSubmissionIds: Array.from(submissionsMap.keys()).filter(id => submissionsMap.get(id).rowNumber !== submissionsMap.get(id).rowNumber),
+        ...data.metadata,
+        source: 'apps-script-standalone'
       },
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
-    console.error('Error fetching checklist data:', error.message, error.stack);
+    console.error('Error fetching via Apps Script:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
-      details: error.response?.data || 'No additional details',
       timestamp: new Date().toISOString(),
     });
   }
 });
-
-// Enhanced getCellValue helper function
-function getCellValue(row, index, defaultValue = '') {
-  if (!row || index >= row.length) return defaultValue;
-  const value = row[index];
-  if (value === null || value === undefined) return defaultValue;
-  return value.toString().trim();
-}
 
 // Checklist statistics endpoint
 app.get('/api/checklist-stats', async (req, res) => {
