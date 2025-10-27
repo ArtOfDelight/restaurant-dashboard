@@ -3613,7 +3613,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
     }
 
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard Live';
+    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard';
 
     console.log(`Debug: Fetching raw High Rated data from ${HIGH_RATED_SPREADSHEET_ID}`);
 
