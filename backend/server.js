@@ -311,18 +311,37 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
-    // Fetch roster data
-    console.log('Fetching roster data...');
+    // Hardcoded Employee ID to Short Name mapping
+    const idToShortName = new Map([
+      ['AOD001', 'Ayaaz'], ['AOD002', 'Ajay'], ['AOD003', 'Jin'], ['AOD004', 'Kim'],
+      ['AOD005', 'Nishat'], ['AOD006', 'Sailo'], ['AOD007', 'Minthang'], ['AOD008', 'Mon'],
+      ['AOD009', 'Mangboi'], ['AOD010', 'Ruth'], ['AOD011', 'Zansung'], ['AOD012', 'Margaret'],
+      ['AOD013', 'Kai'], ['AOD014', 'Risat'], ['AOD015', 'Soyao'], ['AOD016', 'Tuboi'],
+      ['AOD017', 'Lunmang'], ['AOD018', 'Thai'], ['AOD019', 'Jatin'], ['AOD020', 'Boikho'],
+      ['AOD021', 'Jimmy'], ['AOD022', 'Kaiku'], ['AOD023', 'Pau'], ['AOD024', 'Puia'],
+      ['AOD025', 'Lamgouhao'], ['AOD026', 'Gun'], ['AOD027', 'Charna'], ['AOD028', 'Mang Khogin Haokip'],
+      ['AOD029', 'Jonathan'], ['AOD030', 'Henry Kom'], ['AOD031', 'Len Kipgen'], ['AOD032', 'Tongminthang'],
+      ['AOD033', 'Sameer'], ['AOD034', 'William'], ['AOD035', 'Jona'], ['AOD037', 'Mimin'],
+      ['AOD038', 'Guang'], ['AOD039', 'Henry Khongsai'], ['AOD040', 'Prajesha'], ['AOD043', 'Sang'],
+      ['AOD045', 'Bem'], ['AOD046', 'Obed'], ['AOD047', 'Thangboi'], ['AOD048', 'Horam'],
+      ['AOD049', 'Jangnu'], ['AOD050', 'Chong'], ['AOD051', 'Hoi'], ['AOD052', 'Sharon'],
+      ['AOD053', 'Sibtain'], ['AOD054', 'Biraj Bhai'], ['AOD055', 'Jangminlun'], ['AOD056', 'Ismael'],
+      ['AOD057', 'Thaimei'], ['AOD058', 'Mary'], ['AOD059', 'Shivaji'], ['AOD060', 'Amreen'],
+      ['AOD061', 'Mohmo'], ['AOD062', 'Joy']
+    ]);
+
+    // Fetch roster data starting from row 3800
+    console.log('Fetching roster data from row 3800...');
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
-      range: `${ROSTER_TAB}!A:Z`,
+      range: `${ROSTER_TAB}!A3800:Z`, // Start from row 3800
     });
 
     const rosterData = rosterResponse.data.values || [];
-    console.log('Roster data rows:', rosterData.length);
+    console.log('Roster data rows (from row 3800):', rosterData.length);
 
     if (rosterData.length <= 1) {
-      console.log('No roster data found or only headers present');
+      console.log('No roster data found or only headers present starting from row 3800');
       return [];
     }
 
@@ -332,101 +351,81 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
 
     const rosterIdIndex = headers.findIndex(h => h.includes('roster id'));
     const employeeIdIndex = headers.findIndex(h => h.includes('employee id'));
-    const dateColIndex = headers.findIndex(h => h === 'date');
-    const outletColIndex = headers.findIndex(h => h === 'outlet');
-    const shiftColIndex = headers.findIndex(h => h === 'shift');
-    const startTimeIndex = headers.findIndex(h => h === 'start time');
-    const endTimeIndex = headers.findIndex(h => h === 'end time');
-    const commentsIndex = headers.findIndex(h => h === 'comments');
+    const dateColIndex = headers.findIndex(h => h.includes('date'));
+    const outletColIndex = headers.findIndex(h => h.includes('outlet'));
+    const shiftColIndex = headers.findIndex(h => h.includes('shift'));
+    const startTimeIndex = headers.findIndex(h => h.includes('start time'));
+    const endTimeIndex = headers.findIndex(h => h.includes('end time'));
+    const commentsIndex = headers.findIndex(h => h.includes('comments'));
 
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
-      console.error('Required columns missing in roster. Headers:', headers);
+      console.error('Required columns (date, outlet, start time) missing in roster. Headers:', headers);
       return [];
-    }
-
-    // Fetch employee register data
-    console.log('Fetching employee register data...');
-    let idToShortName = new Map();
-    try {
-      const registerResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: ROSTER_SPREADSHEET_ID,
-        range: `Employee Register!A:Z`,
-      });
-
-      const registerData = registerResponse.data.values || [];
-      console.log('Employee register data rows:', registerData.length);
-
-      if (registerData.length > 1) {
-        const regHeaders = registerData[0].map(h => h.toString().trim().toLowerCase());
-        console.log('Employee register headers:', regHeaders);
-
-        const empIdIndex = regHeaders.findIndex(h => h === 'employee id');
-        const shortNameIndex = regHeaders.findIndex(h => h === 'short name');
-
-        if (empIdIndex !== -1 && shortNameIndex !== -1) {
-          for (let i = 1; i < registerData.length; i++) {
-            const row = registerData[i];
-            if (!row || row.length === 0) continue;
-
-            const id = getCellValue(row, empIdIndex);
-            const shortName = getCellValue(row, shortNameIndex);
-
-            if (id && shortName) {
-              idToShortName.set(id, shortName);
-            }
-          }
-          console.log('Employee ID to Short Name mappings:', [...idToShortName]);
-        } else {
-          console.warn('Employee ID or Short Name column not found in Employee Register. Headers:', regHeaders);
-        }
-      } else {
-        console.warn('No employee register data found or only headers present. Falling back to employee IDs.');
-      }
-    } catch (error) {
-      console.warn('Error fetching Employee Register:', error.message, 'Falling back to employee IDs.');
     }
 
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
-    console.log('Target date:', targetDate, 'Outlet:', outlet, 'TimeSlot:', timeSlot);
+    console.log('Input parameters:', { targetDate, outlet: outlet?.toUpperCase()?.trim(), timeSlot });
 
-    // Iterate through roster rows
+    // Iterate through roster rows starting from row 3800 (index 1 in data, as 0 is headers)
     for (let i = 1; i < rosterData.length; i++) {
       const row = rosterData[i];
-      if (!row || row.length === 0) continue;
+      if (!row || row.length === 0) {
+        console.log(`Row ${3800 + i}: Skipped (empty)`);
+        continue;
+      }
 
       const rosterDate = formatDate(getCellValue(row, dateColIndex));
-      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
-      const startTime = getCellValue(row, startTimeIndex);
-      const endTime = getCellValue(row, endTimeIndex);
-      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex) : '';
-      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
+      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase()?.trim();
+      const startTime = getCellValue(row, startTimeIndex)?.trim();
+      const endTime = getCellValue(row, endTimeIndex)?.trim();
+      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
+      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex)?.trim() : '';
 
       const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-      console.log(`Row ${i}: Date=${rosterDate}, Outlet=${rosterOutlet}, DerivedTimeSlot=${derivedTimeSlot}, EmployeeID=${employeeId}`);
+      console.log(`Row ${3800 + i}:`, {
+        rosterDate,
+        rosterOutlet,
+        derivedTimeSlot,
+        employeeId,
+        startTime,
+        endTime,
+        shift
+      });
 
-      // Match outlet, time slot, and date
-      if (rosterDate === targetDate && 
-          rosterOutlet === outlet.toUpperCase() && 
-          derivedTimeSlot === timeSlot) {
+      // Match outlet, time slot, and date with flexible matching
+      const dateMatch = rosterDate === targetDate;
+      const outletMatch = rosterOutlet === outlet?.toUpperCase()?.trim();
+      const timeSlotMatch = derivedTimeSlot === timeSlot;
+
+      console.log(`Row ${3800 + i} match check:`, {
+        dateMatch: { rosterDate, targetDate },
+        outletMatch: { rosterOutlet, inputOutlet: outlet?.toUpperCase()?.trim() },
+        timeSlotMatch: { derivedTimeSlot, inputTimeSlot: timeSlot }
+      });
+
+      if (dateMatch && outletMatch && timeSlotMatch) {
         const shortName = idToShortName.get(employeeId) || employeeId || 'Unknown';
         scheduledEmployees.push({
-          employeeId: employeeId,
-          name: shortName,
+          employeeId,
+          name: shortName, // Use Short Name instead of Employee ID
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
-          shift: shift,
-          startTime: startTime,
-          endTime: endTime,
+          shift,
+          startTime,
+          endTime,
           date: rosterDate
         });
       }
     }
 
-    console.log('Scheduled employees:', scheduledEmployees);
+    console.log('Final scheduled employees:', scheduledEmployees);
+    if (scheduledEmployees.length === 0) {
+      console.log('No staff scheduled for the given parameters.');
+    }
     return scheduledEmployees;
   } catch (error) {
-    console.error('Error fetching scheduled employees:', error.message);
+    console.error('Error fetching scheduled employees:', error.message, error.stack);
     return [];
   }
 }
