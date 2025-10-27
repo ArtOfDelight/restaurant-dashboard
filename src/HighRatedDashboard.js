@@ -7,7 +7,7 @@ const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const HighRatedDashboard = () => {
   const [data, setData] = useState([]);
-  const [swiggyData, setSwiggyData] = useState(null); // New state for Swiggy data
+  const [swiggyData, setSwiggyData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -83,58 +83,25 @@ const HighRatedDashboard = () => {
       console.log('Loading sample data as fallback...');
       const sampleData = [
         {
-          outlet_code: "BLN",
           outlet_name: "Bellandur",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
           total_orders: 537,
-          low_rated: 10,
-          igcc: 2,
-          errors: 12,
-          error_rate: 2.23,
-          high_rated: 53,
-          high_rated_percent: 9.87,
-          high_minus_error: 7.64,
-          incentive: 0,
-          deduction: -360,
-          incentives: -360,
-          per_day: -51.43
+          high_rated_orders: 53,
+          low_rated_orders: 10,
+          error_rate: "2.23%"
         },
         {
-          outlet_code: "IND",
           outlet_name: "Indiranagar",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
           total_orders: 388,
-          low_rated: 5,
-          igcc: 2,
-          errors: 7,
-          error_rate: 1.8,
-          high_rated: 43,
-          high_rated_percent: 11.08,
-          high_minus_error: 9.28,
-          incentive: 860,
-          deduction: -210,
-          incentives: 650,
-          per_day: 92.86
+          high_rated_orders: 43,
+          low_rated_orders: 5,
+          error_rate: "1.80%"
         },
         {
-          outlet_code: "RR",
           outlet_name: "Residency Road",
-          start_date: "11/08/2025",
-          end_date: "17/08/2025",
           total_orders: 328,
-          low_rated: 6,
-          igcc: 1,
-          errors: 7,
-          error_rate: 2.13,
-          high_rated: 37,
-          high_rated_percent: 11.28,
-          high_minus_error: 9.15,
-          incentive: 0,
-          deduction: -210,
-          incentives: -210,
-          per_day: -30
+          high_rated_orders: 37,
+          low_rated_orders: 6,
+          error_rate: "2.13%"
         }
       ];
       setData(sampleData);
@@ -200,87 +167,27 @@ const HighRatedDashboard = () => {
   };
 
   const getFilteredData = () => {
-    return data.filter(d => (!filters.outlet || d.outlet_name === filters.outlet));
-  };
-
-  const getTotalStats = () => {
-    const filteredData = getFilteredData();
-    const totalOrders = filteredData.reduce((sum, d) => sum + (d.total_orders || 0), 0);
-    const totalHighRated = filteredData.reduce((sum, d) => sum + (d.high_rated || 0), 0);
-    const totalErrors = filteredData.reduce((sum, d) => sum + (d.errors || 0), 0);
-    const totalLowRated = filteredData.reduce((sum, d) => sum + (d.low_rated || 0), 0);
-    
-    return {
-      totalOrders,
-      highRatedPercent: totalOrders > 0 ? ((totalHighRated / totalOrders) * 100).toFixed(2) : 0,
-      errorRate: totalOrders > 0 ? ((totalErrors / totalOrders) * 100).toFixed(2) : 0,
-      lowRatedPercent: totalOrders > 0 ? ((totalLowRated / totalOrders) * 100).toFixed(2) : 0,
-    };
-  };
-
-  const getGraphData = () => {
-    return getFilteredData().map(d => ({
-      name: d.outlet_name,
-      'Error Rate': Number(d.error_rate),
-      'High Rated %': Number(d.high_rated_percent),
-      'Low Rated %': d.total_orders > 0 ? Number(((d.low_rated / d.total_orders) * 100).toFixed(2)) : 0,
-    }));
-  };
-
-  // New function to get performance metrics graph data
-  const getPerformanceMetricsData = () => {
-    if (!swiggyData) return [];
-    
-    const filteredOutlet = filters.outlet;
-    if (filteredOutlet) {
-      const outletIndex = swiggyData.outlets.findIndex(outlet => outlet.toLowerCase() === filteredOutlet.toLowerCase());
-      if (outletIndex !== -1) {
-        return [{
-          outlet: swiggyData.outlets[outletIndex],
-          online: swiggyData.currentData.onlinePercent[outletIndex],
-          accuracy: swiggyData.currentData.foodAccuracy[outletIndex],
-          delayed: swiggyData.currentData.delayedOrders[outletIndex]
-        }];
-      }
-      return [];
-    }
-    
-    return swiggyData.outlets.map((outlet, i) => ({
-      outlet,
-      online: swiggyData.currentData.onlinePercent[i],
-      accuracy: swiggyData.currentData.foodAccuracy[i],
-      delayed: swiggyData.currentData.delayedOrders[i]
-    }));
-  };
-
-  const getBottom3Outlets = () => {
-    const sorted = [...getFilteredData()].sort((a, b) => b.error_rate - a.error_rate);
-    return sorted.slice(0, 3).map(outlet => ({
-      name: outlet.outlet_name,
-      error_rate: outlet.error_rate,
-      outlet_code: outlet.outlet_code,
-      reasons: [
-        `High error rate of ${outlet.error_rate}%`,
-        `Low high rated % of ${outlet.high_rated_percent}%`,
-        `Low rated orders: ${outlet.low_rated}`,
-      ],
-    }));
+    return data.filter(outlet => {
+      if (filters.outlet && outlet.outlet_name !== filters.outlet) return false;
+      return true;
+    });
   };
 
   const filteredData = getFilteredData();
-  const stats = getTotalStats();
-  const bottom3 = getBottom3Outlets();
 
-  const clearAllFilters = () => {
-    setFilters({ outlet: '' });
+  // Calculate high rated percentage
+  const calculateHighRatedPercent = (outlet) => {
+    if (!outlet.total_orders || outlet.total_orders === 0) return 0;
+    return ((outlet.high_rated_orders / outlet.total_orders) * 100).toFixed(2);
   };
 
-  const minimizeModal = () => {
-    setMinimized(true);
-  };
-
-  const restoreModal = () => {
-    setMinimized(false);
+  // Parse error rate string to number
+  const parseErrorRate = (errorRate) => {
+    if (typeof errorRate === 'number') return errorRate;
+    if (typeof errorRate === 'string') {
+      return parseFloat(errorRate.replace('%', '')) || 0;
+    }
+    return 0;
   };
 
   const clearOutletSelection = () => {
@@ -288,226 +195,147 @@ const HighRatedDashboard = () => {
     setMinimized(false);
   };
 
-  // Loading screen
+  const minimizeModal = () => setMinimized(true);
+  const restoreModal = () => setMinimized(false);
+
   if (loading) {
     return (
-      <div className="checklist-loading">
-        <div className="loading-spinner"></div>
-        <p style={{ 
-          color: 'var(--text-primary)', 
-          fontSize: '1.2rem', 
-          fontWeight: '600',
-          textTransform: 'uppercase',
-          letterSpacing: '2px',
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-        }}>
-          LOADING HIGH RATED DASHBOARD...
-        </p>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '400px',
+        color: 'var(--text-primary)'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="spinner" style={{
+            width: '50px',
+            height: '50px',
+            border: '3px solid var(--border-light)',
+            borderTop: '3px solid var(--primary)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 20px'
+          }} />
+          <p style={{
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            letterSpacing: '1px'
+          }}>
+            LOADING HIGH RATED DATA...
+          </p>
+        </div>
       </div>
     );
-  }
-
-  // Error screen with data fallback
-  if (error && data.length === 0 && !swiggyData) {
-    return (
-      <div className="checklist-error">
-        <h3 style={{
-          color: 'var(--text-primary)',
-          fontSize: '1.5rem',
-          marginBottom: '15px',
-          textTransform: 'uppercase',
-          letterSpacing: '1px',
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-        }}>
-          SYSTEM ERROR: {error}
-        </h3>
-        <p>Please check your server connection or contact support if the issue persists.</p>
-        <button onClick={() => fetchData(selectedPeriod)} className="retry-btn">
-          RETRY CONNECTION
-        </button>
-      </div>
-    );
-  }
-
-  // Show OutletPerformanceTable if it's opened
-  if (showOutletPerformanceTable) {
-    return <OutletPerformanceTable onClose={() => setShowOutletPerformanceTable(false)} />;
   }
 
   return (
-    <div className="checklist-dashboard">
+    <div className="dashboard-content">
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+
       {/* Header */}
-      <div className="checklist-header">
-        <div>
-          <h1 style={{
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-          }}>
-            HIGH RATED PERFORMANCE DASHBOARD
-          </h1>
-          <p style={{ 
-            color: 'var(--text-secondary)', 
-            marginTop: '10px',
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-            fontSize: '0.9rem',
-            letterSpacing: '1px'
-          }}>
-            LIVE DATA FROM GOOGLE SHEETS • {data.length} OUTLETS • {selectedPeriod.toUpperCase()} DATA
-            {error && ' • SHOWING SAMPLE DATA DUE TO CONNECTION ISSUE'}
-            {filters.outlet && ` • VIEWING: ${filters.outlet.toUpperCase()}`}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            value={selectedPeriod}
-            onChange={(e) => handlePeriodChange(e.target.value)}
-            style={{
-              padding: '12px 18px',
-              background: 'var(--surface-light)',
-              border: '1px solid var(--border-light)',
-              borderRadius: '12px',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
+      <div style={{
+        background: 'var(--surface-dark)',
+        border: '1px solid var(--border-light)',
+        borderRadius: '20px',
+        padding: '30px',
+        marginBottom: '25px',
+        backdropFilter: 'blur(15px)',
+        boxShadow: 'var(--shadow-dark)'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '20px'
+        }}>
+          <div>
+            <h2 style={{
+              margin: '0 0 10px 0',
               color: 'var(--text-primary)',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <option value="7 Days">7 DAYS DATA</option>
-            <option value="28 Day">28 DAY DATA</option>
-          </select>
-          <button 
-            onClick={() => setShowOutletPerformanceTable(true)} 
-            className="responses-btn"
-          >
-            CALCULATE INCENTIVE
-          </button>
-          {expandedOutlet !== null && (
-            <button
-              onClick={minimized ? restoreModal : clearOutletSelection}
-              className="responses-btn"
-            >
-              {minimized ? `RESTORE ${data[expandedOutlet]?.outlet_name?.toUpperCase()}` : 'CLEAR SELECTION'}
-            </button>
-          )}
-          <button onClick={() => fetchData(selectedPeriod)} className="refresh-btn">
-            REFRESH DATA
-          </button>
-        </div>
-      </div>
-
-      {/* Performance Stats */}
-      <div className="checklist-stats">
-        {[
-          { title: 'TOTAL ORDERS', value: stats.totalOrders },
-          { title: 'HIGH RATED %', value: `${stats.highRatedPercent}%` },
-          { title: 'LOW RATED %', value: `${stats.lowRatedPercent}%` },
-          { title: 'ERROR RATE %', value: `${stats.errorRate}%` }
-        ].map((metric, i) => (
-          <div key={i} className="stat-card">
-            <div className="stat-number">{metric.value}</div>
-            <div className="stat-label">{metric.title}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Bottom 3 Outlets - After stats cards */}
-      {bottom3.length > 0 && (
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                TOP 3 HIGHEST ERROR RATE OUTLETS - NEEDS ATTENTION
-              </h3>
-            </div>
-          </div>
-          <div className="responses-section">
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '20px'
+              fontSize: '1.5rem',
+              letterSpacing: '2px',
+              textTransform: 'uppercase'
             }}>
-              {bottom3.map((outlet, index) => (
-                <div 
-                  key={index} 
-                  style={{
-                    padding: '20px',
-                    borderRadius: '15px',
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid var(--border-light)',
-                    borderLeft: '4px solid #ef4444'
-                  }}
-                >
-                  <h4 style={{
-                    margin: '0 0 12px 0',
-                    color: 'var(--text-primary)',
-                    fontSize: '1.1rem',
-                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                  }}>
-                    #{index + 1} {outlet.name.toUpperCase()} ({outlet.error_rate}% ERROR RATE)
-                  </h4>
-                  <ul style={{ 
-                    margin: 0, 
-                    paddingLeft: '20px', 
-                    color: 'var(--text-secondary)',
-                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                    fontSize: '0.9rem'
-                  }}>
-                    {outlet.reasons.map((reason, rIndex) => (
-                      <li key={rIndex} style={{ marginBottom: '5px' }}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Filter Section */}
-      <div className="submission-card">
-        <div className="submission-header">
-          <div className="submission-info">
-            <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-              OUTLET FILTER
-            </h3>
-          </div>
-        </div>
-        <div className="responses-section">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <label style={{
-              color: 'var(--text-primary)',
+              HIGH RATED ORDERS DASHBOARD
+            </h2>
+            <p style={{
+              margin: 0,
+              color: 'var(--text-muted)',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              fontSize: '0.9rem',
-              letterSpacing: '1px'
+              fontSize: '0.85rem',
+              letterSpacing: '0.5px'
             }}>
-              FILTER BY OUTLET:
-            </label>
-            {filters.outlet && (
-              <button 
-                onClick={clearAllFilters} 
-                className="responses-btn"
-                style={{ fontSize: '0.8rem' }}
+              TRACK OUTLET PERFORMANCE • {selectedPeriod.toUpperCase()}
+            </p>
+          </div>
+
+          {/* Period Selector */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {['7 Days', '28 Day'].map(period => (
+              <button
+                key={period}
+                onClick={() => handlePeriodChange(period)}
+                style={{
+                  padding: '12px 24px',
+                  background: selectedPeriod === period 
+                    ? 'linear-gradient(135deg, var(--primary), var(--primary-dark))' 
+                    : 'var(--surface-light)',
+                  color: selectedPeriod === period ? '#ffffff' : 'var(--text-primary)',
+                  border: selectedPeriod === period ? 'none' : '1px solid var(--border-light)',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  transition: 'var(--transition)',
+                  boxShadow: selectedPeriod === period ? 'var(--shadow-primary)' : 'none'
+                }}
+                onMouseOver={(e) => {
+                  if (selectedPeriod !== period) {
+                    e.currentTarget.style.background = 'var(--surface-hover)';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (selectedPeriod !== period) {
+                    e.currentTarget.style.background = 'var(--surface-light)';
+                  }
+                }}
               >
-                CLEAR FILTERS
+                {period}
               </button>
-            )}
+            ))}
           </div>
+        </div>
+
+        {/* Filters */}
+        <div style={{
+          marginTop: '25px',
+          display: 'flex',
+          gap: '15px',
+          flexWrap: 'wrap'
+        }}>
           <select
             value={filters.outlet}
-            onChange={(e) => setFilters(prev => ({ ...prev, outlet: e.target.value }))}
+            onChange={(e) => setFilters({ ...filters, outlet: e.target.value })}
             style={{
-              width: '100%',
-              maxWidth: '300px',
               padding: '12px 18px',
               background: 'var(--surface-light)',
               border: '1px solid var(--border-light)',
               borderRadius: '12px',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
               color: 'var(--text-primary)',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              minWidth: '200px'
             }}
           >
             <option value="">ALL OUTLETS</option>
@@ -515,351 +343,255 @@ const HighRatedDashboard = () => {
               <option key={outlet} value={outlet}>{outlet.toUpperCase()}</option>
             ))}
           </select>
+
+          {(filters.outlet) && (
+            <button
+              onClick={() => setFilters({ outlet: '' })}
+              style={{
+                padding: '12px 24px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '12px',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                fontSize: '0.85rem',
+                fontWeight: '600',
+                letterSpacing: '1px',
+                textTransform: 'uppercase'
+              }}
+            >
+              CLEAR FILTERS
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div className="submissions-list">
-        {/* Performance Metrics Chart */}
-        {swiggyData && (
-          <div className="submission-card">
-            <div className="submission-header">
-              <div className="submission-info">
-                <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                  PERFORMANCE METRICS SWIGGY {filters.outlet ? `FOR ${filters.outlet.toUpperCase()}` : 'BY OUTLET'}
-                </h3>
-              </div>
+      {/* Summary Cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: '20px',
+        marginBottom: '25px'
+      }}>
+        {[
+          {
+            label: 'TOTAL OUTLETS',
+            value: filteredData.length,
+            color: 'var(--primary)'
+          },
+          {
+            label: 'TOTAL ORDERS',
+            value: filteredData.reduce((sum, d) => sum + (d.total_orders || 0), 0).toLocaleString(),
+            color: '#3b82f6'
+          },
+          {
+            label: 'HIGH RATED ORDERS',
+            value: filteredData.reduce((sum, d) => sum + (d.high_rated_orders || 0), 0).toLocaleString(),
+            color: '#10b981'
+          },
+          {
+            label: 'LOW RATED ORDERS',
+            value: filteredData.reduce((sum, d) => sum + (d.low_rated_orders || 0), 0).toLocaleString(),
+            color: '#ef4444'
+          }
+        ].map((card, index) => (
+          <div
+            key={index}
+            style={{
+              background: 'var(--surface-dark)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '15px',
+              padding: '25px',
+              backdropFilter: 'blur(15px)',
+              boxShadow: 'var(--shadow-dark)',
+              transition: 'var(--transition)'
+            }}
+          >
+            <div style={{
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              marginBottom: '10px',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              letterSpacing: '1.5px',
+              textTransform: 'uppercase'
+            }}>
+              {card.label}
             </div>
-            <div className="responses-section">
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={getPerformanceMetricsData()}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
-                  <XAxis 
-                    dataKey="outlet" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={80} 
-                    tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} 
-                  />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'var(--surface-dark)',
-                      border: '1px solid var(--border-light)',
-                      borderRadius: '10px',
-                      color: 'var(--text-primary)'
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: '12px' }} />
-                  <Line type="monotone" dataKey="online" stroke="#3b82f6" strokeWidth={2} name="Online %" />
-                  <Line type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={2} name="Food Accuracy %" />
-                  <Line type="monotone" dataKey="delayed" stroke="#ef4444" strokeWidth={2} name="Delayed Orders %" />
-                  <ReferenceLine y={98} stroke="#3b82f6" strokeDasharray="3 3" label={{ value: "Online Target: 98%", position: "topLeft" }} />
-                  <ReferenceLine y={85} stroke="#10b981" strokeDasharray="3 3" label={{ value: "Accuracy Target: 85%", position: "topLeft" }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* Error Rate Chart */}
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                ERROR RATE BY OUTLET
-              </h3>
-            </div>
-          </div>
-          <div className="responses-section">
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={getGraphData()}>
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={100}
-                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
-                />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'var(--surface-dark)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)'
-                  }}
-                  formatter={(value, name) => [`${value}%`, name]}
-                />
-                <Bar dataKey="Error Rate" fill="#ef4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* High Rated Percentage Chart */}
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                HIGH RATED PERCENTAGE BY OUTLET
-              </h3>
+            <div style={{
+              fontSize: '2rem',
+              fontWeight: '700',
+              color: card.color,
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+            }}>
+              {card.value}
             </div>
           </div>
-          <div className="responses-section">
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={getGraphData()}>
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={100}
-                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
-                />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'var(--surface-dark)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)'
-                  }}
-                  formatter={(value, name) => [`${value}%`, name]}
-                />
-                <Bar dataKey="High Rated %" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Low Rated Percentage Chart */}
-        <div className="submission-card">
-          <div className="submission-header">
-            <div className="submission-info">
-              <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-                LOW RATED PERCENTAGE BY OUTLET
-              </h3>
-            </div>
-          </div>
-          <div className="responses-section">
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={getGraphData()}>
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={100}
-                  tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
-                />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'var(--surface-dark)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '10px',
-                    color: 'var(--text-primary)'
-                  }}
-                  formatter={(value, name) => [`${value}%`, name]}
-                />
-                <Bar dataKey="Low Rated %" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Outlet Details Table */}
-      <div className="submission-card">
-        <div className="submission-header">
-          <div className="submission-info">
-            <h3 style={{ fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" }}>
-              OUTLET PERFORMANCE DETAILS ({selectedPeriod.toUpperCase()})
-            </h3>
-          </div>
+      {/* Data Table */}
+      <div style={{
+        background: 'var(--surface-dark)',
+        border: '1px solid var(--border-light)',
+        borderRadius: '20px',
+        overflow: 'hidden',
+        backdropFilter: 'blur(15px)',
+        boxShadow: 'var(--shadow-dark)'
+      }}>
+        <div style={{
+          padding: '25px 30px',
+          borderBottom: '1px solid var(--border-light)'
+        }}>
+          <h3 style={{
+            margin: 0,
+            color: 'var(--text-primary)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontSize: '1.1rem',
+            letterSpacing: '1.5px',
+            textTransform: 'uppercase'
+          }}>
+            OUTLET PERFORMANCE ({selectedPeriod.toUpperCase()})
+          </h3>
         </div>
-        <div className="responses-section">
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: 'var(--secondary-gradient)' }}>
-                  {[
-                    'OUTLET',
-                    'TOTAL ORDERS',
-                    'HIGH RATED',
-                    'LOW RATED',
-                    'IGCC',
-                    'ERRORS',
-                    'ERROR RATE',
-                    'HIGH RATED %',
-                    'HIGH - ERROR %',
-                    'INCENTIVE',
-                    'DEDUCTION',
-                    'NET INCENTIVES',
-                    'PER DAY',
-                    'STATUS'
-                  ].map((header) => (
-                    <th key={header} style={{ 
-                      padding: '18px', 
-                      textAlign: 'left', 
-                      color: 'var(--text-primary)', 
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{
+            width: '100%',
+            borderCollapse: 'collapse'
+          }}>
+            <thead>
+              <tr style={{
+                background: 'var(--surface-light)',
+                borderBottom: '2px solid var(--border-light)'
+              }}>
+                {['OUTLET', 'TOTAL ORDERS', 'HIGH RATED', 'LOW RATED', 'ERROR RATE', 'HIGH RATED %', 'STATUS'].map((header, index) => (
+                  <th
+                    key={index}
+                    style={{
+                      padding: '18px',
+                      textAlign: 'left',
+                      color: 'var(--text-secondary)',
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                      fontSize: '0.9rem',
-                      letterSpacing: '1px'
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      letterSpacing: '1.5px',
+                      textTransform: 'uppercase',
+                      borderBottom: '1px solid var(--border-light)'
+                    }}
+                  >
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((outlet, index) => {
+                const errorRate = parseErrorRate(outlet.error_rate);
+                const highRatedPercent = parseFloat(calculateHighRatedPercent(outlet));
+                const hasGoodPerformance = highRatedPercent >= 8 && errorRate <= 2;
+                const needsWork = highRatedPercent < 5 || errorRate > 3;
+
+                return (
+                  <tr
+                    key={index}
+                    onClick={() => setExpandedOutlet(index)}
+                    style={{
+                      background: needsWork 
+                        ? 'rgba(239, 68, 68, 0.1)' 
+                        : hasGoodPerformance 
+                          ? 'rgba(16, 185, 129, 0.1)' 
+                          : 'transparent',
+                      borderBottom: '1px solid var(--border-light)',
+                      cursor: 'pointer',
+                      transition: 'var(--transition)'
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.background = needsWork 
+                        ? 'rgba(239, 68, 68, 0.15)' 
+                        : hasGoodPerformance 
+                          ? 'rgba(16, 185, 129, 0.15)' 
+                          : 'var(--surface-hover)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = needsWork 
+                        ? 'rgba(239, 68, 68, 0.1)' 
+                        : hasGoodPerformance 
+                          ? 'rgba(16, 185, 129, 0.1)' 
+                          : 'transparent';
+                    }}
+                  >
+                    <td style={{
+                      padding: '18px',
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontWeight: '600'
                     }}>
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredData.map((outlet, i) => {
-                  const hasNeedsWork = outlet.high_minus_error <= 5; // "NEEDS WORK" threshold
-                  return (
-                    <tr 
-                      key={outlet.outlet_code} 
-                      style={{ 
-                        borderBottom: '1px solid var(--border-light)',
-                        cursor: 'pointer',
-                        transition: 'var(--transition)',
-                        background: hasNeedsWork 
-                          ? 'rgba(239, 68, 68, 0.15)' 
-                          : expandedOutlet === i 
-                            ? 'var(--surface-light)' 
-                            : 'transparent'
-                      }}
-                      onClick={() => { setExpandedOutlet(i); setMinimized(false); }}
-                    >
-                      <td style={{ 
-                        padding: '18px', 
-                        fontWeight: '600', 
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-primary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" 
+                      {outlet.outlet_name}
+                    </td>
+                    <td style={{
+                      padding: '18px',
+                      color: 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      {outlet.total_orders}
+                    </td>
+                    <td style={{
+                      padding: '18px',
+                      color: '#10b981',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      {outlet.high_rated_orders}
+                    </td>
+                    <td style={{
+                      padding: '18px',
+                      color: '#ef4444',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      {outlet.low_rated_orders}
+                    </td>
+                    <td style={{
+                      padding: '18px',
+                      color: errorRate > 2 ? '#ef4444' : 'var(--text-primary)',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      {outlet.error_rate}
+                    </td>
+                    <td style={{
+                      padding: '18px',
+                      color: highRatedPercent >= 8 ? '#10b981' : highRatedPercent >= 5 ? '#3b82f6' : '#ef4444',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                    }}>
+                      {highRatedPercent}%
+                    </td>
+                    <td style={{ padding: '18px' }}>
+                      <span style={{
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        fontSize: '0.8rem',
+                        fontWeight: '600',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px',
+                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                        background: hasGoodPerformance 
+                          ? 'rgba(16, 185, 129, 0.2)' 
+                          : needsWork 
+                            ? 'rgba(239, 68, 68, 0.2)' 
+                            : 'rgba(59, 130, 246, 0.2)',
+                        color: hasGoodPerformance 
+                          ? '#10b981' 
+                          : needsWork 
+                            ? '#ef4444' 
+                            : '#3b82f6'
                       }}>
-                        {outlet.outlet_name.toUpperCase()}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.total_orders}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.high_rated}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.low_rated}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.igcc}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.errors}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.error_rate}%
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.high_rated_percent}%
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : 'var(--text-secondary)',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        {outlet.high_minus_error}%
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork 
-                          ? '#ffffff' 
-                          : outlet.incentive >= 0 
-                            ? 'var(--text-primary)' 
-                            : '#ef4444',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        ₹{outlet.incentive}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork ? '#ffffff' : '#ef4444',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        ₹{outlet.deduction}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork 
-                          ? '#ffffff' 
-                          : outlet.incentives >= 0 
-                            ? 'var(--text-primary)' 
-                            : '#ef4444',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        ₹{outlet.incentives}
-                      </td>
-                      <td style={{ 
-                        padding: '18px',
-                        color: hasNeedsWork 
-                          ? '#ffffff' 
-                          : outlet.per_day >= 0 
-                            ? 'var(--text-primary)' 
-                            : '#ef4444',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                      }}>
-                        ₹{outlet.per_day}
-                      </td>
-                      <td style={{ padding: '18px' }}>
-                        <span style={{
-                          padding: '6px 14px',
-                          borderRadius: '20px',
-                          fontSize: '0.8rem',
-                          fontWeight: '600',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.5px',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          background: outlet.high_minus_error > 8 ? 'rgba(16, 185, 129, 0.2)' : outlet.high_minus_error > 5 ? 'rgba(59, 130, 246, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                          color: hasNeedsWork 
-                            ? '#ffffff' 
-                            : outlet.high_minus_error > 8 
-                              ? '#10b981' 
-                              : outlet.high_minus_error > 5 
-                                ? '#3b82f6' 
-                                : '#ef4444'
-                        }}>
-                          {outlet.high_minus_error > 8 ? 'EXCELLENT' : outlet.high_minus_error > 5 ? 'GOOD' : 'NEEDS WORK'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        {hasGoodPerformance ? 'EXCELLENT' : needsWork ? 'NEEDS WORK' : 'GOOD'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -887,20 +619,12 @@ const HighRatedDashboard = () => {
                 fontSize: '0.9rem'
               }}>
                 {[
-                  { label: 'START DATE', value: filteredData[expandedOutlet].start_date },
-                  { label: 'END DATE', value: filteredData[expandedOutlet].end_date },
+                  { label: 'OUTLET NAME', value: filteredData[expandedOutlet].outlet_name },
                   { label: 'TOTAL ORDERS', value: filteredData[expandedOutlet].total_orders },
-                  { label: 'LOW RATED', value: filteredData[expandedOutlet].low_rated },
-                  { label: 'IGCC', value: filteredData[expandedOutlet].igcc },
-                  { label: 'ERRORS', value: filteredData[expandedOutlet].errors },
-                  { label: 'ERROR RATE', value: `${filteredData[expandedOutlet].error_rate}%` },
-                  { label: 'HIGH RATED ORDERS', value: filteredData[expandedOutlet].high_rated },
-                  { label: 'HIGH RATED %', value: `${filteredData[expandedOutlet].high_rated_percent}%` },
-                  { label: 'HIGH MINUS ERROR', value: `${filteredData[expandedOutlet].high_minus_error}%` },
-                  { label: 'INCENTIVE', value: `₹${filteredData[expandedOutlet].incentive}` },
-                  { label: 'DEDUCTION', value: `₹${filteredData[expandedOutlet].deduction}` },
-                  { label: 'NET INCENTIVES', value: `₹${filteredData[expandedOutlet].incentives}` },
-                  { label: 'PER DAY', value: `₹${filteredData[expandedOutlet].per_day}` }
+                  { label: 'HIGH RATED ORDERS', value: filteredData[expandedOutlet].high_rated_orders },
+                  { label: 'LOW RATED ORDERS', value: filteredData[expandedOutlet].low_rated_orders },
+                  { label: 'ERROR RATE', value: filteredData[expandedOutlet].error_rate },
+                  { label: 'HIGH RATED %', value: `${calculateHighRatedPercent(filteredData[expandedOutlet])}%` }
                 ].map((item, index) => (
                   <div key={index} style={{
                     padding: '15px',
