@@ -252,21 +252,21 @@ async function initializeBroadcastTab() {
 const TIME_SLOT_MAPPINGS = {
   'Morning': {
     minStart: '06:00',
-    maxStart: '10:00',
+    maxStart: '12:00',
     minEnd: '12:00',
     maxEnd: '16:00'
   },
   'Mid Day': {
     minStart: '11:00',
     maxStart: '15:00',
-    minEnd: '16:00',
+    minEnd: '15:00',
     maxEnd: '20:00'
   },
   'Closing': {
     minStart: '18:00',
     maxStart: '23:59',
     minEnd: '22:00',
-    maxEnd: '23:59'
+    maxEnd: '02:00'
   }
 };
 
