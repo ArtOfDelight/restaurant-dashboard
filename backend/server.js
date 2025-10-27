@@ -311,8 +311,8 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
-    // Fetch roster data
-    console.log('Fetching roster data...');
+    // Fetch roster data starting from row 3800
+    console.log('Fetching roster data from row 3800...');
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
       range: `${ROSTER_TAB}!A3800:Z`, // Start from row 3800
@@ -326,7 +326,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       return [];
     }
 
-    // Parse roster headers with flexible matching
+    // Parse roster headers
     const headers = rosterData[0].map(h => h.toString().trim().toLowerCase());
     console.log('Roster headers:', headers);
 
@@ -344,7 +344,70 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       return [];
     }
 
-    // Fetch employee register data
+    // Collect matching employees (original logic)
+    const scheduledEmployees = [];
+    const targetDate = formatDate(date);
+    console.log('Input parameters:', { targetDate, outlet: outlet?.toUpperCase()?.trim(), timeSlot });
+
+    for (let i = 1; i < rosterData.length; i++) {
+      const row = rosterData[i];
+      if (!row || row.length === 0) {
+        console.log(`Row ${3800 + i}: Skipped (empty)`);
+        continue;
+      }
+
+      const rosterDate = formatDate(getCellValue(row, dateColIndex));
+      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase()?.trim();
+      const startTime = getCellValue(row, startTimeIndex)?.trim();
+      const endTime = getCellValue(row, endTimeIndex)?.trim();
+      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
+      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex)?.trim() : '';
+
+      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
+      console.log(`Row ${3800 + i}:`, {
+        rosterDate,
+        rosterOutlet,
+        derivedTimeSlot,
+        employeeId,
+        startTime,
+        endTime,
+        shift
+      });
+
+      // Match outlet, time slot, and date
+      const dateMatch = rosterDate === targetDate;
+      const outletMatch = rosterOutlet === outlet?.toUpperCase()?.trim();
+      const timeSlotMatch = derivedTimeSlot === timeSlot;
+
+      console.log(`Row ${3800 + i} match check:`, {
+        dateMatch: { rosterDate, targetDate },
+        outletMatch: { rosterOutlet, inputOutlet: outlet?.toUpperCase()?.trim() },
+        timeSlotMatch: { derivedTimeSlot, inputTimeSlot: timeSlot }
+      });
+
+      if (dateMatch && outletMatch && timeSlotMatch) {
+        scheduledEmployees.push({
+          employeeId,
+          name: employeeId, // Temporary placeholder, will replace with Short Name
+          outlet: rosterOutlet,
+          timeSlot: derivedTimeSlot,
+          shift,
+          startTime,
+          endTime,
+          date: rosterDate
+        });
+      }
+    }
+
+    console.log('Employees before Short Name mapping:', scheduledEmployees);
+
+    // If no employees found, log and return early
+    if (scheduledEmployees.length === 0) {
+      console.log('No staff scheduled for the given parameters.');
+      return [];
+    }
+
+    // Fetch Short Names from Employee Register
     console.log('Fetching employee register data...');
     let idToShortName = new Map();
     try {
@@ -386,63 +449,12 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       console.warn('Error fetching Employee Register:', error.message, 'Falling back to employee IDs.');
     }
 
-    const scheduledEmployees = [];
-    const targetDate = formatDate(date);
-    console.log('Input parameters:', { targetDate, outlet: outlet?.toUpperCase()?.trim(), timeSlot });
-
-    // Iterate through roster rows (starting from row 3800, index 1 in data since headers are row 0)
-    for (let i = 1; i < rosterData.length; i++) {
-      const row = rosterData[i];
-      if (!row || row.length === 0) {
-        console.log(`Row ${3800 + i}: Skipped (empty)`);
-        continue;
-      }
-
-      const rosterDate = formatDate(getCellValue(row, dateColIndex));
-      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase()?.trim();
-      const startTime = getCellValue(row, startTimeIndex)?.trim();
-      const endTime = getCellValue(row, endTimeIndex)?.trim();
-      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
-      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex)?.trim() : '';
-
-      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-      console.log(`Row ${3800 + i}:`, {
-        rosterDate,
-        rosterOutlet,
-        derivedTimeSlot,
-        employeeId,
-        startTime,
-        endTime,
-        shift
-      });
-
-      // Match outlet, time slot, and date with debugging
-      const dateMatch = rosterDate === targetDate;
-      const outletMatch = rosterOutlet === outlet?.toUpperCase()?.trim();
-      const timeSlotMatch = derivedTimeSlot === timeSlot;
-
-      console.log(`Row ${3800 + i} match check:`, {
-        dateMatch: { rosterDate, targetDate },
-        outletMatch: { rosterOutlet, inputOutlet: outlet?.toUpperCase()?.trim() },
-        timeSlotMatch: { derivedTimeSlot, inputTimeSlot: timeSlot }
-      });
-
-      if (dateMatch && outletMatch && timeSlotMatch) {
-        const shortName = idToShortName.get(employeeId) || employeeId || 'Unknown';
-        scheduledEmployees.push({
-          employeeId,
-          name: shortName, // Use Short Name instead of Employee ID
-          outlet: rosterOutlet,
-          timeSlot: derivedTimeSlot,
-          shift,
-          startTime,
-          endTime,
-          date: rosterDate
-        });
-      }
+    // Map Employee IDs to Short Names
+    for (let employee of scheduledEmployees) {
+      employee.name = idToShortName.get(employee.employeeId) || employee.employeeId || 'Unknown';
     }
 
-    console.log('Final scheduled employees:', scheduledEmployees);
+    console.log('Final scheduled employees with Short Names:', scheduledEmployees);
     return scheduledEmployees;
   } catch (error) {
     console.error('Error fetching scheduled employees:', error.message, error.stack);
