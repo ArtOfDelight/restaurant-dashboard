@@ -311,13 +311,38 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
+    // ================================
+    // 1️⃣ FETCH EMPLOYEE REGISTER DATA
+    // ================================
+    const EMPLOYEE_REGISTER_SHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+    const EMPLOYEE_REGISTER_SHEET_NAME = 'Employee Register';
+
+    const empResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: EMPLOYEE_REGISTER_SHEET_ID,
+      range: `${EMPLOYEE_REGISTER_SHEET_NAME}!A:C`, // Columns: Employee ID | Full Name | Short Name
+    });
+
+    const empData = empResponse.data.values || [];
+    const empMap = new Map();
+
+    // Skip header row and build map: EmployeeID → ShortName
+    for (let i = 1; i < empData.length; i++) {
+      const [empId, fullName, shortName] = empData[i];
+      if (empId && shortName) {
+        empMap.set(empId.trim().toUpperCase(), shortName.trim());
+      }
+    }
+
+    // ================================
+    // 2️⃣ FETCH ROSTER DATA
+    // ================================
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
       range: `${ROSTER_TAB}!A:Z`,
     });
 
     const rosterData = rosterResponse.data.values || [];
-    
+
     if (rosterData.length <= 1) {
       console.log('No roster data found');
       return [];
@@ -325,7 +350,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
 
     // Parse header to find column indices
     const headers = rosterData[0].map(h => h.toString().trim());
-    
+
     const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
     const employeeIdIndex = headers.findIndex(h => h.toLowerCase().includes('employee id'));
     const dateColIndex = headers.findIndex(h => h.toLowerCase() === 'date');
@@ -334,16 +359,18 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
     const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
     const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
-    
+
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
       console.error('Could not find required columns in roster. Headers:', headers);
       return [];
     }
 
+    // ================================
+    // 3️⃣ FILTER MATCHING EMPLOYEES
+    // ================================
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
 
-    // Iterate through roster rows
     for (let i = 1; i < rosterData.length; i++) {
       const row = rosterData[i];
       if (!row || row.length === 0) continue;
@@ -352,19 +379,23 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
       const startTime = getCellValue(row, startTimeIndex);
       const endTime = getCellValue(row, endTimeIndex);
-      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex) : '';
+      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
       const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
-      
+
       // Determine time slot from shift times
       const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-      
-      // Match outlet, time slot (derived from shift times), and date
-      if (rosterDate === targetDate && 
-          rosterOutlet === outlet.toUpperCase() && 
+
+      // Match outlet, time slot, and date
+      if (rosterDate === targetDate &&
+          rosterOutlet === outlet.toUpperCase() &&
           derivedTimeSlot === timeSlot) {
+        
+        // Lookup short name from Employee Register
+        const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
+
         scheduledEmployees.push({
           employeeId: employeeId,
-          name: employeeId, // Using employee ID as name since there's no separate name column
+          name: shortName, // ✅ Short Name instead of Employee ID
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
           shift: shift,
@@ -381,6 +412,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     return [];
   }
 }
+
 
 // Add these functions after initializeBroadcastTab()
 
