@@ -269,7 +269,6 @@ const TIME_SLOT_MAPPINGS = {
 
 /**
  * Helper function to check if a shift overlaps with a time slot
- * IMPROVED: Checks if employee is PRESENT during the time slot (overlap detection)
  */
 function isEmployeeWorkingDuringTimeSlot(shiftStart, shiftEnd, timeSlot) {
   if (!shiftStart || !shiftEnd) return false;
@@ -277,36 +276,19 @@ function isEmployeeWorkingDuringTimeSlot(shiftStart, shiftEnd, timeSlot) {
   const start = shiftStart.substring(0, 5);
   const end = shiftEnd.substring(0, 5);
   
-  const slotStart = TIME_SLOT_MAPPINGS[timeSlot].slotStart;
-  const slotEnd = TIME_SLOT_MAPPINGS[timeSlot].slotEnd;
-  
-  // ==========================================
   // MORNING SLOT (06:00 - 15:00)
-  // ==========================================
   if (timeSlot === 'Morning') {
-    // Employee works if:
-    // - Shift starts before 15:00 AND ends after 06:00
     return start < '15:00' && end > '06:00';
   }
   
-  // ==========================================
   // MID DAY SLOT (15:00 - 18:00)
-  // ==========================================
   if (timeSlot === 'Mid Day') {
-    // Employee works if:
-    // - Shift starts before 18:00 AND ends after 15:00
-    // OR shift goes overnight (ends 00:00-06:00) which means still working
     return (start < '18:00' && end > '15:00') || 
            (start < '18:00' && end >= '00:00' && end <= '06:00');
   }
   
-  // ==========================================
   // CLOSING SLOT (18:00 - 06:00 next day)
-  // ==========================================
   if (timeSlot === 'Closing') {
-    // Employee works if:
-    // - Shift starts before midnight (00:00) AND ends after 18:00
-    // OR shift ends in early morning (00:00-06:00) meaning overnight
     return (start < '23:59' && end > '18:00') || 
            (end >= '00:00' && end <= '06:00');
   }
@@ -315,8 +297,40 @@ function isEmployeeWorkingDuringTimeSlot(shiftStart, shiftEnd, timeSlot) {
 }
 
 /**
+ * Calculate time distance between shift and time slot
+ * Returns number of hours between them (lower is closer)
+ */
+function calculateTimeDistance(shiftStart, shiftEnd, timeSlot) {
+  const start = shiftStart.substring(0, 5);
+  const end = shiftEnd.substring(0, 5);
+  
+  const slotStart = TIME_SLOT_MAPPINGS[timeSlot].slotStart;
+  const slotEnd = TIME_SLOT_MAPPINGS[timeSlot].slotEnd;
+  
+  // Convert time to minutes for calculation
+  const toMinutes = (time) => {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  };
+  
+  const shiftStartMin = toMinutes(start);
+  const shiftEndMin = toMinutes(end);
+  const slotStartMin = toMinutes(slotStart);
+  
+  // Calculate distance from shift start to slot start
+  let distance = Math.abs(shiftStartMin - slotStartMin);
+  
+  // If shift ends during slot, distance is 0
+  if (isEmployeeWorkingDuringTimeSlot(shiftStart, shiftEnd, timeSlot)) {
+    return 0;
+  }
+  
+  return distance;
+}
+
+/**
  * Get employees scheduled for a specific outlet and time slot on a given date
- * WITH OVERLAP DETECTION - Ensures every time slot has employees
+ * WITH FALLBACK TO NEAREST EMPLOYEE IF SLOT IS EMPTY
  */
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 const rosterCache = {
@@ -417,8 +431,8 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     // FILTER MATCHES WITH OVERLAP DETECTION
     // ================================
     const scheduledEmployees = [];
+    const allOutletEmployees = []; // Track ALL employees at this outlet for fallback
     const targetDate = formatDate(date);
-    const missedEmployees = [];
 
     for (let i = 1; i < rosterData.length; i++) {
       const row = rosterData[i];
@@ -434,10 +448,25 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       const dateMatch = rosterDate === targetDate;
       const outletMatch = rosterOutlet === outlet.toUpperCase();
       
-      // NEW: Check if employee is working during this time slot (overlap detection)
+      // Track all employees at this outlet on this date
+      if (dateMatch && outletMatch) {
+        const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
+        
+        allOutletEmployees.push({
+          employeeId: employeeId,
+          name: shortName,
+          outlet: rosterOutlet,
+          shift: shift,
+          startTime: startTime,
+          endTime: endTime,
+          date: rosterDate,
+          distance: calculateTimeDistance(startTime, endTime, timeSlot)
+        });
+      }
+
+      // Check if employee is working during this time slot
       const isWorking = isEmployeeWorkingDuringTimeSlot(startTime, endTime, timeSlot);
 
-      // Full match - add to results
       if (dateMatch && outletMatch && isWorking) {
         const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
 
@@ -449,38 +478,48 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
           shift: shift,
           startTime: startTime,
           endTime: endTime,
-          date: rosterDate
-        });
-      } 
-      // Track missed employees (same outlet & date, not working during time slot)
-      else if (dateMatch && outletMatch && !isWorking) {
-        const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
-        
-        missedEmployees.push({
-          name: shortName,
-          id: employeeId,
-          startTime: startTime,
-          endTime: endTime,
-          requestedSlot: timeSlot
+          date: rosterDate,
+          isFallback: false
         });
       }
     }
 
     // ================================
-    // SIMPLIFIED SUMMARY LOG
+    // FALLBACK: If no employees found, use nearest employee
+    // ================================
+    if (scheduledEmployees.length === 0 && allOutletEmployees.length > 0) {
+      console.log(`⚠️  No employees working during ${timeSlot} at ${outlet}`);
+      console.log(`🔄 Using nearest employee as fallback...`);
+      
+      // Sort by time distance (closest first)
+      allOutletEmployees.sort((a, b) => a.distance - b.distance);
+      
+      const nearestEmployee = allOutletEmployees[0];
+      
+      scheduledEmployees.push({
+        employeeId: nearestEmployee.employeeId,
+        name: nearestEmployee.name,
+        outlet: nearestEmployee.outlet,
+        timeSlot: timeSlot,
+        shift: nearestEmployee.shift,
+        startTime: nearestEmployee.startTime,
+        endTime: nearestEmployee.endTime,
+        date: nearestEmployee.date,
+        isFallback: true,
+        fallbackReason: `Nearest employee (works ${nearestEmployee.startTime}-${nearestEmployee.endTime})`
+      });
+      
+      console.log(`   ✅ Added ${nearestEmployee.name} as fallback`);
+    }
+
+    // ================================
+    // SUMMARY LOG
     // ================================
     console.log(`\n🔍 Roster Query: ${outlet} / ${timeSlot} / ${date}`);
-    console.log(`✅ Found ${scheduledEmployees.length} employees working during ${timeSlot}`);
+    console.log(`✅ Found ${scheduledEmployees.length} employee(s)`);
     
-    if (scheduledEmployees.length === 0) {
-      console.log(`⚠️  WARNING: No employees found for ${outlet} ${timeSlot}!`);
-    }
-    
-    if (missedEmployees.length > 0) {
-      console.log(`ℹ️  ${missedEmployees.length} employees at this outlet but not working during ${timeSlot}:`);
-      missedEmployees.forEach((emp) => {
-        console.log(`   • ${emp.name} (${emp.startTime}-${emp.endTime})`);
-      });
+    if (scheduledEmployees.some(e => e.isFallback)) {
+      console.log(`ℹ️  Includes fallback employee (not working during exact time slot)`);
     }
     console.log('');
 
