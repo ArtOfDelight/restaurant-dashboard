@@ -331,101 +331,74 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     ]);
 
     // Fetch roster data starting from row 3800
-    console.log('Fetching roster data from row 3800...');
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
       range: `${ROSTER_TAB}!A3800:Z`, // Start from row 3800
     });
 
     const rosterData = rosterResponse.data.values || [];
-    console.log('Roster data rows (from row 3800):', rosterData.length);
-
+    
     if (rosterData.length <= 1) {
-      console.log('No roster data found or only headers present starting from row 3800');
+      console.log('No roster data found');
       return [];
     }
 
-    // Parse roster headers
-    const headers = rosterData[0].map(h => h.toString().trim().toLowerCase());
-    console.log('Roster headers:', headers);
-
-    const rosterIdIndex = headers.findIndex(h => h.includes('roster id'));
-    const employeeIdIndex = headers.findIndex(h => h.includes('employee id'));
-    const dateColIndex = headers.findIndex(h => h.includes('date'));
-    const outletColIndex = headers.findIndex(h => h.includes('outlet'));
-    const shiftColIndex = headers.findIndex(h => h.includes('shift'));
-    const startTimeIndex = headers.findIndex(h => h.includes('start time'));
-    const endTimeIndex = headers.findIndex(h => h.includes('end time'));
-    const commentsIndex = headers.findIndex(h => h.includes('comments'));
-
+    // Parse header to find column indices
+    const headers = rosterData[0].map(h => h.toString().trim());
+    
+    const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
+    const employeeIdIndex = headers.findIndex(h => h.toLowerCase().includes('employee id'));
+    const dateColIndex = headers.findIndex(h => h.toLowerCase() === 'date');
+    const outletColIndex = headers.findIndex(h => h.toLowerCase() === 'outlet');
+    const shiftColIndex = headers.findIndex(h => h.toLowerCase() === 'shift');
+    const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
+    const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
+    const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
+    
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
-      console.error('Required columns (date, outlet, start time) missing in roster. Headers:', headers);
+      console.error('Could not find required columns in roster. Headers:', headers);
       return [];
     }
 
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
-    console.log('Input parameters:', { targetDate, outlet: outlet?.toUpperCase()?.trim(), timeSlot });
 
-    // Iterate through roster rows starting from row 3800 (index 1 in data, as 0 is headers)
+    // Iterate through roster rows
     for (let i = 1; i < rosterData.length; i++) {
       const row = rosterData[i];
-      if (!row || row.length === 0) {
-        console.log(`Row ${3800 + i}: Skipped (empty)`);
-        continue;
-      }
+      if (!row || row.length === 0) continue;
 
       const rosterDate = formatDate(getCellValue(row, dateColIndex));
-      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase()?.trim();
-      const startTime = getCellValue(row, startTimeIndex)?.trim();
-      const endTime = getCellValue(row, endTimeIndex)?.trim();
-      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
-      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex)?.trim() : '';
-
+      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
+      const startTime = getCellValue(row, startTimeIndex);
+      const endTime = getCellValue(row, endTimeIndex);
+      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex) : '';
+      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
+      
+      // Determine time slot from shift times
       const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-      console.log(`Row ${3800 + i}:`, {
-        rosterDate,
-        rosterOutlet,
-        derivedTimeSlot,
-        employeeId,
-        startTime,
-        endTime,
-        shift
-      });
-
-      // Match outlet, time slot, and date with flexible matching
-      const dateMatch = rosterDate === targetDate;
-      const outletMatch = rosterOutlet === outlet?.toUpperCase()?.trim();
-      const timeSlotMatch = derivedTimeSlot === timeSlot;
-
-      console.log(`Row ${3800 + i} match check:`, {
-        dateMatch: { rosterDate, targetDate },
-        outletMatch: { rosterOutlet, inputOutlet: outlet?.toUpperCase()?.trim() },
-        timeSlotMatch: { derivedTimeSlot, inputTimeSlot: timeSlot }
-      });
-
-      if (dateMatch && outletMatch && timeSlotMatch) {
+      
+      // Match outlet, time slot (derived from shift times), and date
+      if (rosterDate === targetDate && 
+          rosterOutlet === outlet.toUpperCase() && 
+          derivedTimeSlot === timeSlot) {
         const shortName = idToShortName.get(employeeId) || employeeId || 'Unknown';
         scheduledEmployees.push({
-          employeeId,
+          employeeId: employeeId,
           name: shortName, // Use Short Name instead of Employee ID
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
-          shift,
-          startTime,
-          endTime,
+          shift: shift,
+          startTime: startTime,
+          endTime: endTime,
           date: rosterDate
         });
       }
     }
 
-    console.log('Final scheduled employees:', scheduledEmployees);
-    if (scheduledEmployees.length === 0) {
-      console.log('No staff scheduled for the given parameters.');
-    }
     return scheduledEmployees;
   } catch (error) {
-    console.error('Error fetching scheduled employees:', error.message, error.stack);
+    console.error('Error fetching scheduled employees:', error.message);
     return [];
   }
 }
