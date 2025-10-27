@@ -301,117 +301,90 @@ function determineTimeSlotFromShift(startTime, endTime) {
 /**
  * Get employees scheduled for a specific outlet and time slot on a given date
  */
-async function getScheduledEmployees(outlet, timeSlot, date) {
-  try {
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        console.error('Failed to initialize Google APIs for roster fetch');
-        return [];
-      }
-    }
+/**
+ * Google Apps Script - Optimized Employee Register Data Loader
+ * Avoids 'Quota exceeded for read requests' by:
+ * 1. Using one read call (no repeated getValue() or getRange() calls)
+ * 2. Implementing caching
+ * 3. Adding retry logic with exponential backoff
+ */
 
-    // ================================
-    // 1️⃣ FETCH EMPLOYEE REGISTER DATA
-    // ================================
-    const EMPLOYEE_REGISTER_SHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const EMPLOYEE_REGISTER_SHEET_NAME = 'EmployeeRegister';
+// ============================================
+// CONFIGURATION
+// ============================================
+const EMPLOYEE_REGISTER_SHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+const EMPLOYEE_REGISTER_SHEET_NAME = 'Employee Register';
+const CACHE_EXPIRY_MINUTES = 10; // cache lifetime
 
-    const empResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: EMPLOYEE_REGISTER_SHEET_ID,
-      range: `${EMPLOYEE_REGISTER_SHEET_NAME}!A:C`, // Columns: Employee ID | Full Name | Short Name
-    });
+// ============================================
+// MAIN FUNCTION
+// ============================================
+function getEmployeeData() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('EMPLOYEE_DATA');
 
-    const empData = empResponse.data.values || [];
-    const empMap = new Map();
-
-    // Skip header row and build map: EmployeeID → ShortName
-    for (let i = 1; i < empData.length; i++) {
-      const [empId, fullName, shortName] = empData[i];
-      if (empId && shortName) {
-        empMap.set(empId.trim().toUpperCase(), shortName.trim());
-      }
-    }
-
-    // ================================
-    // 2️⃣ FETCH ROSTER DATA
-    // ================================
-    const rosterResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: ROSTER_SPREADSHEET_ID,
-      range: `${ROSTER_TAB}!A:Z`,
-    });
-
-    const rosterData = rosterResponse.data.values || [];
-
-    if (rosterData.length <= 1) {
-      console.log('No roster data found');
-      return [];
-    }
-
-    // Parse header to find column indices
-    const headers = rosterData[0].map(h => h.toString().trim());
-
-    const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
-    const employeeIdIndex = headers.findIndex(h => h.toLowerCase().includes('employee id'));
-    const dateColIndex = headers.findIndex(h => h.toLowerCase() === 'date');
-    const outletColIndex = headers.findIndex(h => h.toLowerCase() === 'outlet');
-    const shiftColIndex = headers.findIndex(h => h.toLowerCase() === 'shift');
-    const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
-    const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
-    const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
-
-    if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
-      console.error('Could not find required columns in roster. Headers:', headers);
-      return [];
-    }
-
-    // ================================
-    // 3️⃣ FILTER MATCHING EMPLOYEES
-    // ================================
-    const scheduledEmployees = [];
-    const targetDate = formatDate(date);
-
-    for (let i = 1; i < rosterData.length; i++) {
-      const row = rosterData[i];
-      if (!row || row.length === 0) continue;
-
-      const rosterDate = formatDate(getCellValue(row, dateColIndex));
-      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
-      const startTime = getCellValue(row, startTimeIndex);
-      const endTime = getCellValue(row, endTimeIndex);
-      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
-      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
-
-      // Determine time slot from shift times
-      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-
-      // Match outlet, time slot, and date
-      if (rosterDate === targetDate &&
-          rosterOutlet === outlet.toUpperCase() &&
-          derivedTimeSlot === timeSlot) {
-        
-        // Lookup short name from Employee Register
-        const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
-
-        scheduledEmployees.push({
-          employeeId: employeeId,
-          name: shortName, // ✅ Short Name instead of Employee ID
-          outlet: rosterOutlet,
-          timeSlot: derivedTimeSlot,
-          shift: shift,
-          startTime: startTime,
-          endTime: endTime,
-          date: rosterDate
-        });
-      }
-    }
-
-    return scheduledEmployees;
-  } catch (error) {
-    console.error('Error fetching scheduled employees:', error.message);
-    return [];
+  // ✅ Return cached data if available
+  if (cached) {
+    Logger.log('⚡ Using cached employee data');
+    return JSON.parse(cached);
   }
+
+  const sheet = SpreadsheetApp.openById(EMPLOYEE_REGISTER_SHEET_ID).getSheetByName(EMPLOYEE_REGISTER_SHEET_NAME);
+  if (!sheet) throw new Error(`❌ Sheet "${EMPLOYEE_REGISTER_SHEET_NAME}" not found!`);
+
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+
+  if (!values || values.length < 2) throw new Error('❌ No data found in Employee Register sheet');
+
+  // ✅ Convert rows into JSON objects using header row
+  const headers = values[0];
+  const data = values.slice(1).map(row => {
+    const record = {};
+    headers.forEach((header, i) => {
+      record[header] = row[i];
+    });
+    return record;
+  });
+
+  // ✅ Cache the result to avoid repeated reads
+  cache.put('EMPLOYEE_DATA', JSON.stringify(data), CACHE_EXPIRY_MINUTES * 60);
+  Logger.log(`✅ Loaded ${data.length} employees from sheet`);
+
+  return data;
 }
+
+// ============================================
+// RETRY WRAPPER FOR API LIMIT HANDLING
+// ============================================
+function safeGetEmployeeData(maxRetries = 5) {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      return getEmployeeData();
+    } catch (err) {
+      if (err.message.includes('Quota exceeded')) {
+        const delay = Math.pow(2, attempt) * 1000;
+        Logger.log(`⚠️ Quota exceeded — retrying in ${delay / 1000}s...`);
+        Utilities.sleep(delay);
+        attempt++;
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error('❌ Failed to load data after multiple retries due to quota issues');
+}
+
+// ============================================
+// TEST FUNCTION
+// ============================================
+function testEmployeeData() {
+  const data = safeGetEmployeeData();
+  Logger.log(`✅ Total Employees: ${data.length}`);
+  Logger.log(JSON.stringify(data.slice(0, 3), null, 2)); // Preview first 3
+}
+
 
 
 // Add these functions after initializeBroadcastTab()
