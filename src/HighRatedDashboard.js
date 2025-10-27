@@ -27,60 +27,37 @@ const HighRatedDashboard = () => {
       
       const periodParam = period === '7 Days' ? '7 Days' : '28 Day';
       console.log(`Fetching high-rated data for period: ${periodParam}`);
+      console.log(`Using API URL: ${API_URL}`);
       
-      const possibleUrls = [
-        `${API_URL}/api/high-rated-data-gemini`,
-        `/api/high-rated-data-gemini`,
-        `http://localhost:5000/api/high-rated-data-gemini`,
-        `http://localhost:3001/api/high-rated-data-gemini`
-      ];
-
-      let lastError = null;
+      const response = await axios.get(`${API_URL}/api/high-rated-data-gemini`, {
+        params: { period: periodParam },
+        timeout: 30000 // Increased timeout for Gemini processing
+      });
       
-      for (const baseUrl of possibleUrls) {
-        try {
-          console.log(`Trying URL: ${baseUrl}?period=${encodeURIComponent(periodParam)}`);
-          
-          const response = await axios.get(baseUrl, {
-            params: { period: periodParam },
-            timeout: 10000
-          });
-          
-          console.log(`Response status: ${response.status}`);
-          
-          if (response.data && response.data.success && response.data.data) {
-            console.log(`Success! API returned ${response.data.data.length} outlets for ${periodParam}`);
-            setData(response.data.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
-          } else if (response.data && Array.isArray(response.data)) {
-            console.log(`Found array data with ${response.data.length} items`);
-            setData(response.data);
-            setLastUpdate(new Date().toLocaleString());
-            setError(null);
-            return;
-          } else {
-            lastError = new Error(`Unexpected response format from ${baseUrl}`);
-            continue;
-          }
-          
-        } catch (fetchError) {
-          lastError = fetchError;
-          console.log(`Failed to fetch from ${baseUrl}:`, fetchError.message);
-          continue;
-        }
+      console.log('API Response:', response.data);
+      
+      if (response.data && response.data.success && response.data.data) {
+        console.log(`✅ Success! API returned ${response.data.data.length} outlets for ${periodParam}`);
+        console.log('Sample outlet data:', response.data.data[0]);
+        setData(response.data.data);
+        setLastUpdate(new Date().toLocaleString());
+        setError(null);
+      } else if (response.data && Array.isArray(response.data)) {
+        console.log(`✅ Found array data with ${response.data.length} items`);
+        setData(response.data);
+        setLastUpdate(new Date().toLocaleString());
+        setError(null);
+      } else {
+        throw new Error('Unexpected response format');
       }
       
-      // All URLs failed, throw the last error
-      throw lastError || new Error('All API endpoints failed');
-      
     } catch (err) {
-      console.error('Load high-rated data error:', err);
+      console.error('❌ Load high-rated data error:', err);
+      console.error('Error details:', err.response?.data || err.message);
       setError(err.message || 'Failed to load high-rated data');
       
       // Load sample data as fallback
-      console.log('Loading sample data as fallback...');
+      console.log('⚠️ Loading sample data as fallback...');
       const sampleData = [
         {
           outlet_name: "Bellandur",
@@ -130,20 +107,21 @@ const HighRatedDashboard = () => {
             delayedOrders: apiData.delayedOrders
           }
         });
-        console.log(`Success! Swiggy API returned ${apiData.outlets.length} outlets`);
+        console.log(`✅ Success! Swiggy API returned ${apiData.outlets.length} outlets`);
       } else {
         throw new Error(response.data.error || 'Failed to fetch Swiggy data');
       }
       
     } catch (err) {
-      console.error('Load Swiggy data error:', err);
-      setError(prev => prev || 'Failed to load Swiggy performance metrics');
+      console.error('⚠️ Load Swiggy data error:', err);
+      // Don't set main error for Swiggy failures
     }
   };
 
   // Combined fetch function
   const fetchData = async (period) => {
-    await Promise.all([fetchHighRatedData(period), fetchSwiggyData(period)]);
+    await fetchHighRatedData(period);
+    await fetchSwiggyData(period);
     setLoading(false);
   };
 
@@ -236,6 +214,25 @@ const HighRatedDashboard = () => {
           100% { transform: rotate(360deg); }
         }
       `}</style>
+
+      {/* Debug Info - Remove after testing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.3)',
+          borderRadius: '10px',
+          padding: '15px',
+          marginBottom: '20px',
+          fontSize: '0.85rem',
+          fontFamily: 'monospace'
+        }}>
+          <strong>🔍 Debug Info:</strong><br/>
+          API URL: {API_URL}<br/>
+          Data loaded: {data.length} outlets<br/>
+          Error: {error || 'None'}<br/>
+          Sample data keys: {data[0] ? Object.keys(data[0]).join(', ') : 'N/A'}
+        </div>
+      )}
 
       {/* Header */}
       <div style={{
@@ -679,8 +676,7 @@ const HighRatedDashboard = () => {
             letterSpacing: '0.5px'
           }}>
             LAST UPDATED: {lastUpdate.toUpperCase()}
-            {error && ' • USING SAMPLE DATA FOR HIGH RATED METRICS'}
-            {!swiggyData && error && ' • PERFORMANCE METRICS UNAVAILABLE'}
+            {error && ' • USING SAMPLE DATA (API CONNECTION ISSUE)'}
           </p>
         </div>
       )}
