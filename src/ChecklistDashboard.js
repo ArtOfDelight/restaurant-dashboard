@@ -4,6 +4,73 @@ import './ChecklistDashboard.css';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
+// Employee ID to Short Name mapping
+const EMPLOYEE_SHORT_NAMES = {
+  'AOD001': 'Ayaaz',
+  'AOD002': 'Ajay',
+  'AOD003': 'Jin',
+  'AOD004': 'Kim',
+  'AOD005': 'Nishat',
+  'AOD006': 'Sailo',
+  'AOD007': 'Minthang',
+  'AOD008': 'Mon',
+  'AOD009': 'Mangboi',
+  'AOD010': 'Ruth',
+  'AOD011': 'Zansung',
+  'AOD012': 'Margaret',
+  'AOD013': 'Kai',
+  'AOD014': 'Risat',
+  'AOD015': 'Soyao',
+  'AOD016': 'Tuboi',
+  'AOD017': 'Lunmang',
+  'AOD018': 'Thai',
+  'AOD019': 'Jatin',
+  'AOD020': 'Boikho',
+  'AOD021': 'Jimmy',
+  'AOD022': 'Kaiku',
+  'AOD023': 'Pau',
+  'AOD024': 'Puia',
+  'AOD025': 'Lamgouhao',
+  'AOD026': 'Gun',
+  'AOD027': 'Charna',
+  'AOD028': 'Mang Khogin',
+  'AOD029': 'Jonathan',
+  'AOD030': 'Henry Kom',
+  'AOD031': 'Len Kipgen',
+  'AOD032': 'Tongminthang',
+  'AOD033': 'Sameer',
+  'AOD034': 'William',
+  'AOD035': 'Jona',
+  'AOD037': 'Mimin',
+  'AOD038': 'Guang',
+  'AOD039': 'Henry Khongsai',
+  'AOD040': 'Prajesha',
+  'AOD043': 'Sang',
+  'AOD045': 'Bem',
+  'AOD046': 'Obed',
+  'AOD047': 'Thangboi',
+  'AOD048': 'Horam',
+  'AOD049': 'Jangnu',
+  'AOD050': 'Chong',
+  'AOD051': 'Hoi',
+  'AOD052': 'Sharon',
+  'AOD053': 'Sibtain',
+  'AOD054': 'Biraj Bhai',
+  'AOD055': 'Jangminlun',
+  'AOD056': 'Ismael',
+  'AOD057': 'Thaimei',
+  'AOD058': 'Mary',
+  'AOD059': 'Shivaji',
+  'AOD060': 'Amreen',
+  'AOD061': 'Mohmo',
+  'AOD062': 'Joy'
+};
+
+const getEmployeeShortName = (employeeId) => {
+  return EMPLOYEE_SHORT_NAMES[employeeId] || employeeId;
+};
+
+
 // ✨ NEW: Auto-detect standalone mode
 const isStandaloneMode = () => {
   const urlParams = new URLSearchParams(window.location.search);
@@ -1739,7 +1806,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
                             marginTop: '4px',
                             paddingLeft: '8px'
                           }}>
-                            👥 {slot.scheduledEmployees.map(emp => emp.id || emp.name).join(', ')}
+                            👥 {slot.scheduledEmployees.map(emp => getEmployeeShortName(emp.id || emp.employeeId) || emp.name).join(', ')}
                             {slot.scheduledEmployees[0]?.startTime && (
                               <div style={{ fontSize: '10px', fontStyle: 'italic' }}>
                                 ⏰ {slot.scheduledEmployees[0].startTime} - {slot.scheduledEmployees[0].endTime}
@@ -1771,7 +1838,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
                             borderRadius: '4px',
                             margin: '2px'
                           }}>
-                            {emp.id || emp.name}
+                            {getEmployeeShortName(emp.id || emp.employeeId) || emp.name}
                           </span>
                         ))}
                       </div>
