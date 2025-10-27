@@ -3431,7 +3431,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
     }
 
     const HIGH_RATED_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard';
+    const HIGH_RATED_SHEET_NAME = 'High Rated Dashboard'; // CHANGED FROM 'High Rated Dashboard Live'
 
     console.log(`Fetching High Rated data for ${period} from: ${HIGH_RATED_SPREADSHEET_ID}`);
 
@@ -3442,7 +3442,74 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
 
     console.log(`Retrieved ${sheetResponse.data.values ? sheetResponse.data.values.length : 0} rows from Google Sheets`);
 
-    const processedData = processHighRatedSheetDataFixed(sheetResponse.data.values, period);
+    // Use Gemini to parse the messy data
+    const rawDataText = sheetResponse.data.values
+      .map(row => row.join('\t'))
+      .join('\n');
+
+    console.log('Sending data to Gemini for parsing...');
+    
+    const geminiPrompt = `You are a data parser that extracts structured information from outlet performance data. 
+
+The data contains multiple columns, but you only need to extract these 4 fields for each outlet:
+
+1. **Total Orders** - The total number of orders for the outlet
+2. **High Rated Orders** - The number of high rated orders
+3. **Total Low Rated** - The number of low rated orders  
+4. **Error Rate** - The error rate percentage
+
+IMPORTANT PARSING RULES:
+- Each row represents one outlet's data
+- The data may appear as continuous text without clear delimiters
+- Outlet Name comes after Outlet Code (3-letter code like IND, KOR, RR, BLN, etc.)
+- Numbers may have percentage signs (%) or decimal points
+- Skip the TOTAL row if present (it aggregates all outlets)
+- The data follows this pattern: Start Date, End Date, Outlet Code, Outlet Name, followed by the metrics
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON array with this exact structure (no markdown, no code blocks, no explanations):
+
+[
+  {
+    "outlet_name": "Indiranagar",
+    "total_orders": 358,
+    "high_rated_orders": 32,
+    "low_rated_orders": 22,
+    "error_rate": "1.12%"
+  }
+]
+
+Here is the raw data to parse:
+
+${rawDataText}
+
+Remember: Return ONLY the JSON array, nothing else.`;
+
+    const geminiResponse = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{ text: geminiPrompt }]
+        }]
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      }
+    );
+
+    const geminiText = geminiResponse.data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    console.log('Gemini response:', geminiText);
+
+    // Clean the response (remove markdown code blocks if present)
+    let cleanedText = geminiText.trim();
+    if (cleanedText.startsWith('```json')) {
+      cleanedText = cleanedText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
+    } else if (cleanedText.startsWith('```')) {
+      cleanedText = cleanedText.replace(/```\n?/g, '').replace(/```\n?$/g, '');
+    }
+
+    const processedData = JSON.parse(cleanedText);
 
     console.log(`Successfully processed High Rated data for ${period}:`, {
       outlets: processedData.length,
@@ -3458,6 +3525,7 @@ app.get('/api/high-rated-data-gemini', async (req, res) => {
         sheetName: HIGH_RATED_SHEET_NAME,
         period: period,
         rowCount: sheetResponse.data.values ? sheetResponse.data.values.length : 0,
+        parsedBy: 'Gemini AI'
       },
       timestamp: new Date().toISOString(),
     });
