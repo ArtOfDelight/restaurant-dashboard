@@ -311,6 +311,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
+    // Fetch roster data
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
       range: `${ROSTER_TAB}!A:Z`,
@@ -323,7 +324,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       return [];
     }
 
-    // Parse header to find column indices
+    // Parse roster headers to find column indices
     const headers = rosterData[0].map(h => h.toString().trim());
     
     const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
@@ -338,6 +339,41 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
       console.error('Could not find required columns in roster. Headers:', headers);
       return [];
+    }
+
+    // Fetch employee register data
+    const registerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: ROSTER_SPREADSHEET_ID,
+      range: `Employee Register!A:Z`,
+    });
+
+    const registerData = registerResponse.data.values || [];
+    
+    let idToShortName = new Map();
+    
+    if (registerData.length > 1) {
+      // Parse register headers
+      const regHeaders = registerData[0].map(h => h.toString().trim());
+      const empIdIndex = regHeaders.findIndex(h => h.toLowerCase() === 'employee id');
+      const shortNameIndex = regHeaders.findIndex(h => h.toLowerCase() === 'short name');
+      
+      if (empIdIndex !== -1 && shortNameIndex !== -1) {
+        for (let i = 1; i < registerData.length; i++) {
+          const row = registerData[i];
+          if (!row || row.length === 0) continue;
+          
+          const id = getCellValue(row, empIdIndex);
+          const shortName = getCellValue(row, shortNameIndex);
+          
+          if (id && shortName) {
+            idToShortName.set(id, shortName);
+          }
+        }
+      } else {
+        console.error('Could not find Employee ID or Short Name columns in Employee Register.');
+      }
+    } else {
+      console.log('No employee register data found. Falling back to employee IDs as names.');
     }
 
     const scheduledEmployees = [];
@@ -362,9 +398,10 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       if (rosterDate === targetDate && 
           rosterOutlet === outlet.toUpperCase() && 
           derivedTimeSlot === timeSlot) {
+        const shortName = idToShortName.get(employeeId) || employeeId;
         scheduledEmployees.push({
           employeeId: employeeId,
-          name: employeeId, // Using employee ID as name since there's no separate name column
+          name: shortName,
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
           shift: shift,
