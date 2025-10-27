@@ -252,56 +252,66 @@ async function initializeBroadcastTab() {
 const TIME_SLOT_MAPPINGS = {
   'Morning': {
     minStart: '06:00',
-    maxStart: '12:00',
-    minEnd: '12:00',
-    maxEnd: '16:00'
+    maxStart: '14:59',  // Extended to catch shifts starting up to 2:59 PM
+    description: 'Shifts starting 6:00 AM - 2:59 PM'
   },
   'Mid Day': {
-    minStart: '11:00',
-    maxStart: '15:00',
-    minEnd: '15:00',
-    maxEnd: '20:00'
+    minStart: '15:00',
+    maxStart: '17:59',  // Covers 3 PM to 5:59 PM start times
+    description: 'Shifts starting 3:00 PM - 5:59 PM'
   },
   'Closing': {
     minStart: '18:00',
-    maxStart: '23:59',
-    minEnd: '22:00',
-    maxEnd: '02:00'
+    maxStart: '23:59',  // Evening and night shifts
+    description: 'Shifts starting 6:00 PM onwards'
   }
 };
 
 /**
- * Helper function to determine time slot from shift start/end times
+ * Helper function to determine time slot from shift start time
+ * Now with detailed logging
  */
-function determineTimeSlotFromShift(startTime, endTime) {
-  if (!startTime) return null;
+function determineTimeSlotFromShift(startTime, endTime, employeeId = '') {
+  if (!startTime) {
+    console.log(`⚠️  No start time for ${employeeId}`);
+    return null;
+  }
   
-  const start = startTime.substring(0, 5); // Get HH:MM format
+  // Extract HH:MM format
+  const start = startTime.substring(0, 5);
   
-  // Check if shift falls within Morning time slot
+  // Check Morning slot (6:00 AM - 2:59 PM starts)
   if (start >= TIME_SLOT_MAPPINGS['Morning'].minStart && 
       start <= TIME_SLOT_MAPPINGS['Morning'].maxStart) {
     return 'Morning';
   }
   
-  // Check if shift falls within Mid Day time slot
+  // Check Mid Day slot (3:00 PM - 5:59 PM starts)
   if (start >= TIME_SLOT_MAPPINGS['Mid Day'].minStart && 
       start <= TIME_SLOT_MAPPINGS['Mid Day'].maxStart) {
     return 'Mid Day';
   }
   
-  // Check if shift falls within Closing time slot
+  // Check Closing slot (6:00 PM onwards)
   if (start >= TIME_SLOT_MAPPINGS['Closing'].minStart) {
     return 'Closing';
   }
   
+  // If before 6 AM, might be early morning
+  if (start < TIME_SLOT_MAPPINGS['Morning'].minStart) {
+    console.log(`⚠️  ${employeeId} starts before 6 AM (${start}) - assigning to Morning`);
+    return 'Morning';
+  }
+  
+  console.log(`⚠️  ${employeeId} start time ${start} doesn't match any slot`);
   return null;
 }
 
 /**
  * Get employees scheduled for a specific outlet and time slot on a given date
+ * WITH DETAILED LOGGING
  */
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes (INCREASED)
 const rosterCache = {
   employees: { data: null, timestamp: null },
   roster: { data: null, timestamp: null }
@@ -312,15 +322,17 @@ function isCacheValid(cacheEntry) {
   return (Date.now() - cacheEntry.timestamp) < CACHE_DURATION;
 }
 
-// ===== STEP 2: REPLACE YOUR EXISTING getScheduledEmployees() FUNCTION =====
-// Find your current getScheduledEmployees() and replace it with this:
-
 async function getScheduledEmployees(outlet, timeSlot, date) {
+  console.log('');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`🔍 FETCHING ROSTER: ${outlet} / ${timeSlot} / ${date}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  
   try {
     if (!sheets) {
       const initialized = await initializeGoogleServices();
       if (!initialized) {
-        console.error('Failed to initialize Google APIs for roster fetch');
+        console.error('❌ Failed to initialize Google APIs for roster fetch');
         return [];
       }
     }
@@ -333,7 +345,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
 
     let empMap;
 
-    // Check cache first
     if (isCacheValid(rosterCache.employees)) {
       console.log('✅ Using cached employee register');
       empMap = rosterCache.employees.data;
@@ -348,7 +359,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       const empData = empResponse.data.values || [];
       empMap = new Map();
 
-      // Skip header row and build map
       for (let i = 1; i < empData.length; i++) {
         const [empId, fullName, shortName] = empData[i];
         if (empId && shortName) {
@@ -356,7 +366,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
         }
       }
 
-      // Cache the result
       rosterCache.employees = {
         data: empMap,
         timestamp: Date.now()
@@ -370,7 +379,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     // ================================
     let rosterData;
 
-    // Check cache first
     if (isCacheValid(rosterCache.roster)) {
       console.log('✅ Using cached roster data');
       rosterData = rosterCache.roster.data;
@@ -384,7 +392,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
 
       rosterData = rosterResponse.data.values || [];
 
-      // Cache the result
       rosterCache.roster = {
         data: rosterData,
         timestamp: Date.now()
@@ -394,12 +401,12 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     }
 
     if (rosterData.length <= 1) {
-      console.log('No roster data found');
+      console.log('❌ No roster data found');
       return [];
     }
 
     // ================================
-    // PROCESS ROSTER DATA (Same as before)
+    // PROCESS ROSTER DATA WITH DETAILED LOGGING
     // ================================
     const headers = rosterData[0].map(h => h.toString().trim());
 
@@ -410,20 +417,44 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     const shiftColIndex = headers.findIndex(h => h.toLowerCase() === 'shift');
     const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
     const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
-    const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
 
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
-      console.error('Could not find required columns in roster. Headers:', headers);
+      console.error('❌ Could not find required columns in roster');
+      console.error('   Headers:', headers);
       return [];
     }
 
-    // Filter matching employees
+    console.log('📊 Column indices:', {
+      date: dateColIndex,
+      outlet: outletColIndex,
+      employeeId: employeeIdIndex,
+      startTime: startTimeIndex,
+      endTime: endTimeIndex
+    });
+
+    // ================================
+    // FILTER AND LOG ALL MATCHES
+    // ================================
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
+    
+    console.log(`\n🎯 Target: Date=${targetDate}, Outlet=${outlet.toUpperCase()}, TimeSlot=${timeSlot}`);
+    console.log('');
+
+    let rowsChecked = 0;
+    let dateMatches = 0;
+    let outletMatches = 0;
+    let timeSlotMatches = 0;
+    let totalMatches = 0;
+
+    // Tracking missed employees
+    const missedEmployees = [];
 
     for (let i = 1; i < rosterData.length; i++) {
       const row = rosterData[i];
       if (!row || row.length === 0) continue;
+
+      rowsChecked++;
 
       const rosterDate = formatDate(getCellValue(row, dateColIndex));
       const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
@@ -432,16 +463,30 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex)?.trim() : '';
       const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
 
-      // Determine time slot from shift times
-      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
+      // Check date match
+      const dateMatch = rosterDate === targetDate;
+      if (dateMatch) dateMatches++;
 
-      // Match outlet, time slot, and date
-      if (rosterDate === targetDate &&
-          rosterOutlet === outlet.toUpperCase() &&
-          derivedTimeSlot === timeSlot) {
+      // Check outlet match
+      const outletMatch = rosterOutlet === outlet.toUpperCase();
+      if (dateMatch && outletMatch) outletMatches++;
+
+      // Determine time slot from shift times
+      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime, employeeId);
+      
+      // Check time slot match
+      const timeSlotMatch = derivedTimeSlot === timeSlot;
+      if (dateMatch && outletMatch && timeSlotMatch) timeSlotMatches++;
+
+      // Full match
+      if (dateMatch && outletMatch && timeSlotMatch) {
+        totalMatches++;
         
-        // Lookup short name from Employee Register
         const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
+
+        console.log(`✅ MATCH #${totalMatches}: ${shortName} (${employeeId})`);
+        console.log(`   Start: ${startTime}, End: ${endTime}, Shift: ${shift}`);
+        console.log(`   Slot: ${derivedTimeSlot}`);
 
         scheduledEmployees.push({
           employeeId: employeeId,
@@ -453,16 +498,91 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
           endTime: endTime,
           date: rosterDate
         });
+      } else {
+        // Log why this employee was missed (only for matching outlet & date)
+        if (dateMatch && outletMatch && !timeSlotMatch) {
+          const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
+          
+          missedEmployees.push({
+            name: shortName,
+            id: employeeId,
+            startTime: startTime,
+            endTime: endTime,
+            derivedSlot: derivedTimeSlot,
+            requestedSlot: timeSlot,
+            reason: derivedTimeSlot 
+              ? `In different time slot (${derivedTimeSlot})` 
+              : 'Could not determine time slot'
+          });
+        }
       }
     }
 
+    // ================================
+    // SUMMARY REPORT
+    // ================================
+    console.log('');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 ROSTER FETCH SUMMARY');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`Total rows checked: ${rowsChecked}`);
+    console.log(`Date matches: ${dateMatches}`);
+    console.log(`Date + Outlet matches: ${outletMatches}`);
+    console.log(`Date + Outlet + TimeSlot matches: ${timeSlotMatches}`);
+    console.log(`✅ FINAL MATCHES: ${totalMatches}`);
+
+    if (missedEmployees.length > 0) {
+      console.log('');
+      console.log('⚠️  MISSED EMPLOYEES (Same outlet & date, different time slot):');
+      missedEmployees.forEach((emp, idx) => {
+        console.log(`   ${idx + 1}. ${emp.name} (${emp.id})`);
+        console.log(`      Time: ${emp.startTime} - ${emp.endTime}`);
+        console.log(`      Their slot: ${emp.derivedSlot || 'Unknown'}`);
+        console.log(`      Requested: ${emp.requestedSlot}`);
+        console.log(`      Reason: ${emp.reason}`);
+      });
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('');
+
     return scheduledEmployees;
   } catch (error) {
-    console.error('Error fetching scheduled employees:', error.message);
+    console.error('❌ Error fetching scheduled employees:', error.message);
+    console.error('   Stack:', error.stack);
     return [];
   }
 }
 
+// ============================================================================
+// HELPER FUNCTION: formatDate (make sure this exists in your code)
+// ============================================================================
+function formatDate(dateInput) {
+  if (!dateInput) return '';
+  
+  // If already in YYYY-MM-DD format
+  if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return dateInput;
+  }
+  
+  // Parse and format
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) return '';
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}`;
+}
+
+// ============================================================================
+// HELPER FUNCTION: getCellValue (make sure this exists in your code)
+// ============================================================================
+function getCellValue(row, index) {
+  if (index === -1 || !row || !row[index]) return '';
+  return row[index].toString().trim();
+}
 
 // Add these functions after initializeBroadcastTab()
 
