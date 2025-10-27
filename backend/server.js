@@ -315,7 +315,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     // 1️⃣ FETCH EMPLOYEE REGISTER DATA
     // ================================
     const EMPLOYEE_REGISTER_SHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
-    const EMPLOYEE_REGISTER_SHEET_NAME = 'Employee Register';
+    const EMPLOYEE_REGISTER_SHEET_NAME = 'EmployeeRegister';
 
     const empResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: EMPLOYEE_REGISTER_SHEET_ID,
