@@ -311,29 +311,9 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
-    // Hardcoded Employee ID to Short Name mapping
-    const idToShortName = new Map([
-      ['AOD001', 'Ayaaz'], ['AOD002', 'Ajay'], ['AOD003', 'Jin'], ['AOD004', 'Kim'],
-      ['AOD005', 'Nishat'], ['AOD006', 'Sailo'], ['AOD007', 'Minthang'], ['AOD008', 'Mon'],
-      ['AOD009', 'Mangboi'], ['AOD010', 'Ruth'], ['AOD011', 'Zansung'], ['AOD012', 'Margaret'],
-      ['AOD013', 'Kai'], ['AOD014', 'Risat'], ['AOD015', 'Soyao'], ['AOD016', 'Tuboi'],
-      ['AOD017', 'Lunmang'], ['AOD018', 'Thai'], ['AOD019', 'Jatin'], ['AOD020', 'Boikho'],
-      ['AOD021', 'Jimmy'], ['AOD022', 'Kaiku'], ['AOD023', 'Pau'], ['AOD024', 'Puia'],
-      ['AOD025', 'Lamgouhao'], ['AOD026', 'Gun'], ['AOD027', 'Charna'], ['AOD028', 'Mang Khogin Haokip'],
-      ['AOD029', 'Jonathan'], ['AOD030', 'Henry Kom'], ['AOD031', 'Len Kipgen'], ['AOD032', 'Tongminthang'],
-      ['AOD033', 'Sameer'], ['AOD034', 'William'], ['AOD035', 'Jona'], ['AOD037', 'Mimin'],
-      ['AOD038', 'Guang'], ['AOD039', 'Henry Khongsai'], ['AOD040', 'Prajesha'], ['AOD043', 'Sang'],
-      ['AOD045', 'Bem'], ['AOD046', 'Obed'], ['AOD047', 'Thangboi'], ['AOD048', 'Horam'],
-      ['AOD049', 'Jangnu'], ['AOD050', 'Chong'], ['AOD051', 'Hoi'], ['AOD052', 'Sharon'],
-      ['AOD053', 'Sibtain'], ['AOD054', 'Biraj Bhai'], ['AOD055', 'Jangminlun'], ['AOD056', 'Ismael'],
-      ['AOD057', 'Thaimei'], ['AOD058', 'Mary'], ['AOD059', 'Shivaji'], ['AOD060', 'Amreen'],
-      ['AOD061', 'Mohmo'], ['AOD062', 'Joy']
-    ]);
-
-    // Fetch roster data starting from row 3800
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
-      range: `${ROSTER_TAB}!A3800:Z`, // Start from row 3800
+      range: `${ROSTER_TAB}!A:Z`,
     });
 
     const rosterData = rosterResponse.data.values || [];
@@ -382,10 +362,9 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       if (rosterDate === targetDate && 
           rosterOutlet === outlet.toUpperCase() && 
           derivedTimeSlot === timeSlot) {
-        const shortName = idToShortName.get(employeeId) || employeeId || 'Unknown';
         scheduledEmployees.push({
           employeeId: employeeId,
-          name: shortName, // Use Short Name instead of Employee ID
+          name: employeeId, // Using employee ID as name since there's no separate name column
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
           shift: shift,
