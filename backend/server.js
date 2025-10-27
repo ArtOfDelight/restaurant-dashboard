@@ -98,6 +98,8 @@ const RESPONSES_TAB = process.env.CHECKLIST_RESPONSES_TAB || 'ChecklistResponses
 const DASHBOARD_SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
 const DASHBOARD_SHEET_NAME = process.env.SHEET_NAME || 'Zomato Dashboard';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ROSTER_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
+const ROSTER_TAB = 'Roster';
 
 // Telegram Bot setup with conflict resolution
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -244,6 +246,139 @@ async function initializeBroadcastTab() {
     }
     
     throw error;
+  }
+}
+
+const TIME_SLOT_MAPPINGS = {
+  'Morning': {
+    minStart: '06:00',
+    maxStart: '10:00',
+    minEnd: '12:00',
+    maxEnd: '16:00'
+  },
+  'Mid Day': {
+    minStart: '11:00',
+    maxStart: '15:00',
+    minEnd: '16:00',
+    maxEnd: '20:00'
+  },
+  'Closing': {
+    minStart: '18:00',
+    maxStart: '23:59',
+    minEnd: '22:00',
+    maxEnd: '23:59'
+  }
+};
+
+/**
+ * Helper function to determine time slot from shift start/end times
+ */
+function determineTimeSlotFromShift(startTime, endTime) {
+  if (!startTime) return null;
+  
+  const start = startTime.substring(0, 5); // Get HH:MM format
+  
+  // Check if shift falls within Morning time slot
+  if (start >= TIME_SLOT_MAPPINGS['Morning'].minStart && 
+      start <= TIME_SLOT_MAPPINGS['Morning'].maxStart) {
+    return 'Morning';
+  }
+  
+  // Check if shift falls within Mid Day time slot
+  if (start >= TIME_SLOT_MAPPINGS['Mid Day'].minStart && 
+      start <= TIME_SLOT_MAPPINGS['Mid Day'].maxStart) {
+    return 'Mid Day';
+  }
+  
+  // Check if shift falls within Closing time slot
+  if (start >= TIME_SLOT_MAPPINGS['Closing'].minStart) {
+    return 'Closing';
+  }
+  
+  return null;
+}
+
+/**
+ * Get employees scheduled for a specific outlet and time slot on a given date
+ */
+async function getScheduledEmployees(outlet, timeSlot, date) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        console.error('Failed to initialize Google APIs for roster fetch');
+        return [];
+      }
+    }
+
+    const rosterResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: ROSTER_SPREADSHEET_ID,
+      range: `${ROSTER_TAB}!A:Z`,
+    });
+
+    const rosterData = rosterResponse.data.values || [];
+    
+    if (rosterData.length <= 1) {
+      console.log('No roster data found');
+      return [];
+    }
+
+    // Parse header to find column indices
+    const headers = rosterData[0].map(h => h.toString().trim());
+    
+    const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
+    const employeeIdIndex = headers.findIndex(h => h.toLowerCase().includes('employee id'));
+    const dateColIndex = headers.findIndex(h => h.toLowerCase() === 'date');
+    const outletColIndex = headers.findIndex(h => h.toLowerCase() === 'outlet');
+    const shiftColIndex = headers.findIndex(h => h.toLowerCase() === 'shift');
+    const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
+    const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
+    const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
+    
+    if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
+      console.error('Could not find required columns in roster. Headers:', headers);
+      return [];
+    }
+
+    const scheduledEmployees = [];
+    const targetDate = formatDate(date);
+
+    // Iterate through roster rows
+    for (let i = 1; i < rosterData.length; i++) {
+      const row = rosterData[i];
+      if (!row || row.length === 0) continue;
+
+      const rosterDate = formatDate(getCellValue(row, dateColIndex));
+      const rosterOutlet = getCellValue(row, outletColIndex)?.toUpperCase();
+      const startTime = getCellValue(row, startTimeIndex);
+      const endTime = getCellValue(row, endTimeIndex);
+      const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex) : '';
+      const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
+      
+      // Determine time slot from shift times
+      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
+      
+      // Match outlet, time slot (derived from shift times), and date
+      if (rosterDate === targetDate && 
+          rosterOutlet === outlet.toUpperCase() && 
+          derivedTimeSlot === timeSlot) {
+        scheduledEmployees.push({
+          employeeId: employeeId,
+          name: employeeId, // Using employee ID as name since there's no separate name column
+          outlet: rosterOutlet,
+          timeSlot: derivedTimeSlot,
+          shift: shift,
+          startTime: startTime,
+          endTime: endTime,
+          date: rosterDate
+        });
+      }
+    }
+
+    return scheduledEmployees;
+  } catch (error) {
+    console.error('Error fetching scheduled employees:', error.message);
+    return [];
   }
 }
 
@@ -2425,7 +2560,6 @@ app.get('/api/checklist-completion-status', async (req, res) => {
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
     const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
 
-    // Map for submissions by outlet and slot
     const submissionsByOutletAndSlot = new Map();
 
     if (submissionsData.length > 1) {
@@ -2439,7 +2573,6 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         const submittedBy = getCellValue(row, 4);
         const timestamp = getCellValue(row, 5);
 
-        // Simple logic: ALL time slots (including Closing) only match on exact date
         const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp);
         const includeSubmission = (effectiveDate === selectedDate);
 
@@ -2454,7 +2587,6 @@ app.get('/api/checklist-completion-status', async (req, res) => {
               count: 1
             });
           } else {
-            // Update with latest submission
             const existing = submissionsByOutletAndSlot.get(key);
             if (new Date(timestamp) > new Date(existing.timestamp)) {
               submissionsByOutletAndSlot.set(key, {
@@ -2470,27 +2602,56 @@ app.get('/api/checklist-completion-status', async (req, res) => {
       }
     }
 
-    // Create completion status for each allowed outlet
     const completionData = [];
 
+    // Fetch roster data for all outlets in parallel
+    const rosterPromises = [];
+    
     ALLOWED_OUTLET_CODES.forEach(outletCode => {
-      // Exclude "Mid Day" for cloud kitchens
+      const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+      const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : TIME_SLOT_ORDER;
+      
+      timeSlots.forEach(timeSlot => {
+        rosterPromises.push(
+          getScheduledEmployees(outletCode, timeSlot, selectedDate)
+            .then(employees => ({ outletCode, timeSlot, employees }))
+        );
+      });
+    });
+
+    const rosterResults = await Promise.all(rosterPromises);
+    
+    const rosterMap = new Map();
+    rosterResults.forEach(result => {
+      const key = `${result.outletCode}|${result.timeSlot}`;
+      rosterMap.set(key, result.employees);
+    });
+
+    ALLOWED_OUTLET_CODES.forEach(outletCode => {
       const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
       const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : TIME_SLOT_ORDER;
 
       const timeSlotStatus = timeSlots.map(timeSlot => {
         const key = `${outletCode}|${timeSlot}`;
         const submission = submissionsByOutletAndSlot.get(key);
+        const scheduledEmployees = rosterMap.get(key) || [];
 
         return {
           timeSlot,
           status: submission ? 'Completed' : 'Pending',
           submittedBy: submission ? submission.submittedBy : '',
-          timestamp: submission ? submission.timestamp : ''
+          timestamp: submission ? submission.timestamp : '',
+          scheduledEmployees: scheduledEmployees.map(emp => ({
+            id: emp.employeeId,
+            name: emp.name,
+            shift: emp.shift,
+            startTime: emp.startTime,
+            endTime: emp.endTime
+          })),
+          employeeCount: scheduledEmployees.length
         };
       });
 
-      // Calculate overall status
       const completedSlots = timeSlotStatus.filter(slot => slot.status === 'Completed').length;
       const totalSlots = timeSlotStatus.length;
       const completionPercentage = Math.round((completedSlots / totalSlots) * 100);
@@ -2502,12 +2663,20 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         overallStatus = 'Partial';
       }
 
-      // Find last submission time
       const lastSubmissionTime = timeSlotStatus
         .filter(slot => slot.timestamp)
         .map(slot => slot.timestamp)
         .sort()
         .pop() || '';
+
+      const allScheduledEmployees = [];
+      timeSlotStatus.forEach(slot => {
+        slot.scheduledEmployees.forEach(emp => {
+          if (!allScheduledEmployees.find(e => e.id === emp.id)) {
+            allScheduledEmployees.push(emp);
+          }
+        });
+      });
 
       completionData.push({
         outletCode: outletCode,
@@ -2517,7 +2686,9 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         completionPercentage,
         timeSlotStatus,
         lastSubmissionTime,
-        isCloudDays: isCloudKitchen
+        isCloudDays: isCloudKitchen,
+        allScheduledEmployees,
+        totalScheduledEmployees: allScheduledEmployees.length
       });
     });
 
@@ -2531,6 +2702,7 @@ app.get('/api/checklist-completion-status', async (req, res) => {
         completedOutlets: completionData.filter(o => o.overallStatus === 'Completed').length,
         partialOutlets: completionData.filter(o => o.overallStatus === 'Partial').length,
         pendingOutlets: completionData.filter(o => o.overallStatus === 'Pending').length,
+        totalScheduledEmployees: completionData.reduce((sum, o) => sum + o.totalScheduledEmployees, 0)
       },
       timestamp: new Date().toISOString(),
     });
@@ -2567,11 +2739,10 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
     const submissionsData = submissionsResponse.data.values || [];
     console.log(`Found ${submissionsData.length} submission rows for summary`);
 
-    // Define constants
     const TIME_SLOT_ORDER = ['Morning', 'Mid Day', 'Closing'];
     const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+    const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
 
-    // Map for submissions by outlet and slot
     const submissionsByOutletAndSlot = new Map();
 
     if (submissionsData.length > 1) {
@@ -2583,7 +2754,6 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
         const timeSlot = getCellValue(row, 2);
         const outlet = getCellValue(row, 3);
 
-        // Simple logic: ALL time slots (including Closing) only match on exact date
         const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, getCellValue(row, 5));
         const includeSubmission = (effectiveDate === selectedDate);
 
@@ -2594,38 +2764,53 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
       }
     }
 
-    // Calculate summary statistics
     const totalOutlets = ALLOWED_OUTLET_CODES.length;
     let completedOutlets = 0;
     let partialOutlets = 0;
     let pendingOutlets = 0;
 
-    // Time slot completion counts
     const timeSlotCompletions = {};
     TIME_SLOT_ORDER.forEach(slot => {
       timeSlotCompletions[slot] = 0;
     });
 
+    let totalScheduledEmployees = 0;
+    const employeePromises = [];
+
     ALLOWED_OUTLET_CODES.forEach(outletCode => {
-      const completedSlots = TIME_SLOT_ORDER.filter(timeSlot => {
+      const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+      const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : TIME_SLOT_ORDER;
+      
+      const completedSlots = timeSlots.filter(timeSlot => {
         const key = `${outletCode}|${timeSlot}`;
         return submissionsByOutletAndSlot.has(key);
       });
 
-      // Count completed slots for each time slot
       completedSlots.forEach(slot => {
         timeSlotCompletions[slot]++;
       });
 
-      // Categorize outlet completion
-      if (completedSlots.length === TIME_SLOT_ORDER.length) {
+      if (completedSlots.length === timeSlots.length) {
         completedOutlets++;
       } else if (completedSlots.length > 0) {
         partialOutlets++;
       } else {
         pendingOutlets++;
       }
+
+      timeSlots.forEach(timeSlot => {
+        employeePromises.push(
+          getScheduledEmployees(outletCode, timeSlot, selectedDate)
+        );
+      });
     });
+
+    const allEmployeeLists = await Promise.all(employeePromises);
+    const uniqueEmployees = new Set();
+    allEmployeeLists.forEach(empList => {
+      empList.forEach(emp => uniqueEmployees.add(emp.employeeId));
+    });
+    totalScheduledEmployees = uniqueEmployees.size;
 
     const overallCompletionRate = totalOutlets > 0 ? 
       ((completedOutlets / totalOutlets) * 100).toFixed(1) : '0.0';
@@ -2637,6 +2822,7 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
       pendingOutlets,
       overallCompletionRate: parseFloat(overallCompletionRate),
       timeSlotCompletions,
+      totalScheduledEmployees,
       date: selectedDate
     };
 
@@ -2650,6 +2836,43 @@ app.get('/api/checklist-completion-summary', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching checklist completion summary:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/api/scheduled-employees', async (req, res) => {
+  try {
+    const { outlet, timeSlot, date } = req.query;
+    
+    if (!outlet || !timeSlot) {
+      return res.status(400).json({
+        success: false,
+        error: 'Outlet and timeSlot are required parameters',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const selectedDate = date || new Date().toISOString().split('T')[0];
+    const employees = await getScheduledEmployees(outlet, timeSlot, selectedDate);
+
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: {
+        outlet,
+        timeSlot,
+        date: selectedDate,
+        employees,
+        count: employees.length
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching scheduled employees:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,

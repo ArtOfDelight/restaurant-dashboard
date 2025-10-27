@@ -1606,6 +1606,30 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         </div>
       )}
 
+      {/* NEW: Total Scheduled Staff Summary Card */}
+      {summaryData && summaryData.totalScheduledEmployees !== undefined && (
+        <div className="roster-summary-card" style={{
+          backgroundColor: '#f3f4f6',
+          padding: '16px',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          border: '2px solid #e5e7eb'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '24px' }}>👥</span>
+            <div>
+              <strong style={{ fontSize: '16px', color: '#374151' }}>Total Scheduled Staff Today</strong>
+              <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#6b7280' }}>
+                Employees assigned across all outlets and time slots
+              </p>
+            </div>
+          </div>
+          <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7c3aed', textAlign: 'center', marginTop: '8px' }}>
+            {summaryData.totalScheduledEmployees}
+          </div>
+        </div>
+      )}
+
       {/* Time Slot Summary Cards */}
       {completionData && (
         <div className="completion-summary">
@@ -1672,6 +1696,7 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
               <th>Type</th>
               <th>Overall Status</th>
               <th>Time Slots</th>
+              <th>Scheduled Staff</th>
               <th>Completed Slots</th>
               <th>Last Submission</th>
             </tr>
@@ -1699,15 +1724,61 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
                 <td>
                   <div className="time-slots">
                     {outlet.timeSlotStatus.map((slot, idx) => (
-                      <span
-                        key={idx}
-                        className={`time-slot-badge ${slot.status.toLowerCase()}`}
-                        title={`${slot.timeSlot}: ${slot.status}${slot.submittedBy ? ` by ${slot.submittedBy}` : ''}`}
-                      >
-                        {slot.timeSlot} {slot.status === 'Completed' ? '✓' : '✗'}
-                      </span>
+                      <div key={idx} style={{ marginBottom: '8px' }}>
+                        <span
+                          className={`time-slot-badge ${slot.status.toLowerCase()}`}
+                          title={`${slot.timeSlot}: ${slot.status}${slot.submittedBy ? ` by ${slot.submittedBy}` : ''}`}
+                        >
+                          {slot.timeSlot} {slot.status === 'Completed' ? '✓' : '✗'}
+                        </span>
+                        {/* NEW: Show scheduled employees under each time slot */}
+                        {slot.scheduledEmployees && slot.scheduledEmployees.length > 0 && (
+                          <div style={{ 
+                            fontSize: '11px', 
+                            color: '#6b7280', 
+                            marginTop: '4px',
+                            paddingLeft: '8px'
+                          }}>
+                            👥 {slot.scheduledEmployees.map(emp => emp.id || emp.name).join(', ')}
+                            {slot.scheduledEmployees[0]?.startTime && (
+                              <div style={{ fontSize: '10px', fontStyle: 'italic' }}>
+                                ⏰ {slot.scheduledEmployees[0].startTime} - {slot.scheduledEmployees[0].endTime}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
+                </td>
+                {/* NEW: Scheduled Staff Column */}
+                <td>
+                  {outlet.allScheduledEmployees && outlet.allScheduledEmployees.length > 0 ? (
+                    <div style={{ fontSize: '12px' }}>
+                      <strong style={{ color: '#7c3aed' }}>{outlet.totalScheduledEmployees}</strong> staff
+                      <div style={{ 
+                        marginTop: '4px', 
+                        fontSize: '11px', 
+                        color: '#6b7280',
+                        maxHeight: '60px',
+                        overflow: 'auto'
+                      }}>
+                        {outlet.allScheduledEmployees.map((emp, i) => (
+                          <span key={i} style={{ 
+                            display: 'inline-block',
+                            backgroundColor: '#f3f4f6',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            margin: '2px'
+                          }}>
+                            {emp.id || emp.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: '#9ca3af', fontSize: '12px' }}>No staff scheduled</span>
+                  )}
                 </td>
                 <td>
                   <div className="completion-text">
