@@ -345,6 +345,11 @@ function isCacheValid(cacheEntry) {
 
 async function getScheduledEmployees(outlet, timeSlot, date) {
   try {
+    // Add 1-minute delay (60,000 milliseconds)
+    console.log('⏳ Adding 1-minute delay before fetching employee data...');
+    await new Promise(resolve => setTimeout(resolve, 60000));
+    console.log('✅ Delay complete, proceeding with data fetch...');
+
     if (!sheets) {
       const initialized = await initializeGoogleServices();
       if (!initialized) {
