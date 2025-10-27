@@ -311,37 +311,84 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
+    // Fetch roster data
+    console.log('Fetching roster data...');
     const rosterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: ROSTER_SPREADSHEET_ID,
       range: `${ROSTER_TAB}!A:Z`,
     });
 
     const rosterData = rosterResponse.data.values || [];
-    
+    console.log('Roster data rows:', rosterData.length);
+
     if (rosterData.length <= 1) {
-      console.log('No roster data found');
+      console.log('No roster data found or only headers present');
       return [];
     }
 
-    // Parse header to find column indices
-    const headers = rosterData[0].map(h => h.toString().trim());
-    
-    const rosterIdIndex = headers.findIndex(h => h.toLowerCase().includes('roster id'));
-    const employeeIdIndex = headers.findIndex(h => h.toLowerCase().includes('employee id'));
-    const dateColIndex = headers.findIndex(h => h.toLowerCase() === 'date');
-    const outletColIndex = headers.findIndex(h => h.toLowerCase() === 'outlet');
-    const shiftColIndex = headers.findIndex(h => h.toLowerCase() === 'shift');
-    const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
-    const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
-    const commentsIndex = headers.findIndex(h => h.toLowerCase() === 'comments');
-    
+    // Parse roster headers
+    const headers = rosterData[0].map(h => h.toString().trim().toLowerCase());
+    console.log('Roster headers:', headers);
+
+    const rosterIdIndex = headers.findIndex(h => h.includes('roster id'));
+    const employeeIdIndex = headers.findIndex(h => h.includes('employee id'));
+    const dateColIndex = headers.findIndex(h => h === 'date');
+    const outletColIndex = headers.findIndex(h => h === 'outlet');
+    const shiftColIndex = headers.findIndex(h => h === 'shift');
+    const startTimeIndex = headers.findIndex(h => h === 'start time');
+    const endTimeIndex = headers.findIndex(h => h === 'end time');
+    const commentsIndex = headers.findIndex(h => h === 'comments');
+
     if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
-      console.error('Could not find required columns in roster. Headers:', headers);
+      console.error('Required columns missing in roster. Headers:', headers);
       return [];
+    }
+
+    // Fetch employee register data
+    console.log('Fetching employee register data...');
+    let idToShortName = new Map();
+    try {
+      const registerResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: ROSTER_SPREADSHEET_ID,
+        range: `Employee Register!A:Z`,
+      });
+
+      const registerData = registerResponse.data.values || [];
+      console.log('Employee register data rows:', registerData.length);
+
+      if (registerData.length > 1) {
+        const regHeaders = registerData[0].map(h => h.toString().trim().toLowerCase());
+        console.log('Employee register headers:', regHeaders);
+
+        const empIdIndex = regHeaders.findIndex(h => h === 'employee id');
+        const shortNameIndex = regHeaders.findIndex(h => h === 'short name');
+
+        if (empIdIndex !== -1 && shortNameIndex !== -1) {
+          for (let i = 1; i < registerData.length; i++) {
+            const row = registerData[i];
+            if (!row || row.length === 0) continue;
+
+            const id = getCellValue(row, empIdIndex);
+            const shortName = getCellValue(row, shortNameIndex);
+
+            if (id && shortName) {
+              idToShortName.set(id, shortName);
+            }
+          }
+          console.log('Employee ID to Short Name mappings:', [...idToShortName]);
+        } else {
+          console.warn('Employee ID or Short Name column not found in Employee Register. Headers:', regHeaders);
+        }
+      } else {
+        console.warn('No employee register data found or only headers present. Falling back to employee IDs.');
+      }
+    } catch (error) {
+      console.warn('Error fetching Employee Register:', error.message, 'Falling back to employee IDs.');
     }
 
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
+    console.log('Target date:', targetDate, 'Outlet:', outlet, 'TimeSlot:', timeSlot);
 
     // Iterate through roster rows
     for (let i = 1; i < rosterData.length; i++) {
@@ -354,17 +401,18 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       const endTime = getCellValue(row, endTimeIndex);
       const employeeId = employeeIdIndex !== -1 ? getCellValue(row, employeeIdIndex) : '';
       const shift = shiftColIndex !== -1 ? getCellValue(row, shiftColIndex) : '';
-      
-      // Determine time slot from shift times
+
       const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime);
-      
-      // Match outlet, time slot (derived from shift times), and date
+      console.log(`Row ${i}: Date=${rosterDate}, Outlet=${rosterOutlet}, DerivedTimeSlot=${derivedTimeSlot}, EmployeeID=${employeeId}`);
+
+      // Match outlet, time slot, and date
       if (rosterDate === targetDate && 
           rosterOutlet === outlet.toUpperCase() && 
           derivedTimeSlot === timeSlot) {
+        const shortName = idToShortName.get(employeeId) || employeeId || 'Unknown';
         scheduledEmployees.push({
           employeeId: employeeId,
-          name: employeeId, // Using employee ID as name since there's no separate name column
+          name: shortName,
           outlet: rosterOutlet,
           timeSlot: derivedTimeSlot,
           shift: shift,
@@ -375,6 +423,7 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
       }
     }
 
+    console.log('Scheduled employees:', scheduledEmployees);
     return scheduledEmployees;
   } catch (error) {
     console.error('Error fetching scheduled employees:', error.message);
