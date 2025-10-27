@@ -251,58 +251,72 @@ async function initializeBroadcastTab() {
 
 const TIME_SLOT_MAPPINGS = {
   'Morning': {
-    minStart: '06:00',
-    maxStart: '14:59',  // Extended to catch shifts starting up to 2:59 PM
-    description: 'Shifts starting 6:00 AM - 2:59 PM'
+    slotStart: '06:00',
+    slotEnd: '15:00',
+    description: 'Morning checklist period: 6 AM - 3 PM'
   },
   'Mid Day': {
-    minStart: '15:00',
-    maxStart: '17:59',  // Covers 3 PM to 5:59 PM start times
-    description: 'Shifts starting 3:00 PM - 5:59 PM'
+    slotStart: '15:00',
+    slotEnd: '18:00',
+    description: 'Mid Day checklist period: 3 PM - 6 PM'
   },
   'Closing': {
-    minStart: '18:00',
-    maxStart: '23:59',  // Evening and night shifts
-    description: 'Shifts starting 6:00 PM onwards'
+    slotStart: '18:00',
+    slotEnd: '06:00',  // Next day morning
+    description: 'Closing checklist period: 6 PM - 6 AM (overnight)'
   }
 };
 
 /**
- * Helper function to determine time slot from shift start time
+ * Helper function to check if a shift overlaps with a time slot
+ * IMPROVED: Checks if employee is PRESENT during the time slot (overlap detection)
  */
-function determineTimeSlotFromShift(startTime, endTime, employeeId = '') {
-  if (!startTime) return null;
+function isEmployeeWorkingDuringTimeSlot(shiftStart, shiftEnd, timeSlot) {
+  if (!shiftStart || !shiftEnd) return false;
   
-  const start = startTime.substring(0, 5);
+  const start = shiftStart.substring(0, 5);
+  const end = shiftEnd.substring(0, 5);
   
-  // Check Morning slot (6:00 AM - 2:59 PM starts)
-  if (start >= TIME_SLOT_MAPPINGS['Morning'].minStart && 
-      start <= TIME_SLOT_MAPPINGS['Morning'].maxStart) {
-    return 'Morning';
+  const slotStart = TIME_SLOT_MAPPINGS[timeSlot].slotStart;
+  const slotEnd = TIME_SLOT_MAPPINGS[timeSlot].slotEnd;
+  
+  // ==========================================
+  // MORNING SLOT (06:00 - 15:00)
+  // ==========================================
+  if (timeSlot === 'Morning') {
+    // Employee works if:
+    // - Shift starts before 15:00 AND ends after 06:00
+    return start < '15:00' && end > '06:00';
   }
   
-  // Check Mid Day slot (3:00 PM - 5:59 PM starts)
-  if (start >= TIME_SLOT_MAPPINGS['Mid Day'].minStart && 
-      start <= TIME_SLOT_MAPPINGS['Mid Day'].maxStart) {
-    return 'Mid Day';
+  // ==========================================
+  // MID DAY SLOT (15:00 - 18:00)
+  // ==========================================
+  if (timeSlot === 'Mid Day') {
+    // Employee works if:
+    // - Shift starts before 18:00 AND ends after 15:00
+    // OR shift goes overnight (ends 00:00-06:00) which means still working
+    return (start < '18:00' && end > '15:00') || 
+           (start < '18:00' && end >= '00:00' && end <= '06:00');
   }
   
-  // Check Closing slot (6:00 PM onwards)
-  if (start >= TIME_SLOT_MAPPINGS['Closing'].minStart) {
-    return 'Closing';
+  // ==========================================
+  // CLOSING SLOT (18:00 - 06:00 next day)
+  // ==========================================
+  if (timeSlot === 'Closing') {
+    // Employee works if:
+    // - Shift starts before midnight (00:00) AND ends after 18:00
+    // OR shift ends in early morning (00:00-06:00) meaning overnight
+    return (start < '23:59' && end > '18:00') || 
+           (end >= '00:00' && end <= '06:00');
   }
   
-  // If before 6 AM, assign to Morning
-  if (start < TIME_SLOT_MAPPINGS['Morning'].minStart) {
-    return 'Morning';
-  }
-  
-  return null;
+  return false;
 }
 
 /**
  * Get employees scheduled for a specific outlet and time slot on a given date
- * WITH SIMPLIFIED SUMMARY LOGGING
+ * WITH OVERLAP DETECTION - Ensures every time slot has employees
  */
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 const rosterCache = {
@@ -394,13 +408,13 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     const startTimeIndex = headers.findIndex(h => h.toLowerCase() === 'start time');
     const endTimeIndex = headers.findIndex(h => h.toLowerCase() === 'end time');
 
-    if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1) {
+    if (dateColIndex === -1 || outletColIndex === -1 || startTimeIndex === -1 || endTimeIndex === -1) {
       console.error('❌ Could not find required columns in roster');
       return [];
     }
 
     // ================================
-    // FILTER MATCHES & TRACK MISSES
+    // FILTER MATCHES WITH OVERLAP DETECTION
     // ================================
     const scheduledEmployees = [];
     const targetDate = formatDate(date);
@@ -419,26 +433,27 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
 
       const dateMatch = rosterDate === targetDate;
       const outletMatch = rosterOutlet === outlet.toUpperCase();
-      const derivedTimeSlot = determineTimeSlotFromShift(startTime, endTime, employeeId);
-      const timeSlotMatch = derivedTimeSlot === timeSlot;
+      
+      // NEW: Check if employee is working during this time slot (overlap detection)
+      const isWorking = isEmployeeWorkingDuringTimeSlot(startTime, endTime, timeSlot);
 
       // Full match - add to results
-      if (dateMatch && outletMatch && timeSlotMatch) {
+      if (dateMatch && outletMatch && isWorking) {
         const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
 
         scheduledEmployees.push({
           employeeId: employeeId,
           name: shortName,
           outlet: rosterOutlet,
-          timeSlot: derivedTimeSlot,
+          timeSlot: timeSlot,
           shift: shift,
           startTime: startTime,
           endTime: endTime,
           date: rosterDate
         });
       } 
-      // Track missed employees (same outlet & date, wrong time slot)
-      else if (dateMatch && outletMatch && !timeSlotMatch) {
+      // Track missed employees (same outlet & date, not working during time slot)
+      else if (dateMatch && outletMatch && !isWorking) {
         const shortName = empMap.get(employeeId?.toUpperCase()) || employeeId || 'Unknown';
         
         missedEmployees.push({
@@ -446,7 +461,6 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
           id: employeeId,
           startTime: startTime,
           endTime: endTime,
-          actualSlot: derivedTimeSlot || 'Unknown',
           requestedSlot: timeSlot
         });
       }
@@ -456,12 +470,16 @@ async function getScheduledEmployees(outlet, timeSlot, date) {
     // SIMPLIFIED SUMMARY LOG
     // ================================
     console.log(`\n🔍 Roster Query: ${outlet} / ${timeSlot} / ${date}`);
-    console.log(`✅ Found ${scheduledEmployees.length} employees`);
+    console.log(`✅ Found ${scheduledEmployees.length} employees working during ${timeSlot}`);
+    
+    if (scheduledEmployees.length === 0) {
+      console.log(`⚠️  WARNING: No employees found for ${outlet} ${timeSlot}!`);
+    }
     
     if (missedEmployees.length > 0) {
-      console.log(`⚠️  ${missedEmployees.length} employees excluded (wrong time slot):`);
+      console.log(`ℹ️  ${missedEmployees.length} employees at this outlet but not working during ${timeSlot}:`);
       missedEmployees.forEach((emp) => {
-        console.log(`   • ${emp.name} (${emp.startTime}-${emp.endTime}) → ${emp.actualSlot} slot, not ${emp.requestedSlot}`);
+        console.log(`   • ${emp.name} (${emp.startTime}-${emp.endTime})`);
       });
     }
     console.log('');
