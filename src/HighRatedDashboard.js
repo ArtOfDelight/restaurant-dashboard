@@ -427,6 +427,170 @@ const HighRatedDashboard = () => {
         ))}
       </div>
 
+      {/* Charts Section */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: '20px',
+        marginBottom: '25px'
+      }}>
+        {/* High Rated Orders Chart */}
+        <div style={{
+          background: 'var(--surface-dark)',
+          border: '1px solid var(--border-light)',
+          borderRadius: '20px',
+          padding: '25px',
+          backdropFilter: 'blur(15px)',
+          boxShadow: 'var(--shadow-dark)'
+        }}>
+          <h3 style={{
+            margin: '0 0 20px 0',
+            color: 'var(--text-primary)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontSize: '0.95rem',
+            letterSpacing: '1px',
+            textTransform: 'uppercase'
+          }}>
+            HIGH RATED ORDERS BY OUTLET
+          </h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={filteredData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+              <XAxis 
+                dataKey="outlet_name" 
+                stroke="var(--text-secondary)"
+                style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis 
+                stroke="var(--text-secondary)"
+                style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  background: 'var(--surface-dark)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '10px',
+                  fontFamily: 'monospace'
+                }}
+              />
+              <Bar dataKey="high_rated_orders" fill="#10b981" name="High Rated Orders" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Low Rated Orders Chart */}
+        <div style={{
+          background: 'var(--surface-dark)',
+          border: '1px solid var(--border-light)',
+          borderRadius: '20px',
+          padding: '25px',
+          backdropFilter: 'blur(15px)',
+          boxShadow: 'var(--shadow-dark)'
+        }}>
+          <h3 style={{
+            margin: '0 0 20px 0',
+            color: 'var(--text-primary)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            fontSize: '0.95rem',
+            letterSpacing: '1px',
+            textTransform: 'uppercase'
+          }}>
+            LOW RATED ORDERS BY OUTLET
+          </h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={filteredData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+              <XAxis 
+                dataKey="outlet_name" 
+                stroke="var(--text-secondary)"
+                style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+                angle={-45}
+                textAnchor="end"
+                height={80}
+              />
+              <YAxis 
+                stroke="var(--text-secondary)"
+                style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  background: 'var(--surface-dark)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '10px',
+                  fontFamily: 'monospace'
+                }}
+              />
+              <Bar dataKey="low_rated_orders" fill="#ef4444" name="Low Rated Orders" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Error Rate Line Chart */}
+      <div style={{
+        background: 'var(--surface-dark)',
+        border: '1px solid var(--border-light)',
+        borderRadius: '20px',
+        padding: '25px',
+        marginBottom: '25px',
+        backdropFilter: 'blur(15px)',
+        boxShadow: 'var(--shadow-dark)'
+      }}>
+        <h3 style={{
+          margin: '0 0 20px 0',
+          color: 'var(--text-primary)',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+          fontSize: '0.95rem',
+          letterSpacing: '1px',
+          textTransform: 'uppercase'
+        }}>
+          ERROR RATE TREND BY OUTLET
+        </h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={filteredData.map(d => ({
+            ...d,
+            error_rate_num: parseErrorRate(d.error_rate)
+          }))}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" />
+            <XAxis 
+              dataKey="outlet_name" 
+              stroke="var(--text-secondary)"
+              style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+              angle={-45}
+              textAnchor="end"
+              height={80}
+            />
+            <YAxis 
+              stroke="var(--text-secondary)"
+              style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
+              label={{ value: 'Error Rate (%)', angle: -90, position: 'insideLeft', style: { fill: 'var(--text-secondary)', fontFamily: 'monospace' } }}
+            />
+            <Tooltip 
+              contentStyle={{
+                background: 'var(--surface-dark)',
+                border: '1px solid var(--border-light)',
+                borderRadius: '10px',
+                fontFamily: 'monospace'
+              }}
+              formatter={(value) => [`${value}%`, 'Error Rate']}
+            />
+            <ReferenceLine y={2} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'Target: 2%', position: 'right', fill: '#f59e0b', fontFamily: 'monospace' }} />
+            <Line 
+              type="monotone" 
+              dataKey="error_rate_num" 
+              stroke="#3b82f6" 
+              strokeWidth={3}
+              dot={{ fill: '#3b82f6', r: 5 }}
+              activeDot={{ r: 7 }}
+              name="Error Rate"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
       {/* Data Table */}
       <div style={{
         background: 'var(--surface-dark)',
