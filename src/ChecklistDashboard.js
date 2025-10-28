@@ -1436,131 +1436,6 @@ const ReportTabContent = ({
 };
 
 // Checklist Completion Tracker Component (unchanged from your original)
-// ============================================================================
-// LOADING PROGRESS BAR COMPONENT - 1 Minute Countdown Animation
-// ============================================================================
-const LoadingProgressBar = () => {
-  const [progress, setProgress] = React.useState(0);
-
-  React.useEffect(() => {
-    const duration = 60000; // 60 seconds
-    const interval = 50; // Update every 50ms for smooth animation
-    const increment = (interval / duration) * 100;
-    
-    const timer = setInterval(() => {
-      setProgress(prev => {
-        const next = prev + increment;
-        if (next >= 100) {
-          clearInterval(timer);
-          return 100;
-        }
-        return next;
-      });
-    }, interval);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '400px',
-      padding: '40px'
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '600px',
-        textAlign: 'center'
-      }}>
-        {/* Icon */}
-        <div style={{
-          fontSize: '48px',
-          marginBottom: '24px',
-          animation: 'pulse 2s ease-in-out infinite'
-        }}>
-          📋
-        </div>
-
-        {/* Title */}
-        <h3 style={{
-          fontSize: '20px',
-          fontWeight: '600',
-          color: '#1f2937',
-          marginBottom: '8px'
-        }}>
-          Loading Checklist Data
-        </h3>
-
-        {/* Subtitle */}
-        <p style={{
-          fontSize: '14px',
-          color: '#6b7280',
-          marginBottom: '32px'
-        }}>
-          Fetching completion status and roster information...
-        </p>
-
-        {/* Progress Bar Container */}
-        <div style={{
-          width: '100%',
-          height: '8px',
-          backgroundColor: '#e5e7eb',
-          borderRadius: '9999px',
-          overflow: 'hidden',
-          marginBottom: '16px',
-          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.06)'
-        }}>
-          {/* Progress Bar Fill */}
-          <div style={{
-            height: '100%',
-            background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
-            borderRadius: '9999px',
-            width: `${progress}%`,
-            transition: 'width 0.05s linear',
-            boxShadow: '0 0 10px rgba(59, 130, 246, 0.5)'
-          }} />
-        </div>
-
-        {/* Progress Percentage */}
-        <div style={{
-          fontSize: '24px',
-          fontWeight: '700',
-          color: '#3b82f6',
-          fontFamily: 'monospace'
-        }}>
-          {Math.floor(progress)}%
-        </div>
-
-        {/* Estimated Time */}
-        <p style={{
-          fontSize: '12px',
-          color: '#9ca3af',
-          marginTop: '8px'
-        }}>
-          Estimated time: {Math.ceil((100 - progress) * 0.6)} seconds
-        </p>
-      </div>
-
-      {/* CSS Animation for pulse */}
-      <style>{`
-        @keyframes pulse {
-          0%, 100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-          50% {
-            opacity: 0.7;
-            transform: scale(1.05);
-          }
-        }
-      `}</style>
-    </div>
-  );
-};
-
 const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const [completionData, setCompletionData] = useState([]);
   const [summaryData, setSummaryData] = useState(null);
@@ -1762,7 +1637,12 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
   const uniqueOutletTypes = [...new Set(completionData.map(o => o.outletType).filter(Boolean))];
 
   if (loading) {
-    return <LoadingProgressBar />;
+    return (
+      <div className="completion-tracker-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading checklist completion status...</p>
+      </div>
+    );
   }
 
   return (
