@@ -4724,7 +4724,7 @@ async function processProductAnalysisData(spreadsheetId) {
   }
 }
 
-// Process IGCC complaints data
+// Process IGCC complaints data (last 28 days only)
 function processIGCCComplaintsData(rows) {
   if (!rows || rows.length < 2) {
     console.log('No IGCC complaints data found');
@@ -4739,11 +4739,19 @@ function processIGCCComplaintsData(rows) {
   const itemIndex = headers.findIndex(h => h.includes('item'));
   const outletIndex = headers.findIndex(h => h.includes('outlet'));
   const complaintTypeIndex = headers.findIndex(h => h.includes('complaint type'));
-  const dateIndex = headers.findIndex(h => h.includes('order date'));
+  const dateIndex = headers.findIndex(h => h.includes('order date') || h.includes('date'));
 
   console.log('Column indices:', { platformIndex, itemIndex, outletIndex, complaintTypeIndex, dateIndex });
 
+  // Calculate date 28 days ago
+  const today = new Date();
+  const twentyEightDaysAgo = new Date(today.getTime() - (28 * 24 * 60 * 60 * 1000));
+  console.log(`Filtering complaints from ${twentyEightDaysAgo.toDateString()} to ${today.toDateString()}`);
+
   const complaints = [];
+  let totalRows = 0;
+  let filteredByDate = 0;
+  let missingDate = 0;
   
   // Process each row
   for (let i = 1; i < rows.length; i++) {
@@ -4752,33 +4760,133 @@ function processIGCCComplaintsData(rows) {
     // Skip if row is empty or item is missing
     if (!row || row.length === 0) continue;
     
+    totalRows++;
+    
     const item = itemIndex >= 0 ? row[itemIndex] : null;
     
     // Skip if no item specified
     if (!item || item.trim() === '') continue;
     
+    const dateStr = dateIndex >= 0 ? row[dateIndex] : '';
+    
+    // Parse the date - try multiple formats
+    let complaintDate = null;
+    if (dateStr && dateStr.trim() !== '') {
+      // Try parsing various date formats
+      complaintDate = parseFlexibleDate(dateStr);
+      
+      if (!complaintDate) {
+        console.log(`Could not parse date: "${dateStr}" for item: "${item}"`);
+        missingDate++;
+        continue; // Skip complaints without valid dates
+      }
+      
+      // Filter to last 28 days
+      if (complaintDate < twentyEightDaysAgo) {
+        filteredByDate++;
+        continue; // Skip old complaints
+      }
+    } else {
+      missingDate++;
+      continue; // Skip if no date
+    }
+    
     const platform = platformIndex >= 0 ? row[platformIndex] : 'Unknown';
     const outlet = outletIndex >= 0 ? row[outletIndex] : 'Unknown';
     const complaintType = complaintTypeIndex >= 0 ? row[complaintTypeIndex] : 'General';
-    const date = dateIndex >= 0 ? row[dateIndex] : '';
 
     complaints.push({
       item: item.trim(),
       platform: platform,
       outlet: outlet,
       complaintType: complaintType,
-      date: date
+      date: dateStr,
+      parsedDate: complaintDate
     });
   }
 
-  console.log(`Extracted ${complaints.length} complaints from IGCC sheet`);
+  console.log(`IGCC Complaints Processing Summary:`);
+  console.log(`- Total rows processed: ${totalRows}`);
+  console.log(`- Missing/invalid dates: ${missingDate}`);
+  console.log(`- Filtered out (older than 28 days): ${filteredByDate}`);
+  console.log(`- Final complaints (last 28 days): ${complaints.length}`);
   
   // Log sample complaints for verification
   if (complaints.length > 0) {
-    console.log('Sample complaints:', complaints.slice(0, 5));
+    console.log('Sample recent complaints:', complaints.slice(0, 5).map(c => ({
+      item: c.item,
+      date: c.date,
+      platform: c.platform
+    })));
   }
 
   return complaints;
+}
+
+// Helper function to parse dates flexibly
+function parseFlexibleDate(dateStr) {
+  if (!dateStr || dateStr.trim() === '') return null;
+  
+  const trimmed = dateStr.trim();
+  
+  // Try standard Date parsing first
+  let date = new Date(trimmed);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+  
+  // Try DD/MM/YYYY format
+  const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ddmmyyyyMatch) {
+    const [, day, month, year] = ddmmyyyyMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Try DD-MM-YYYY format
+  const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})\-(\d{1,2})\-(\d{4})$/);
+  if (ddmmyyyyDashMatch) {
+    const [, day, month, year] = ddmmyyyyDashMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Try MM/DD/YYYY format
+  const mmddyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (mmddyyyyMatch) {
+    const [, month, day, year] = mmddyyyyMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Try YYYY-MM-DD format (ISO)
+  const yyyymmddMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (yyyymmddMatch) {
+    const [, year, month, day] = yyyymmddMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Try Google Sheets serial date format (days since 1899-12-30)
+  const serialNumber = parseFloat(trimmed);
+  if (!isNaN(serialNumber) && serialNumber > 0) {
+    // Convert Excel/Sheets serial date to JavaScript Date
+    const baseDate = new Date(1899, 11, 30);
+    date = new Date(baseDate.getTime() + serialNumber * 24 * 60 * 60 * 1000);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  return null;
 }
 
 // Helper function to calculate string similarity (existing function)
