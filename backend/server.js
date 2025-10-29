@@ -1661,6 +1661,7 @@ function createEmptyDataStructure() {
 }
 
 // Process sheet data function for dashboard - FIXED COLUMN MAPPING
+// Process sheet data function for dashboard - FIXED COLUMN MAPPING WITH 28 DAY SUPPORT
 function processSheetData(rawData, requestedPeriod = '7 Day') {
   console.log(`Processing data for period: ${requestedPeriod}`);
   
@@ -1686,6 +1687,13 @@ function processSheetData(rawData, requestedPeriod = '7 Day') {
       console.log('Found 7 Day headers at row 27');
       startRow = 27; // Row 28 (index 27)
       console.log(`Found 7 Day headers at row 27, data starts at row 28, column offset ${columnOffset}`);
+    }
+  } else if (requestedPeriod === '28 Day') {
+    // 28 Day: Headers at row 44 (index 43), data from row 45-55 (index 44-54)
+    if (rawData[43]) {
+      console.log('Found 28 Day headers at row 44');
+      startRow = 44; // Row 45 (index 44)
+      console.log(`Found 28 Day headers at row 44, data starts at row 45, column offset ${columnOffset}`);
     }
   }
   
@@ -1714,6 +1722,8 @@ function processSheetData(rawData, requestedPeriod = '7 Day') {
     endRow = 22; // Row 23 (index 22) - last data row for 1 Day
   } else if (requestedPeriod === '7 Day') {
     endRow = 38; // Row 39 (index 38) - last data row for 7 Day
+  } else if (requestedPeriod === '28 Day') {
+    endRow = 54; // Row 55 (index 54) - last data row for 28 Day
   }
   
   console.log(`Processing ${requestedPeriod} Data from row ${startRow + 1} to row ${endRow + 1} with column offset ${columnOffset}`);
@@ -3693,7 +3703,7 @@ app.get('/api/dashboard-data', async (req, res) => {
     const period = req.query.period || '28 Day';
     console.log(`Dashboard data requested for period: ${period}`);
     
-    if (!['7 Day', '1 Day'].includes(period)) {
+    if (!['28 Day', '7 Day', '1 Day'].includes(period)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid period. Must be one of: 7 Day, 1 Day',
@@ -4141,6 +4151,7 @@ app.get('/api/debug-high-rated', async (req, res) => {
 // === SWIGGY DASHBOARD SPECIFIC FUNCTIONS ===
 
 // Fixed Swiggy-specific data processing function
+// Fixed Swiggy-specific data processing function WITH 28 DAY SUPPORT
 function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
   console.log(`Processing Swiggy data for period: ${requestedPeriod}`);
   
@@ -4164,6 +4175,12 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     if (rawData.length > 25) {
       console.log('Processing 7 Day data: headers at C25, data from C26-C37');
       startRow = 25; // Row 26 (index 25) - data starts here
+    }
+  } else if (requestedPeriod === '28 Day') {
+    // 28 Day: Headers at C41 (row 41), data from C42-C52 (rows 42-52)
+    if (rawData.length > 41) {
+      console.log('Processing 28 Day data: headers at C41, data from C42-C52');
+      startRow = 41; // Row 42 (index 41) - data starts here
     }
   }
   
@@ -4204,6 +4221,8 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
     endRow = Math.min(20, rawData.length - 1); // C10-C21 range (rows 10-21)
   } else if (requestedPeriod === '7 Day') {
     endRow = Math.min(36, rawData.length - 1); // C26-C37 range (rows 26-37)
+  } else if (requestedPeriod === '28 Day') {
+    endRow = Math.min(51, rawData.length - 1); // C42-C52 range (rows 42-52)
   }
   
   console.log(`Processing Swiggy ${requestedPeriod} Data from row ${startRow + 1} to row ${endRow + 1}`);
@@ -4292,7 +4311,6 @@ function processSwiggySheetData(rawData, requestedPeriod = '7 Day') {
   
   return data;
 }
-
 // Helper function to create empty Swiggy data structure
 function createEmptySwiggyDataStructure() {
   return {
@@ -5336,7 +5354,7 @@ app.get('/api/swiggy-dashboard-data', async (req, res) => {
     console.log(`Swiggy dashboard data requested for period: ${period}`);
     
     // Only allow 1 Day and 7 Day for Swiggy dashboard
-    if (!['7 Day', '1 Day'].includes(period)) {
+    if (!['28 Day', '7 Day', '1 Day'].includes(period)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid period for Swiggy dashboard. Must be one of: 7 Day, 1 Day',

@@ -393,6 +393,7 @@ const Dashboard = () => {
               backdropFilter: 'blur(10px)'
             }}
           >
+            <option value="28 Day">28 DAY DATA</option>
             <option value="7 Day">7 DAY DATA</option>
             <option value="1 Day">1 DAY DATA</option>
           </select>

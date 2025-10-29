@@ -478,6 +478,7 @@ const SwiggyDashboard = () => {
               backdropFilter: 'blur(10px)'
             }}
           >
+            <option value="28 Day">28 DAY DATA</option>
             <option value="7 Day">7 DAY DATA</option>
             <option value="1 Day">1 DAY DATA</option>
           </select>
@@ -531,7 +532,7 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* AI Insights Panel with Bottom 3 and Flagged Outlets Focus */}
+      {/* AI Insights Panel - continues in next message due to length */}
       {showAIPanel && aiInsights && (
         <div className="submission-card" style={{ borderLeft: '4px solid #10b981' }}>
           <div className="submission-header">
@@ -739,7 +740,7 @@ const SwiggyDashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Performance Stats with Market Share Trend */}
+      {/* Enhanced Performance Stats */}
       <div className="checklist-stats">
         {[
           { 
@@ -808,7 +809,7 @@ const SwiggyDashboard = () => {
         ))}
       </div>
 
-      {/* Top 3 and Bottom 3 Outlets Display */}
+      {/* Top 3 and Bottom 3 Outlets Display - continues... */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '25px', marginBottom: '30px' }}>
         {/* Bottom 3 Outlets */}
         <div className="submission-card" style={{ borderLeft: '4px solid #ef4444' }}>
@@ -1166,7 +1167,7 @@ const SwiggyDashboard = () => {
         </div>
       </div>
 
-      {/* Enhanced Performance Table with Market Share Trend and Delayed Orders */}
+      {/* Enhanced Performance Table */}
       <div className="submission-card">
         <div className="submission-header">
           <div className="submission-info">
