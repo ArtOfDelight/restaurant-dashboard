@@ -4507,8 +4507,8 @@ async function processProductAnalysisData(spreadsheetId) {
   console.log('Processing product analysis data from multiple sheets');
   
   try {
-    // Fetch all four sheets in parallel
-    const [zomatoOrdersResponse, swiggyReviewResponse, zomatoComplaintsResponse, swiggyComplaintsResponse] = await Promise.all([
+    // Fetch all three sheets in parallel (Zomato orders, Swiggy reviews, and IGCC complaints)
+    const [zomatoOrdersResponse, swiggyReviewResponse, igccComplaintsResponse] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: `zomato_orders!A:Z`,
@@ -4518,12 +4518,8 @@ async function processProductAnalysisData(spreadsheetId) {
         range: `Copy of swiggy_review!A:Z`,
       }),
       sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `zomato complaints!A:Z`,
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `swiggy complaints!A:Z`,
+        spreadsheetId: '1v4vILy-ZLUGQdymcVKMfQaw_BSjB7Qvl24wTSUJMR4s', // IGCC sheet
+        range: `IGCC!A:Z`,
       })
     ]);
 
@@ -4534,26 +4530,54 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log('Processing Swiggy reviews...');
     const swiggyOrders = processSwiggyReviewData(swiggyReviewResponse.data.values);
     
-    console.log('Processing Zomato complaints...');
-    const zomatoComplaints = processZomatoComplaintsData(zomatoComplaintsResponse.data.values);
-    
-    console.log('Processing Swiggy complaints with Gemini...');
-    const swiggyComplaints = await processSwiggyComplaintsData(swiggyComplaintsResponse.data.values);
+    console.log('Processing IGCC complaints...');
+    const complaints = processIGCCComplaintsData(igccComplaintsResponse.data.values);
 
     // Combine data by product name using fuzzy matching
     const productMap = new Map();
 
     // Helper function to normalize product names for better matching
     const normalizeProductName = (name) => {
+      if (!name) return '';
       return name.toLowerCase()
         .replace(/[^\w\s]/g, '') // Remove special characters
         .replace(/\s+/g, ' ') // Normalize spaces
         .trim();
     };
 
-    // Helper function to find matching product or create new one
-    const findOrCreateProduct = (productName) => {
+    // Enhanced similarity calculation with multiple methods
+    const calculateEnhancedSimilarity = (str1, str2) => {
+      const normalized1 = normalizeProductName(str1);
+      const normalized2 = normalizeProductName(str2);
+      
+      if (normalized1 === normalized2) return 1.0;
+      if (!normalized1 || !normalized2) return 0;
+      
+      // Method 1: Check if one string contains the other
+      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+        const containmentScore = Math.min(normalized1.length, normalized2.length) / 
+                                 Math.max(normalized1.length, normalized2.length);
+        return Math.max(0.85, containmentScore); // At least 85% if one contains the other
+      }
+      
+      // Method 2: Check word overlap
+      const words1 = normalized1.split(' ');
+      const words2 = normalized2.split(' ');
+      const commonWords = words1.filter(word => words2.includes(word));
+      const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
+      
+      // Method 3: Levenshtein distance
+      const levenshteinScore = calculateSimilarity(normalized1, normalized2);
+      
+      // Return the maximum of all methods (most lenient)
+      return Math.max(wordOverlapScore, levenshteinScore);
+    };
+
+    // Helper function to find matching product with lenient matching
+    const findBestMatchingProduct = (productName) => {
       const normalized = normalizeProductName(productName);
+      
+      if (!normalized) return null;
       
       // First try exact match
       if (productMap.has(normalized)) {
@@ -4561,12 +4585,36 @@ async function processProductAnalysisData(spreadsheetId) {
       }
       
       // Try fuzzy matching with existing products
+      let bestMatch = null;
+      let bestScore = 0;
+      
       for (let [key, product] of productMap.entries()) {
-        const similarity = calculateSimilarity(normalized, key);
-        if (similarity > 0.8) { // 80% similarity threshold
-          console.log(`Matched "${productName}" with existing "${product.name}" (${(similarity * 100).toFixed(1)}% similarity)`);
-          return product;
+        const similarity = calculateEnhancedSimilarity(normalized, key);
+        if (similarity > bestScore) {
+          bestScore = similarity;
+          bestMatch = product;
         }
+      }
+      
+      // Use 70% similarity threshold for more lenient matching
+      if (bestScore > 0.70) {
+        console.log(`Matched "${productName}" with existing "${bestMatch.name}" (${(bestScore * 100).toFixed(1)}% similarity)`);
+        return bestMatch;
+      }
+      
+      return null;
+    };
+
+    // Helper function to find or create product
+    const findOrCreateProduct = (productName) => {
+      const normalized = normalizeProductName(productName);
+      
+      if (!normalized) return null;
+      
+      // Try to find existing match
+      const existingProduct = findBestMatchingProduct(productName);
+      if (existingProduct) {
+        return existingProduct;
       }
       
       // Create new product
@@ -4577,6 +4625,7 @@ async function processProductAnalysisData(spreadsheetId) {
         swiggyOrders: 0,
         zomatoComplaints: 0,
         swiggyComplaints: 0,
+        totalComplaints: 0,
         avgRating: 0,
         platform: 'Both'
       };
@@ -4588,30 +4637,40 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log(`Adding ${zomatoOrders.length} Zomato order items...`);
     zomatoOrders.forEach(product => {
       const existingProduct = findOrCreateProduct(product.name);
-      existingProduct.zomatoOrders = product.orders || 0;
-      existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+      if (existingProduct) {
+        existingProduct.zomatoOrders = product.orders || 0;
+        existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+      }
     });
 
     // Add Swiggy orders
     console.log(`Adding ${swiggyOrders.length} Swiggy order items...`);
     swiggyOrders.forEach(product => {
       const existingProduct = findOrCreateProduct(product.name);
-      existingProduct.swiggyOrders = product.orders || 0;
-      existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+      if (existingProduct) {
+        existingProduct.swiggyOrders = product.orders || 0;
+        existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
+      }
     });
 
-    // Add Zomato complaints
-    console.log(`Adding ${zomatoComplaints.length} Zomato complaint items...`);
-    zomatoComplaints.forEach(complaint => {
-      const existingProduct = findOrCreateProduct(complaint.productName);
-      existingProduct.zomatoComplaints = complaint.count || 0;
-    });
-
-    // Add Swiggy complaints
-    console.log(`Adding ${swiggyComplaints.length} Swiggy complaint items...`);
-    swiggyComplaints.forEach(complaint => {
-      const existingProduct = findOrCreateProduct(complaint.productName);
-      existingProduct.swiggyComplaints = complaint.count || 0;
+    // Add IGCC complaints (grouped by platform)
+    console.log(`Adding ${complaints.length} IGCC complaint items...`);
+    complaints.forEach(complaint => {
+      const existingProduct = findOrCreateProduct(complaint.item);
+      if (existingProduct) {
+        const platform = (complaint.platform || '').toLowerCase();
+        
+        if (platform.includes('zomato')) {
+          existingProduct.zomatoComplaints += 1;
+        } else if (platform.includes('swiggy')) {
+          existingProduct.swiggyComplaints += 1;
+        } else {
+          // If platform is unclear, distribute evenly
+          existingProduct.zomatoComplaints += 0.5;
+          existingProduct.swiggyComplaints += 0.5;
+        }
+        existingProduct.totalComplaints += 1;
+      }
     });
 
     // Convert to array and calculate summary
@@ -4622,17 +4681,34 @@ async function processProductAnalysisData(spreadsheetId) {
       (p.zomatoOrders + p.swiggyOrders) >= 1
     );
     
+    // Calculate complaint rates for each product
+    filteredProducts.forEach(product => {
+      const totalOrders = product.zomatoOrders + product.swiggyOrders;
+      product.complaintRate = totalOrders > 0 
+        ? ((product.totalComplaints / totalOrders) * 100) 
+        : 0;
+      
+      product.zomatoComplaintRate = product.zomatoOrders > 0 
+        ? ((product.zomatoComplaints / product.zomatoOrders) * 100) 
+        : 0;
+      
+      product.swiggyComplaintRate = product.swiggyOrders > 0 
+        ? ((product.swiggyComplaints / product.swiggyOrders) * 100) 
+        : 0;
+    });
+    
     const summary = {
       totalProducts: filteredProducts.length,
       totalZomatoOrders: filteredProducts.reduce((sum, p) => sum + (p.zomatoOrders || 0), 0),
       totalSwiggyOrders: filteredProducts.reduce((sum, p) => sum + (p.swiggyOrders || 0), 0),
       totalZomatoComplaints: filteredProducts.reduce((sum, p) => sum + (p.zomatoComplaints || 0), 0),
       totalSwiggyComplaints: filteredProducts.reduce((sum, p) => sum + (p.swiggyComplaints || 0), 0),
+      totalComplaints: filteredProducts.reduce((sum, p) => sum + (p.totalComplaints || 0), 0),
       avgComplaintRate: 0
     };
 
     const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
-    const totalComplaints = summary.totalZomatoComplaints + summary.totalSwiggyComplaints;
+    const totalComplaints = summary.totalComplaints;
     summary.avgComplaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
 
     console.log(`Successfully processed ${filteredProducts.length} products:`);
@@ -4648,7 +4724,64 @@ async function processProductAnalysisData(spreadsheetId) {
   }
 }
 
-// Helper function to calculate string similarity
+// Process IGCC complaints data
+function processIGCCComplaintsData(rows) {
+  if (!rows || rows.length < 2) {
+    console.log('No IGCC complaints data found');
+    return [];
+  }
+
+  const headers = rows[0].map(h => h.trim().toLowerCase());
+  console.log('IGCC Headers:', headers);
+
+  // Find column indices
+  const platformIndex = headers.findIndex(h => h.includes('platform'));
+  const itemIndex = headers.findIndex(h => h.includes('item'));
+  const outletIndex = headers.findIndex(h => h.includes('outlet'));
+  const complaintTypeIndex = headers.findIndex(h => h.includes('complaint type'));
+  const dateIndex = headers.findIndex(h => h.includes('order date'));
+
+  console.log('Column indices:', { platformIndex, itemIndex, outletIndex, complaintTypeIndex, dateIndex });
+
+  const complaints = [];
+  
+  // Process each row
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    
+    // Skip if row is empty or item is missing
+    if (!row || row.length === 0) continue;
+    
+    const item = itemIndex >= 0 ? row[itemIndex] : null;
+    
+    // Skip if no item specified
+    if (!item || item.trim() === '') continue;
+    
+    const platform = platformIndex >= 0 ? row[platformIndex] : 'Unknown';
+    const outlet = outletIndex >= 0 ? row[outletIndex] : 'Unknown';
+    const complaintType = complaintTypeIndex >= 0 ? row[complaintTypeIndex] : 'General';
+    const date = dateIndex >= 0 ? row[dateIndex] : '';
+
+    complaints.push({
+      item: item.trim(),
+      platform: platform,
+      outlet: outlet,
+      complaintType: complaintType,
+      date: date
+    });
+  }
+
+  console.log(`Extracted ${complaints.length} complaints from IGCC sheet`);
+  
+  // Log sample complaints for verification
+  if (complaints.length > 0) {
+    console.log('Sample complaints:', complaints.slice(0, 5));
+  }
+
+  return complaints;
+}
+
+// Helper function to calculate string similarity (existing function)
 function calculateSimilarity(str1, str2) {
   const longer = str1.length > str2.length ? str1 : str2;
   const shorter = str1.length > str2.length ? str2 : str1;
@@ -4659,7 +4792,7 @@ function calculateSimilarity(str1, str2) {
   return (longer.length - editDistance) / longer.length;
 }
 
-// Helper function to calculate Levenshtein distance
+// Helper function to calculate Levenshtein distance (existing function)
 function levenshteinDistance(str1, str2) {
   const matrix = [];
   
@@ -4686,6 +4819,32 @@ function levenshteinDistance(str1, str2) {
   }
   
   return matrix[str2.length][str1.length];
+}
+
+// Helper function to capitalize words
+function capitalizeWords(str) {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+// Create empty structure for error cases
+function createEmptyProductDataStructure() {
+  return {
+    products: [],
+    summary: {
+      totalProducts: 0,
+      totalZomatoOrders: 0,
+      totalSwiggyOrders: 0,
+      totalZomatoComplaints: 0,
+      totalSwiggyComplaints: 0,
+      totalComplaints: 0,
+      avgComplaintRate: 0
+    }
+  };
 }
 
 function processZomatoOrdersData(rawData) {
