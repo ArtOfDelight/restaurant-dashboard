@@ -4498,7 +4498,7 @@ function generateSwiggyFallbackInsights(data, period) {
   };
 }
 
-// === ENHANCED PRODUCT ANALYSIS FUNCTIONS WITH CORRECT COLUMN MAPPING ===
+// === ENHANCED PRODUCT ANALYSIS FUNCTIONS WITH LOW RATED METRICS ===
 
 // Process Zomato orders data with correct column mapping
 
@@ -4883,15 +4883,11 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
 
 /**
  * Main function to process product analysis data from Google Sheets
- * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS
- */
-/**
- * Main function to process product analysis data from Google Sheets
- * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + IGCC COMPLAINTS
+ * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + LOW RATED METRICS
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT ANALYSIS DATA');
+  console.log('PROCESSING PRODUCT ANALYSIS DATA WITH LOW RATED METRICS');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
   
@@ -4905,7 +4901,7 @@ async function processProductAnalysisData(spreadsheetId) {
 
     // Fetch data from sheets
     console.log('Fetching data from Google Sheets...');
-    const [zomatoOrdersData, swiggyReviewData, igccComplaintsData] = await Promise.all([
+    const [zomatoOrdersData, swiggyReviewData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: 'zomato_orders!A:Z'
@@ -4914,30 +4910,20 @@ async function processProductAnalysisData(spreadsheetId) {
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: 'Copy of swiggy_review!A:Z'
-      }).catch(e => ({ data: { values: [] }, error: e.message })),
-      
-      sheets.spreadsheets.values.get({
-        spreadsheetId: '1v4vILy-ZLUGQdymcVKMfQaw_BSjB7Qvl24wTSUJMR4s',
-        range: 'IGCC!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
     console.log('Sheet data fetched:');
     console.log(`   - Zomato Orders: ${zomatoOrdersData.data.values?.length || 0} rows`);
     console.log(`   - Swiggy Reviews: ${swiggyReviewData.data.values?.length || 0} rows`);
-    console.log(`   - IGCC Complaints: ${igccComplaintsData.data.values?.length || 0} rows`);
 
-    // Process order data from sheets
-    const zomatoOrders = processZomatoOrdersData(zomatoOrdersData.data.values);
-    const swiggyOrders = processSwiggyReviewData(swiggyReviewData.data.values);
-    
-    // Process IGCC complaints (NEW: counts + 28 days)
-    const igccCounts = processIGCCComplaintsData(igccComplaintsData.data.values);
+    // Process order data from sheets - NOW INCLUDES HIGH/LOW RATED
+    const zomatoOrders = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
+    const swiggyOrders = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
 
     console.log('\nProcessed sheet data:');
     console.log(`   - Zomato Orders: ${zomatoOrders.length} unique items`);
     console.log(`   - Swiggy Orders: ${swiggyOrders.length} unique items`);
-    console.log(`   - IGCC Complaints (last 28 days): ${igccCounts.reduce((s, c) => s + c.count, 0)} total`);
 
     // Merge all data by product name
     const productMap = new Map();
@@ -4951,17 +4937,19 @@ async function processProductAnalysisData(spreadsheetId) {
           zomatoOrders: 0,
           swiggyOrders: 0,
           totalOrdersFromRista: 0,
-          igccComplaints: 0,
-          totalComplaints: 0,
+          highRated: 0,
+          lowRated: 0,
+          lowRatedPercentage: 0,
           avgRating: 0,
           zomatoRating: 0,
-          swiggyRating: 0,
-          complaintRate: 0
+          swiggyRating: 0
         });
       }
       const product = productMap.get(normalizedName);
       product.zomatoOrders = item.orders;
       product.zomatoRating = item.rating;
+      product.highRated += item.highRated || 0;
+      product.lowRated += item.lowRated || 0;
     });
 
     // Add Swiggy order data
@@ -4973,43 +4961,20 @@ async function processProductAnalysisData(spreadsheetId) {
           zomatoOrders: 0,
           swiggyOrders: 0,
           totalOrdersFromRista: 0,
-          igccComplaints: 0,
-          totalComplaints: 0,
+          highRated: 0,
+          lowRated: 0,
+          lowRatedPercentage: 0,
           avgRating: 0,
           zomatoRating: 0,
-          swiggyRating: 0,
-          complaintRate: 0
+          swiggyRating: 0
         });
       }
       const product = productMap.get(normalizedName);
       product.swiggyOrders = item.orders;
       product.swiggyRating = item.rating;
+      product.highRated += item.highRated || 0;
+      product.lowRated += item.lowRated || 0;
     });
-
-    // ---- NEW: Match IGCC complaint counts to products ----
-    console.log('\nMatching IGCC complaint counts to products...');
-    let igccMatched = 0;
-
-    igccCounts.forEach(entry => {
-      let bestProduct = null;
-      let bestScore = 0;
-
-      for (const [normProd, prod] of productMap.entries()) {
-        const score = calculateProductSimilarity(entry.normalized, normProd);
-        if (score > bestScore) {
-          bestScore = score;
-          bestProduct = prod;
-        }
-      }
-
-      if (bestProduct && bestScore >= 0.70) {
-        bestProduct.igccComplaints += entry.count;
-        igccMatched += entry.count;
-        console.log(`   IGCC match (${(bestScore*100).toFixed(1)}%): "${entry.raw}" → "${bestProduct.name}" (+${entry.count})`);
-      }
-    });
-
-    console.log(`   Total IGCC complaints attached: ${igccMatched}`);
 
     // Fetch Rista API orders (last 28 days)
     console.log('\n' + '═'.repeat(60));
@@ -5026,8 +4991,6 @@ async function processProductAnalysisData(spreadsheetId) {
         ? product.totalOrdersFromRista 
         : product.zomatoOrders + product.swiggyOrders;
       
-      product.totalComplaints = product.igccComplaints;
-      
       const ratings = [];
       if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
       if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
@@ -5035,8 +4998,9 @@ async function processProductAnalysisData(spreadsheetId) {
         ? ratings.reduce((a, b) => a + b, 0) / ratings.length 
         : 0;
       
-      product.complaintRate = totalOrders > 0 
-        ? (product.totalComplaints / totalOrders * 100) 
+      // Calculate low rated percentage based on Rista total orders
+      product.lowRatedPercentage = totalOrders > 0 
+        ? (product.lowRated / totalOrders * 100) 
         : 0;
       
       return product;
@@ -5055,17 +5019,20 @@ async function processProductAnalysisData(spreadsheetId) {
       totalZomatoOrders: products.reduce((sum, p) => sum + p.zomatoOrders, 0),
       totalSwiggyOrders: products.reduce((sum, p) => sum + p.swiggyOrders, 0),
       totalRistaOrders: products.reduce((sum, p) => sum + p.totalOrdersFromRista, 0),
-      totalIGCCComplaints: products.reduce((sum, p) => sum + p.igccComplaints, 0),
-      totalComplaints: products.reduce((sum, p) => sum + p.totalComplaints, 0),
-      avgComplaintRate: 0
+      totalHighRated: products.reduce((sum, p) => sum + p.highRated, 0),
+      totalLowRated: products.reduce((sum, p) => sum + p.lowRated, 0),
+      avgLowRatedPercentage: 0,
+      exactMatches: products.filter(p => p.matchType === 'exact').length,
+      fuzzyMatches: products.filter(p => p.matchType === 'fuzzy').length,
+      noMatches: products.filter(p => p.matchType === 'no_match').length
     };
 
     const totalOrdersForRate = summary.totalRistaOrders > 0 
       ? summary.totalRistaOrders 
       : summary.totalZomatoOrders + summary.totalSwiggyOrders;
     
-    summary.avgComplaintRate = totalOrdersForRate > 0 
-      ? (summary.totalComplaints / totalOrdersForRate * 100) 
+    summary.avgLowRatedPercentage = totalOrdersForRate > 0 
+      ? (summary.totalLowRated / totalOrdersForRate * 100) 
       : 0;
 
     console.log('\n' + '═'.repeat(60));
@@ -5074,8 +5041,9 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log(`Products: ${products.length}`);
     console.log(`Orders (Rista): ${summary.totalRistaOrders}`);
     console.log(`Orders (Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
-    console.log(`Complaints (IGCC): ${summary.totalIGCCComplaints}`);
-    console.log(`Avg Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
+    console.log(`High Rated: ${summary.totalHighRated}`);
+    console.log(`Low Rated: ${summary.totalLowRated}`);
+    console.log(`Avg Low Rated %: ${summary.avgLowRatedPercentage.toFixed(2)}%`);
     console.log('═'.repeat(60) + '\n');
 
     return { products, summary };
@@ -5106,101 +5074,15 @@ function createEmptyProductDataStructure() {
       totalZomatoOrders: 0,
       totalSwiggyOrders: 0,
       totalRistaOrders: 0,
-      totalIGCCComplaints: 0,
-      totalComplaints: 0,
-      avgComplaintRate: 0
+      totalHighRated: 0,
+      totalLowRated: 0,
+      avgLowRatedPercentage: 0,
+      exactMatches: 0,
+      fuzzyMatches: 0,
+      noMatches: 0
     }
   };
 }
-
-/**
- * Fetch IGCC complaints from sheet, filter to last 28 days,
- * count occurrences per item (after normalizing).
- * @param {Array} rows - 2D array from Google Sheets (headers + data)
- * @returns {Array} [{ normalized, raw, count }, ...]
- */
-function processIGCCComplaintsData(rows) {
-  if (!rows || rows.length < 2) return [];
-
-  // 1. Normalize header names (case-insensitive)
-  const normalizeHeader = h => String(h).trim().toLowerCase();
-  const headers = rows[0].map(normalizeHeader);
-  const col = {
-    orderDate: headers.findIndex(h => h === 'order date'),
-    item: headers.findIndex(h => h === 'item')
-  };
-
-  if (col.item === -1) {
-    console.warn('IGCC: "Item" column not found');
-    return [];
-  }
-
-  // 2. Define 28-day window
-  const today = new Date();
-  const cutoff = new Date(today);
-  cutoff.setDate(today.getDate() - 28);
-
-  // 3. Initialize maps
-  const countMap = new Map(); // normalized → count
-  const rawMap = new Map();   // normalized → original name
-
-  // 4. Process each row
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || row.length === 0) continue;
-
-    const rawDate = col.orderDate >= 0 ? row[col.orderDate] : '';
-    const rawItem = row[col.item];
-    if (!rawItem || String(rawItem).trim() === '') continue;
-
-    const date = parseFlexibleDate(rawDate);
-    if (!date || date < cutoff) continue; // skip old data
-
-    const normalized = normalizeProductName(String(rawItem));
-
-    // Save raw name (first occurrence)
-    if (!rawMap.has(normalized)) {
-      rawMap.set(normalized, String(rawItem).trim());
-    }
-
-    // Increment count
-    countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
-  }
-
-  // 5. Convert to array output
-  return Array.from(countMap.entries()).map(([normalized, count]) => ({
-    normalized,
-    raw: rawMap.get(normalized),
-    count
-  }));
-
-  // ---------- Helper Functions ----------
-
-  function parseFlexibleDate(value) {
-    if (!value) return null;
-
-    // If it's already a Date object
-    if (value instanceof Date) return value;
-
-    // If it looks like DD/MM/YYYY or D/M/YYYY
-    const parts = String(value).split(/[\/\-\.]/);
-    if (parts.length === 3) {
-      const [d, m, y] = parts.map(Number);
-      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
-        return new Date(y, m - 1, d);
-      }
-    }
-
-    // Fallback to native Date parsing
-    const parsed = new Date(value);
-    return isNaN(parsed) ? null : parsed;
-  }
-
-  function normalizeProductName(name) {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  }
-}
-
 
 // Helper function to parse dates flexibly
 function parseFlexibleDate(dateStr) {
@@ -5249,7 +5131,12 @@ function parseFlexibleDate(dateStr) {
   return null;
 }
 
-function processZomatoOrdersData(rawData) {
+/**
+ * Process Zomato orders and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processZomatoOrdersDataWithRatings(rawData) {
   if (!rawData || rawData.length <= 1) return [];
   
   const headers = rawData[0];
@@ -5259,16 +5146,16 @@ function processZomatoOrdersData(rawData) {
   
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  const restaurantNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('restaurant name'));
   
-  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Restaurant column: ${restaurantNameIndex}`);
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}`);
   
   const itemCounts = new Map();
   const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
   
   let totalOrders = 0;
   let ordersWithRatings = 0;
-  let ordersWithoutRatings = 0;
   
   dataRows.forEach(row => {
     const itemsCell = getCellValue(row, itemsIndex);
@@ -5277,7 +5164,6 @@ function processZomatoOrdersData(rawData) {
     totalOrders++;
     
     if (!itemsCell || !itemsCell.trim() || rating <= 0) {
-      if (rating <= 0) ordersWithoutRatings++;
       return;
     }
     
@@ -5294,6 +5180,13 @@ function processZomatoOrdersData(rawData) {
           itemRatings.set(cleanItem, []);
         }
         itemRatings.get(cleanItem).push(rating);
+        
+        // Categorize as high or low rated
+        if (rating >= 4.0) {
+          itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
+        } else if (rating < 3.0) {
+          itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
+        }
       }
     });
   });
@@ -5302,21 +5195,30 @@ function processZomatoOrdersData(rawData) {
   itemCounts.forEach((count, item) => {
     const ratings = itemRatings.get(item) || [];
     const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(item) || 0;
+    const lowRated = itemLowRated.get(item) || 0;
     
     result.push({
       name: capitalizeWords(item),
       orders: count,
-      rating: avgRating
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
     });
   });
   
   console.log(`Processed ${result.length} unique items from Zomato orders`);
-  console.log(`Total orders: ${totalOrders}, With ratings: ${ordersWithRatings}, Without ratings: ${ordersWithoutRatings}`);
+  console.log(`Total orders: ${totalOrders}, With ratings: ${ordersWithRatings}`);
   
   return result;
 }
 
-function processSwiggyReviewData(rawData) {
+/**
+ * Process Swiggy reviews and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processSwiggyReviewDataWithRatings(rawData) {
   if (!rawData || rawData.length <= 1) return [];
   
   const headers = rawData[0];
@@ -5331,6 +5233,8 @@ function processSwiggyReviewData(rawData) {
   
   const itemCounts = new Map();
   const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
   
   dataRows.forEach(row => {
     const itemCell = getCellValue(row, itemOrderedIndex);
@@ -5349,6 +5253,13 @@ function processSwiggyReviewData(rawData) {
           }
           if (rating > 0) {
             itemRatings.get(cleanItem).push(rating);
+            
+            // Categorize as high or low rated
+            if (rating >= 4.0) {
+              itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
+            } else if (rating < 3.0) {
+              itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
+            }
           }
         }
       });
@@ -5359,11 +5270,15 @@ function processSwiggyReviewData(rawData) {
   itemCounts.forEach((count, item) => {
     const ratings = itemRatings.get(item) || [];
     const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(item) || 0;
+    const lowRated = itemLowRated.get(item) || 0;
     
     result.push({
       name: capitalizeWords(item),
       orders: count,
-      rating: avgRating
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
     });
   });
   

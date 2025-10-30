@@ -212,11 +212,11 @@ const ProductAnalysisDashboard = () => {
   const complaintAnalysisData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
-    totalComplaints: product.totalComplaints || product.igccComplaints || 0,
-    complaintRate: product.complaintRate || 0,
+    lowRated: product.lowRated || 0,
+    lowRatedPercentage: product.lowRatedPercentage || 0,
     totalOrders: product.totalOrdersFromRista || 0
-  })).filter(product => product.totalComplaints > 0)
-    .sort((a, b) => b.complaintRate - a.complaintRate).slice(0, 10);
+  })).filter(product => product.lowRated > 0)
+    .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage).slice(0, 10);
 
   const platformDistribution = [
     { name: 'Zomato Orders (Rated)', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
@@ -227,8 +227,8 @@ const ProductAnalysisDashboard = () => {
     name: product.name,
     orders: product.totalOrdersFromRista || 0,
     rating: product.avgRating || 0,
-    complaints: product.totalComplaints || product.igccComplaints || 0,
-    complaintRate: product.complaintRate || 0
+    lowRated: product.lowRated || 0,
+    lowRatedPercentage: product.lowRatedPercentage || 0
   })).filter(product => product.orders > 0);
 
   const COLORS = ['#dc2626', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'];
@@ -515,7 +515,7 @@ const ProductAnalysisDashboard = () => {
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       fontSize: '0.8rem'
                     }}>
-                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Complaints: {product.totalComplaints || 0} | Rate: {product.complaintRate?.toFixed(2) || 0}%
+                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Low Rated: {product.lowRated || 0} | Low Rated %: {product.lowRatedPercentage?.toFixed(2) || 0}%
                     </p>
                   </div>
                 ))}
@@ -643,14 +643,14 @@ const ProductAnalysisDashboard = () => {
             subtitle: 'All orders from inventory'
           },
           { 
-            title: 'TOTAL COMPLAINTS', 
-            value: data.summary?.totalIGCCComplaints || data.summary?.totalComplaints || 0,
+            title: 'TOTAL LOW RATED', 
+            value: data.summary?.totalLowRated || 0,
             color: '#ef4444',
             subtitle: 'Across all platforms'
           },
           { 
-            title: 'AVG COMPLAINT RATE', 
-            value: `${data.summary?.avgComplaintRate?.toFixed(2) || 0}%`,
+            title: 'AVG LOW RATED %', 
+            value: `${data.summary?.avgLowRatedPercentage?.toFixed(2) || 0}%`,
             color: '#f59e0b',
             subtitle: 'Based on Rista orders'
           }
@@ -761,7 +761,7 @@ const ProductAnalysisDashboard = () => {
           </div>
         </div>
 
-        {/* Complaint Analysis Chart */}
+        {/* Low Rated Analysis Chart */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -779,7 +779,7 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY COMPLAINT RATE
+              TOP 10 PRODUCTS BY LOW RATED PERCENTAGE
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
@@ -793,7 +793,7 @@ const ProductAnalysisDashboard = () => {
                   height={80} 
                   tick={{ fontSize: 11, fill: '#94a3b8' }} 
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} label={{ value: 'Complaint Rate %', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} label={{ value: 'Low Rated %', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
                 <Tooltip 
                   contentStyle={{
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -806,13 +806,13 @@ const ProductAnalysisDashboard = () => {
                     return item ? item.fullName : label;
                   }}
                   formatter={(value, name, props) => {
-                    if (name === 'complaintRate') return [`${value.toFixed(2)}%`, 'Complaint Rate'];
+                    if (name === 'lowRatedPercentage') return [`${value.toFixed(2)}%`, 'Low Rated %'];
                     if (name === 'totalOrders') return [value, 'Total Orders'];
                     return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="complaintRate" fill="#ef4444" name="Complaint Rate %" />
+                <Bar dataKey="lowRatedPercentage" fill="#ef4444" name="Low Rated %" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -850,8 +850,9 @@ const ProductAnalysisDashboard = () => {
                     'PRODUCT NAME',
                     'TOTAL ORDERS (RISTA)',
                     'RATED ORDERS',
-                    'COMPLAINTS',
-                    'COMPLAINT RATE %',
+                    'HIGH RATED',
+                    'LOW RATED',
+                    'LOW RATED %',
                     'AVG RATING',
                     'MATCH STATUS',
                     'ACTIONS'
@@ -873,13 +874,14 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => (b.complaintRate || 0) - (a.complaintRate || 0))
+                  .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0))
                   .map((product, i) => {
                     const totalRistaOrders = product.totalOrdersFromRista || 0;
                     const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
-                    const totalComplaints = product.totalComplaints || product.igccComplaints || 0;
-                    const complaintRate = product.complaintRate || 0;
-                    const isHighComplaintRate = complaintRate > 5;
+                    const highRated = product.highRated || 0;
+                    const lowRated = product.lowRated || 0;
+                    const lowRatedPercentage = product.lowRatedPercentage || 0;
+                    const isHighLowRatedRate = lowRatedPercentage > 5;
                     const matchBadge = getMatchTypeBadge(product.matchType, product.matchScore);
                     
                     return (
@@ -889,27 +891,27 @@ const ProductAnalysisDashboard = () => {
                           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
                           cursor: 'pointer',
                           transition: 'background 0.2s ease',
-                          background: isHighComplaintRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent'
+                          background: isHighLowRatedRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent'
                         }}
                         onClick={() => analyzeProduct(product.name)}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = isHighComplaintRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent';
+                          e.currentTarget.style.background = isHighLowRatedRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent';
                         }}
                       >
                         <td style={{ 
                           padding: '18px', 
                           fontWeight: '600', 
-                          color: isHighComplaintRate ? '#ef4444' : '#f8fafc',
+                          color: isHighLowRatedRate ? '#ef4444' : '#f8fafc',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           maxWidth: '200px',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         }}>
                           {product.name}
-                          {isHighComplaintRate && <span style={{ color: '#ef4444', fontSize: '0.7rem', marginLeft: '5px' }}>⚠ HIGH</span>}
+                          {isHighLowRatedRate && <span style={{ color: '#ef4444', fontSize: '0.7rem', marginLeft: '5px' }}>⚠ HIGH</span>}
                         </td>
                         <td style={{ 
                           padding: '18px',
@@ -932,20 +934,28 @@ const ProductAnalysisDashboard = () => {
                         </td>
                         <td style={{ 
                           padding: '18px',
-                          color: totalComplaints > 0 ? '#ef4444' : '#94a3b8',
+                          color: '#22c55e',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '600'
                         }}>
-                          {totalComplaints}
+                          {highRated}
                         </td>
                         <td style={{ 
                           padding: '18px',
-                          color: complaintRate > 5 ? '#ef4444' : complaintRate > 2 ? '#f59e0b' : '#22c55e',
+                          color: lowRated > 0 ? '#ef4444' : '#94a3b8',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '600'
+                        }}>
+                          {lowRated}
+                        </td>
+                        <td style={{ 
+                          padding: '18px',
+                          color: lowRatedPercentage > 5 ? '#ef4444' : lowRatedPercentage > 2 ? '#f59e0b' : '#22c55e',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '700',
                           fontSize: '1.1rem'
                         }}>
-                          {complaintRate.toFixed(2)}%
+                          {lowRatedPercentage.toFixed(2)}%
                         </td>
                         <td style={{ 
                           padding: '18px',
@@ -983,14 +993,14 @@ const ProductAnalysisDashboard = () => {
                               textTransform: 'uppercase',
                               letterSpacing: '0.5px',
                               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                              background: isHighComplaintRate ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)',
-                              color: isHighComplaintRate ? '#ef4444' : '#8b5cf6',
-                              border: `1px solid ${isHighComplaintRate ? 'rgba(239, 68, 68, 0.5)' : 'rgba(139, 92, 246, 0.5)'}`,
+                              background: isHighLowRatedRate ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)',
+                              color: isHighLowRatedRate ? '#ef4444' : '#8b5cf6',
+                              border: `1px solid ${isHighLowRatedRate ? 'rgba(239, 68, 68, 0.5)' : 'rgba(139, 92, 246, 0.5)'}`,
                               cursor: 'pointer',
                               whiteSpace: 'nowrap'
                             }}
                           >
-                            {isHighComplaintRate ? 'URGENT' : 'ANALYZE'}
+                            {isHighLowRatedRate ? 'URGENT' : 'ANALYZE'}
                           </button>
                         </td>
                       </tr>
