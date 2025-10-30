@@ -4517,11 +4517,11 @@ const BRANCH_NAME_TO_CODE = {
   'Koramangala': 'AOD-02',
   'Kalyan Nagar': 'AOD-5',
   'Bellandur': 'AOD-3',
-  'Indiranagar': 'AOD-IND',
+  'Indiranagar': 'AOD-CVR',
   'Arekere': 'AOD-ARK',
   'Jayanagar': 'AOD-JAY',
-  'HSR Layout': 'HSR',
-  'Rajajinagar': 'RAJ',
+  'HSR Layout': 'CK - HSR',
+  'Rajajinagar': 'AOD-RAJ',
   'Art Of Delight Central': 'HO AOD'
 };
 
@@ -4999,9 +4999,19 @@ async function processProductAnalysisData(spreadsheetId) {
         : 0;
       
       // Calculate low rated percentage based on Rista total orders
+      const lowRated = product.lowRated || 0;
       product.lowRatedPercentage = totalOrders > 0 
-        ? (product.lowRated / totalOrders * 100) 
+        ? (lowRated / totalOrders * 100) 
         : 0;
+      
+      // Ensure lowRatedPercentage is a valid number
+      if (isNaN(product.lowRatedPercentage) || product.lowRatedPercentage === null || product.lowRatedPercentage === undefined) {
+        product.lowRatedPercentage = 0;
+      }
+      
+      // Ensure highRated and lowRated have default values
+      product.highRated = product.highRated || 0;
+      product.lowRated = lowRated;
       
       return product;
     });
@@ -5019,8 +5029,8 @@ async function processProductAnalysisData(spreadsheetId) {
       totalZomatoOrders: products.reduce((sum, p) => sum + p.zomatoOrders, 0),
       totalSwiggyOrders: products.reduce((sum, p) => sum + p.swiggyOrders, 0),
       totalRistaOrders: products.reduce((sum, p) => sum + p.totalOrdersFromRista, 0),
-      totalHighRated: products.reduce((sum, p) => sum + p.highRated, 0),
-      totalLowRated: products.reduce((sum, p) => sum + p.lowRated, 0),
+      totalHighRated: products.reduce((sum, p) => sum + (p.highRated || 0), 0),
+      totalLowRated: products.reduce((sum, p) => sum + (p.lowRated || 0), 0),
       avgLowRatedPercentage: 0,
       exactMatches: products.filter(p => p.matchType === 'exact').length,
       fuzzyMatches: products.filter(p => p.matchType === 'fuzzy').length,
@@ -5034,6 +5044,11 @@ async function processProductAnalysisData(spreadsheetId) {
     summary.avgLowRatedPercentage = totalOrdersForRate > 0 
       ? (summary.totalLowRated / totalOrdersForRate * 100) 
       : 0;
+    
+    // Ensure avgLowRatedPercentage is a valid number
+    if (isNaN(summary.avgLowRatedPercentage) || summary.avgLowRatedPercentage === null || summary.avgLowRatedPercentage === undefined) {
+      summary.avgLowRatedPercentage = 0;
+    }
 
     console.log('\n' + '═'.repeat(60));
     console.log('PROCESSING COMPLETE');
@@ -5043,7 +5058,7 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log(`Orders (Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
     console.log(`High Rated: ${summary.totalHighRated}`);
     console.log(`Low Rated: ${summary.totalLowRated}`);
-    console.log(`Avg Low Rated %: ${summary.avgLowRatedPercentage.toFixed(2)}%`);
+    console.log(`Avg Low Rated %: ${(summary.avgLowRatedPercentage || 0).toFixed(2)}%`);
     console.log('═'.repeat(60) + '\n');
 
     return { products, summary };
@@ -5055,6 +5070,279 @@ async function processProductAnalysisData(spreadsheetId) {
   }
 }
 
+// Helper function to capitalize words
+function capitalizeWords(str) {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+// Create empty structure for error cases
+function createEmptyProductDataStructure() {
+  return {
+    products: [],
+    summary: {
+      totalProducts: 0,
+      totalZomatoOrders: 0,
+      totalSwiggyOrders: 0,
+      totalRistaOrders: 0,
+      totalHighRated: 0,
+      totalLowRated: 0,
+      avgLowRatedPercentage: 0,
+      exactMatches: 0,
+      fuzzyMatches: 0,
+      noMatches: 0
+    }
+  };
+}
+
+// Helper function to parse dates flexibly
+function parseFlexibleDate(dateStr) {
+  if (!dateStr || dateStr.trim() === '') return null;
+  
+  const trimmed = dateStr.trim();
+  
+  let date = new Date(trimmed);
+  if (!isNaN(date.getTime())) return date;
+  
+  const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ddmmyyyyMatch) {
+    const [, day, month, year] = ddmmyyyyMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})\-(\d{1,2})\-(\d{4})$/);
+  if (ddmmyyyyDashMatch) {
+    const [, day, month, year] = ddmmyyyyDashMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  const mmddyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (mmddyyyyMatch) {
+    const [, month, day, year] = mmddyyyyMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  const yyyymmddMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (yyyymmddMatch) {
+    const [, year, month, day] = yyyymmddMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  const serialNumber = parseFloat(trimmed);
+  if (serialNumber > 0) {
+    const baseDate = new Date(1899, 11, 30);
+    date = new Date(baseDate.getTime() + serialNumber * 24 * 60 * 60 * 1000);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  return null;
+}
+
+/**
+ * Process Zomato orders and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processZomatoOrdersDataWithRatings(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  console.log('Zomato Orders Headers:', headers);
+  
+  const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}`);
+  
+  const itemCounts = new Map();
+  const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
+  
+  let totalOrders = 0;
+  let ordersWithRatings = 0;
+  
+  dataRows.forEach(row => {
+    const itemsCell = getCellValue(row, itemsIndex);
+    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
+    
+    totalOrders++;
+    
+    if (!itemsCell || !itemsCell.trim() || rating <= 0) {
+      return;
+    }
+    
+    ordersWithRatings++;
+    
+    const items = parseItemsFromCell(itemsCell);
+    
+    items.forEach(item => {
+      if (item && item.trim()) {
+        const cleanItem = item.trim().toLowerCase();
+        itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
+        
+        if (!itemRatings.has(cleanItem)) {
+          itemRatings.set(cleanItem, []);
+        }
+        itemRatings.get(cleanItem).push(rating);
+        
+        // Categorize as high or low rated
+        if (rating >= 4.0) {
+          itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
+        } else if (rating < 3.0) {
+          itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
+        }
+      }
+    });
+  });
+  
+  const result = [];
+  itemCounts.forEach((count, item) => {
+    const ratings = itemRatings.get(item) || [];
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(item) || 0;
+    const lowRated = itemLowRated.get(item) || 0;
+    
+    result.push({
+      name: capitalizeWords(item),
+      orders: count,
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
+    });
+  });
+  
+  console.log(`Processed ${result.length} unique items from Zomato orders`);
+  console.log(`Total orders: ${totalOrders}, With ratings: ${ordersWithRatings}`);
+  
+  return result;
+}
+
+/**
+ * Process Swiggy reviews and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processSwiggyReviewDataWithRatings(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  console.log('Swiggy Review Headers:', headers);
+  
+  const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
+  
+  const itemCounts = new Map();
+  const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
+  
+  dataRows.forEach(row => {
+    const itemCell = getCellValue(row, itemOrderedIndex);
+    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
+    
+    if (itemCell && itemCell.trim()) {
+      const items = parseItemsFromCell(itemCell);
+      
+      items.forEach(item => {
+        if (item && item.trim()) {
+          const cleanItem = item.trim().toLowerCase();
+          itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
+          
+          if (!itemRatings.has(cleanItem)) {
+            itemRatings.set(cleanItem, []);
+          }
+          if (rating > 0) {
+            itemRatings.get(cleanItem).push(rating);
+            
+            // Categorize as high or low rated
+            if (rating >= 4.0) {
+              itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
+            } else if (rating < 3.0) {
+              itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
+            }
+          }
+        }
+      });
+    }
+  });
+  
+  const result = [];
+  itemCounts.forEach((count, item) => {
+    const ratings = itemRatings.get(item) || [];
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(item) || 0;
+    const lowRated = itemLowRated.get(item) || 0;
+    
+    result.push({
+      name: capitalizeWords(item),
+      orders: count,
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
+    });
+  });
+  
+  console.log(`Processed ${result.length} unique items from Swiggy reviews`);
+  return result;
+}
+
+function parseItemsFromCell(cellValue) {
+  if (!cellValue) return [];
+  
+  const separators = [',', ';', '|', '\n', ' + ', ' & ', ' and '];
+  let items = [cellValue];
+  
+  separators.forEach(sep => {
+    items = items.flatMap(item => item.split(sep));
+  });
+  
+  return items
+    .map(item => item.trim())
+    .filter(item => item.length > 0)
+    .map(item => cleanItemName(item));
+}
+
+function cleanItemName(itemName) {
+  if (!itemName) return '';
+  
+  let cleaned = itemName
+    .replace(/^\d+[\sx]?\s*/i, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/qty\s*:?\s*\d+/gi, '')
+    .replace(/quantity\s*:?\s*\d+/gi, '')
+    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
+    .replace(/₹\s*\d+/g, '')
+    .trim();
+  
+  return cleaned;
+}
+
+function getCellValue(row, index) {
+  return (index >= 0 && row[index]) ? row[index].trim() : '';
+}
+
+module.exports = {
+  processProductAnalysisData,
+  fetchTotalOrdersFromRista,
+  matchRistaOrdersWithProducts,
+  calculateProductSimilarity
+};
 // Helper function to capitalize words
 function capitalizeWords(str) {
   if (!str) return '';
