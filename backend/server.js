@@ -5933,6 +5933,11 @@ app.get('/api/debug-employee', async (req, res) => {
 // === PRODUCT ANALYSIS API ENDPOINTS ===
 
 // Product analysis data endpoint
+// Ensure RISTA_BRANCH_CODES is defined above or in scope
+// Example (you said you already added it):
+// const RISTA_BRANCH_CODES = ['branch-abc', 'branch-xyz'];
+
+// GET: Full Product Analysis Data
 app.get('/api/product-analysis-data', async (req, res) => {
   try {
     console.log('Product analysis data requested');
@@ -5945,62 +5950,67 @@ app.get('/api/product-analysis-data', async (req, res) => {
     }
 
     const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
-
     console.log(`Fetching product data from: ${PRODUCT_SPREADSHEET_ID}`);
     
     const processedData = await processProductAnalysisData(PRODUCT_SPREADSHEET_ID);
     
     console.log(`Successfully processed product data:`, {
       products: processedData.products.length,
-      totalOrders: processedData.summary.totalZomatoOrders + processedData.summary.totalSwiggyOrders,
-      totalComplaints: processedData.summary.totalZomatoComplaints + processedData.summary.totalSwiggyComplaints
+      totalZomatoOrders: processedData.summary.totalZomatoOrders,
+      totalSwiggyOrders: processedData.summary.totalSwiggyOrders,
+      totalRistaOrders: processedData.summary.totalRistaOrders,
+      totalIGCCComplaints: processedData.summary.totalIGCCComplaints,
+      avgComplaintRate: `${processedData.summary.avgComplaintRate.toFixed(2)}%`
     });
     
-    res.set('Content-Type', 'application/json');
     res.json({
       success: true,
       data: processedData,
-      aiEnabled: !!GEMINI_API_KEY,
+      aiEnabled: !!process.env.GEMINI_API_KEY,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error fetching product analysis data:', error.message);
+    console.error('Error in /api/product-analysis-data:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
-      details: error.response?.data || 'No additional details',
+      timestamp: new Date().toISOString(),
     });
   }
 });
 
-// Product-specific AI insights endpoint
-// Enhanced product-specific AI insights endpoint
+// POST: Generate AI Insights
 app.post('/api/product-generate-insights', async (req, res) => {
   try {
     const { data, analysisType } = req.body;
     
-    console.log(`Generating enhanced product AI insights for ${data.products.length} products`);
+    if (!data || !data.products) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request: Missing product data'
+      });
+    }
+
+    console.log(`Generating AI insights for ${data.products.length} products (${analysisType || 'default'})`);
     
-    // Use the enhanced insights function
     const insights = await generateEnhancedProductInsightsWithGemini(data, analysisType);
     
-    res.set('Content-Type', 'application/json');
     res.json({
       success: true,
       insights,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error generating enhanced product insights:', error.message);
-    res.set('Content-Type', 'application/json');
+    console.error('Error generating AI insights:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
+      timestamp: new Date().toISOString(),
     });
   }
 });
 
-// Debug product data endpoint
+// DEBUG: Raw Sheet Data (Only used sheets)
 app.get('/api/debug-product-analysis', async (req, res) => {
   try {
     if (!sheets) {
@@ -6008,63 +6018,55 @@ app.get('/api/debug-product-analysis', async (req, res) => {
     }
 
     const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+    console.log(`Debug: Fetching raw data from ${PRODUCT_SPREADSHEET_ID}`);
 
-    console.log(`Debug: Fetching raw product data from ${PRODUCT_SPREADSHEET_ID}`);
-
-    // Fetch all sheets to debug
-    const [zomatoOrders, swiggyReview, zomatoComplaints, swiggyComplaints] = await Promise.all([
+    const [zomatoOrders, swiggyReview, igccComplaints] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `zomato_orders!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message })),
+      
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
-        range: `swiggy_review!A1:Z20`,
+        range: `Copy of swiggy_review!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message })),
+      
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
-        range: `zomato complaints!A1:Z20`,
-      }).catch(e => ({ data: { values: null }, error: e.message })),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: PRODUCT_SPREADSHEET_ID,
-        range: `swiggy complaints!A1:Z20`,
+        range: `IGCC!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message }))
     ]);
 
-    res.set('Content-Type', 'application/json');
     res.json({
       success: true,
       spreadsheetId: PRODUCT_SPREADSHEET_ID,
       sheets: {
         zomato_orders: {
-          data: zomatoOrders.data.values?.slice(0, 10) || null,
-          error: zomatoOrders.error || null,
-          headers: zomatoOrders.data.values?.[0] || null
+          headers: zomatoOrders.data.values?.[0] || null,
+          sample: zomatoOrders.data.values?.slice(1, 6) || null,
+          error: zomatoOrders.error || null
         },
         swiggy_review: {
-          data: swiggyReview.data.values?.slice(0, 10) || null,
-          error: swiggyReview.error || null,
-          headers: swiggyReview.data.values?.[0] || null
+          headers: swiggyReview.data.values?.[0] || null,
+          sample: swiggyReview.data.values?.slice(1, 6) || null,
+          error: swiggyReview.error || null
         },
-        zomato_complaints: {
-          data: zomatoComplaints.data.values?.slice(0, 10) || null,
-          error: zomatoComplaints.error || null,
-          headers: zomatoComplaints.data.values?.[0] || null
-        },
-        swiggy_complaints: {
-          data: swiggyComplaints.data.values?.slice(0, 10) || null,
-          error: swiggyComplaints.error || null,
-          headers: swiggyComplaints.data.values?.[0] || null
+        igcc_complaints: {
+          headers: igccComplaints.data.values?.[0] || null,
+          sample: igccComplaints.data.values?.slice(1, 6) || null,
+          error: igccComplaints.error || null
         }
       },
+      note: "Only IGCC is used for complaints. Zomato/Swiggy complaints are ignored.",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error fetching debug product data:', error.message);
+    console.error('Debug endpoint error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
       spreadsheetId: '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs',
+      timestamp: new Date().toISOString(),
     });
   }
 });
