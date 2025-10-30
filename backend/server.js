@@ -4912,12 +4912,12 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
       sheets.spreadsheets.values.get({
-        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        spreadsheetId: spreadsheetId,
         range: 'Copy of swiggy_review!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
       sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
+        spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
         range: 'IGCC!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
