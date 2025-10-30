@@ -4583,56 +4583,70 @@ function getDateString(daysAgo = 0) {
 /**
  * Advanced product name matching using multiple algorithms
  */
+/**
+ * Normalise a product name for matching.
+ *   • Removes leading "X " (or "X-" , "X." etc.)
+ *   • Strips quantity/price tags, parentheses, brackets, size, ₹
+ *   • Lower-cases, collapses spaces, trims
+ */
 function normalizeProductName(name) {
   if (!name) return '';
-  return name.toLowerCase()
-    .replace(/[^\w\s]/g, '') // Remove special characters
-    .replace(/\s+/g, ' ') // Normalize spaces
+
+  return name
+    .trim()
+    .replace(/^\s*[xX][\s\-.]*/g, '')           // <-- NEW: strip leading X
+    .replace(/^\d+[\sx]?\s*/i, '')              // 2x , 1 , 3 pcs …
+    .replace(/\(.*?\)/g, '')                    // (small) , (250 ml)
+    .replace(/\[.*?\]/g, '')                    // [veg] , [non-veg]
+    .replace(/qty\s*:?\s*\d+/gi, '')
+    .replace(/quantity\s*:?\s*\d+/gi, '')
+    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
+    .replace(/₹\s*\d+/g, '')                    // ₹120
+    .replace(/[^\w\s]/g, '')                    // punctuation
+    .replace(/\s+/g, ' ')                       // collapse spaces
+    .toLowerCase()
     .trim();
 }
 
 /**
- * Calculate similarity between two product names using multiple methods
+ * Similarity between two product names (0-1).
+ * Uses the *new* normaliser above.
  */
 function calculateProductSimilarity(name1, name2) {
-  const normalized1 = normalizeProductName(name1);
-  const normalized2 = normalizeProductName(name2);
-  
-  if (!normalized1 || !normalized2) return 0;
-  if (normalized1 === normalized2) return 1.0;
-  
-  // Method 1: Exact substring match
-  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-    const containmentScore = Math.min(normalized1.length, normalized2.length) / 
-                             Math.max(normalized1.length, normalized2.length);
-    return Math.max(0.90, containmentScore);
+  const n1 = normalizeProductName(name1);
+  const n2 = normalizeProductName(name2);
+
+  if (!n1 || !n2) return 0;
+  if (n1 === n2) return 1.0;
+
+  // 1. Sub-string containment (high confidence)
+  if (n1.includes(n2) || n2.includes(n1)) {
+    const ratio = Math.min(n1.length, n2.length) / Math.max(n1.length, n2.length);
+    return Math.max(0.90, ratio);
   }
-  
-  // Method 2: Word overlap scoring
-  const words1 = normalized1.split(' ').filter(w => w.length > 2);
-  const words2 = normalized2.split(' ').filter(w => w.length > 2);
-  
-  if (words1.length === 0 || words2.length === 0) return 0;
-  
-  const commonWords = words1.filter(word => words2.includes(word));
-  const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
-  
-  // Method 3: Levenshtein distance
-  const levenshteinScore = calculateLevenshteinSimilarity(normalized1, normalized2);
-  
-  // Method 4: Check if key words match
-  const firstWord1 = words1[0] || '';
-  const firstWord2 = words2[0] || '';
-  const firstWordMatch = firstWord1 === firstWord2 ? 0.5 : 0;
-  
-  // Weighted combination of all methods
-  const combinedScore = Math.max(
-    wordOverlapScore * 0.4 + levenshteinScore * 0.3 + firstWordMatch * 0.3,
-    wordOverlapScore,
-    levenshteinScore
+
+  // 2. Word-overlap (Jaccard-style)
+  const words1 = n1.split(' ').filter(w => w.length > 2);
+  const words2 = n2.split(' ').filter(w => w.length > 2);
+  if (!words1.length || !words2.length) return 0;
+
+  const common = words1.filter(w => words2.includes(w));
+  const overlap = (common.length * 2) / (words1.length + words2.length);
+
+  // 3. Levenshtein distance
+  const lev = calculateLevenshteinSimilarity(n1, n2);
+
+  // 4. First-word match (extra boost for brand-like names)
+  const firstMatch = (words1[0] === words2[0]) ? 0.5 : 0;
+
+  // Weighted combination
+  const combined = Math.max(
+    overlap * 0.4 + lev * 0.3 + firstMatch * 0.3,
+    overlap,
+    lev
   );
-  
-  return combinedScore;
+
+  return combined;
 }
 
 /**
