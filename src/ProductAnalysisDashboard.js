@@ -16,6 +16,7 @@ const ProductAnalysisDashboard = () => {
   const [aiInsights, setAiInsights] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
+  const [showMatchingDetails, setShowMatchingDetails] = useState(false);
 
   // Fetch product data using fetch API
   const fetchData = async () => {
@@ -136,7 +137,7 @@ const ProductAnalysisDashboard = () => {
           letterSpacing: '2px',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
         }}>
-          LOADING PRODUCT ANALYSIS WITH AI INSIGHTS...
+          LOADING PRODUCT ANALYSIS WITH RISTA API DATA...
         </p>
         <style>{`
           @keyframes spin {
@@ -198,14 +199,15 @@ const ProductAnalysisDashboard = () => {
     ? data.products 
     : data.products.filter(product => product.platform === selectedPlatform);
 
-  // Prepare chart data
+  // Prepare chart data - NOW USING RISTA TOTAL ORDERS
   const orderVolumeData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
     zomatoOrders: product.zomatoOrders || 0,
     swiggyOrders: product.swiggyOrders || 0,
-    totalOrders: (product.zomatoOrders || 0) + (product.swiggyOrders || 0)
-  })).sort((a, b) => b.totalOrders - a.totalOrders).slice(0, 10);
+    ristaTotal: product.totalOrdersFromRista || 0,
+    sheetTotal: (product.zomatoOrders || 0) + (product.swiggyOrders || 0)
+  })).sort((a, b) => b.ristaTotal - a.ristaTotal).slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
@@ -213,24 +215,37 @@ const ProductAnalysisDashboard = () => {
     zomatoComplaints: product.zomatoComplaints || 0,
     swiggyComplaints: product.swiggyComplaints || 0,
     totalComplaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0),
-    complaintRate: ((product.zomatoComplaints || 0) + (product.swiggyComplaints || 0)) / 
-                   ((product.zomatoOrders || 0) + (product.swiggyOrders || 0)) * 100 || 0
+    complaintRate: product.complaintRate || 0,
+    totalOrders: product.totalOrdersFromRista || 0
   })).filter(product => product.totalComplaints > 0)
     .sort((a, b) => b.complaintRate - a.complaintRate).slice(0, 10);
 
   const platformDistribution = [
-    { name: 'Zomato Orders', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
-    { name: 'Swiggy Orders', value: data.summary?.totalSwiggyOrders || 0, color: '#f97316' }
+    { name: 'Zomato Orders (Rated)', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
+    { name: 'Swiggy Orders (Rated)', value: data.summary?.totalSwiggyOrders || 0, color: '#f97316' }
   ];
 
   const performanceScatterData = filteredProducts.map(product => ({
     name: product.name,
-    orders: (product.zomatoOrders || 0) + (product.swiggyOrders || 0),
+    orders: product.totalOrdersFromRista || 0,
     rating: product.avgRating || 0,
-    complaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0)
+    complaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0),
+    complaintRate: product.complaintRate || 0
   })).filter(product => product.orders > 0);
 
   const COLORS = ['#dc2626', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'];
+
+  // Get match type badge color
+  const getMatchTypeBadge = (matchType, matchScore) => {
+    if (matchType === 'exact') {
+      return { text: 'EXACT', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.2)' };
+    } else if (matchType === 'fuzzy') {
+      const scorePercent = (matchScore * 100).toFixed(0);
+      return { text: `FUZZY ${scorePercent}%`, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.2)' };
+    } else {
+      return { text: 'NO MATCH', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.2)' };
+    }
+  };
 
   return (
     <div style={{
@@ -270,7 +285,7 @@ const ProductAnalysisDashboard = () => {
             letterSpacing: '1px',
             margin: '10px 0 0 0'
           }}>
-            AI-POWERED PRODUCT INSIGHTS • ORDER HISTORY & COMPLAINTS • {data.summary?.totalProducts || 0} PRODUCTS
+            AI-POWERED • RISTA API INTEGRATION • {data.summary?.totalProducts || 0} PRODUCTS • {data.summary?.totalOrdersFromRista || 0} TOTAL ORDERS
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -295,6 +310,23 @@ const ProductAnalysisDashboard = () => {
             <option value="Zomato" style={{ background: '#1e293b', color: '#f8fafc' }}>ZOMATO ONLY</option>
             <option value="Swiggy" style={{ background: '#1e293b', color: '#f8fafc' }}>SWIGGY ONLY</option>
           </select>
+          <button
+            onClick={() => setShowMatchingDetails(!showMatchingDetails)}
+            style={{
+              padding: '12px 18px',
+              background: showMatchingDetails ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+              border: `1px solid ${showMatchingDetails ? 'rgba(245, 158, 11, 0.5)' : 'rgba(59, 130, 246, 0.5)'}`,
+              borderRadius: '12px',
+              color: '#f8fafc',
+              cursor: 'pointer',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            MATCH DETAILS
+          </button>
           <button
             onClick={() => setShowAIPanel(!showAIPanel)}
             style={{
@@ -330,6 +362,91 @@ const ProductAnalysisDashboard = () => {
           </button>
         </div>
       </div>
+
+      {/* Matching Details Panel */}
+      {showMatchingDetails && data.summary && (
+        <div style={{
+          margin: '30px',
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderLeft: '4px solid #f59e0b',
+          borderRadius: '15px',
+          backdropFilter: 'blur(10px)',
+          padding: '25px'
+        }}>
+          <h3 style={{ 
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            color: '#f59e0b',
+            margin: '0 0 20px 0',
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            RISTA API MATCHING STATISTICS
+          </h3>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '15px'
+          }}>
+            <div style={{
+              background: 'rgba(34, 197, 94, 0.1)',
+              border: '1px solid rgba(34, 197, 94, 0.3)',
+              borderRadius: '10px',
+              padding: '15px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '2rem', color: '#22c55e', fontWeight: '700' }}>
+                {data.summary.exactMatches || 0}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
+                EXACT MATCHES
+              </div>
+            </div>
+            <div style={{
+              background: 'rgba(245, 158, 11, 0.1)',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              borderRadius: '10px',
+              padding: '15px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '2rem', color: '#f59e0b', fontWeight: '700' }}>
+                {data.summary.fuzzyMatches || 0}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
+                FUZZY MATCHES
+              </div>
+            </div>
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '10px',
+              padding: '15px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '2rem', color: '#ef4444', fontWeight: '700' }}>
+                {data.summary.noMatches || 0}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
+                NO MATCHES
+              </div>
+            </div>
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: '10px',
+              padding: '15px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '2rem', color: '#3b82f6', fontWeight: '700' }}>
+                {data.summary.totalOrdersFromRista || 0}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
+                TOTAL ORDERS (RISTA)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Insights Panel */}
       {showAIPanel && aiInsights && (
@@ -392,7 +509,7 @@ const ProductAnalysisDashboard = () => {
                       fontSize: '0.9rem',
                       fontWeight: '600'
                     }}>
-                      {index + 1}. {product.name.toUpperCase()}: {product.totalOrders} ORDERS
+                      {index + 1}. {product.name.toUpperCase()}: {product.totalOrdersFromRista || product.totalOrders} ORDERS
                     </p>
                     <p style={{
                       margin: '5px 0 0 0',
@@ -400,7 +517,7 @@ const ProductAnalysisDashboard = () => {
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       fontSize: '0.8rem'
                     }}>
-                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Complaints: {product.totalComplaints || 0}
+                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Complaints: {product.totalComplaints || 0} | Rate: {product.complaintRate?.toFixed(2) || 0}%
                     </p>
                   </div>
                 ))}
@@ -506,34 +623,38 @@ const ProductAnalysisDashboard = () => {
         </div>
       )}
 
-      {/* Summary Stats */}
+      {/* Summary Stats - UPDATED WITH RISTA DATA */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
         gap: '25px',
         padding: '30px',
-        paddingTop: showAIPanel ? '0' : '30px'
+        paddingTop: (showAIPanel || showMatchingDetails) ? '0' : '30px'
       }}>
         {[
           { 
             title: 'TOTAL PRODUCTS', 
             value: data.summary?.totalProducts || 0,
-            color: '#8b5cf6'
+            color: '#8b5cf6',
+            subtitle: 'Unique items tracked'
           },
           { 
-            title: 'TOTAL ORDERS', 
-            value: (data.summary?.totalZomatoOrders || 0) + (data.summary?.totalSwiggyOrders || 0),
-            color: '#3b82f6'
+            title: 'TOTAL ORDERS (RISTA)', 
+            value: data.summary?.totalOrdersFromRista || 0,
+            color: '#3b82f6',
+            subtitle: 'All orders from inventory'
           },
           { 
             title: 'TOTAL COMPLAINTS', 
             value: (data.summary?.totalZomatoComplaints || 0) + (data.summary?.totalSwiggyComplaints || 0),
-            color: '#ef4444'
+            color: '#ef4444',
+            subtitle: 'Across all platforms'
           },
           { 
             title: 'AVG COMPLAINT RATE', 
             value: `${data.summary?.avgComplaintRate?.toFixed(2) || 0}%`,
-            color: '#f59e0b'
+            color: '#f59e0b',
+            subtitle: 'Based on Rista orders'
           }
         ].map((metric, i) => (
           <div key={i} style={{
@@ -562,11 +683,19 @@ const ProductAnalysisDashboard = () => {
             }}>
               {metric.title}
             </div>
+            <div style={{
+              fontSize: '0.75rem',
+              color: '#64748b',
+              marginTop: '5px',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+            }}>
+              {metric.subtitle}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Charts Grid */}
+      {/* Charts Grid - UPDATED */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
@@ -574,7 +703,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* Order Volume Chart */}
+        {/* Order Volume Chart - USING RISTA DATA */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -592,7 +721,7 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY ORDER VOLUME
+              TOP 10 PRODUCTS BY TOTAL ORDERS (RISTA API)
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
@@ -618,16 +747,23 @@ const ProductAnalysisDashboard = () => {
                     const item = orderVolumeData.find(d => d.name === label);
                     return item ? item.fullName : label;
                   }}
+                  formatter={(value, name, props) => {
+                    if (name === 'ristaTotal') return [value, 'Total Orders (Rista)'];
+                    if (name === 'zomatoOrders') return [value, 'Zomato Orders (Rated)'];
+                    if (name === 'swiggyOrders') return [value, 'Swiggy Orders (Rated)'];
+                    return [value, name];
+                  }}
                 />
                 <Legend />
-                <Bar dataKey="zomatoOrders" fill="#dc2626" name="Zomato Orders" />
-                <Bar dataKey="swiggyOrders" fill="#f97316" name="Swiggy Orders" />
+                <Bar dataKey="ristaTotal" fill="#3b82f6" name="Total Orders (Rista)" />
+                <Bar dataKey="zomatoOrders" fill="#dc2626" name="Zomato (Rated)" />
+                <Bar dataKey="swiggyOrders" fill="#f97316" name="Swiggy (Rated)" />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Platform Distribution */}
+        {/* Complaint Analysis Chart */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -645,26 +781,21 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              ORDER DISTRIBUTION BY PLATFORM
+              TOP 10 PRODUCTS BY COMPLAINT RATE
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
-              <PieChart>
-                <Pie
-                  data={platformDistribution}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={120}
-                  fill="#8884d8"
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
-                  labelLine={false}
-                >
-                  {platformDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
+              <BarChart data={complaintAnalysisData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} label={{ value: 'Complaint Rate %', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
                 <Tooltip 
                   contentStyle={{
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -672,14 +803,25 @@ const ProductAnalysisDashboard = () => {
                     borderRadius: '10px',
                     color: '#f8fafc'
                   }}
+                  labelFormatter={(label, payload) => {
+                    const item = complaintAnalysisData.find(d => d.name === label);
+                    return item ? item.fullName : label;
+                  }}
+                  formatter={(value, name, props) => {
+                    if (name === 'complaintRate') return [`${value.toFixed(2)}%`, 'Complaint Rate'];
+                    if (name === 'totalOrders') return [value, 'Total Orders'];
+                    return [value, name];
+                  }}
                 />
-              </PieChart>
+                <Legend />
+                <Bar dataKey="complaintRate" fill="#ef4444" name="Complaint Rate %" />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* Product Table */}
+      {/* Product Table - UPDATED WITH RISTA DATA */}
       <div style={{
         margin: '30px',
         background: 'rgba(255, 255, 255, 0.05)',
@@ -698,7 +840,7 @@ const ProductAnalysisDashboard = () => {
             textTransform: 'uppercase',
             letterSpacing: '1px'
           }}>
-            DETAILED PRODUCT ANALYSIS
+            DETAILED PRODUCT ANALYSIS (RISTA INTEGRATED)
           </h3>
         </div>
         <div style={{ padding: '25px' }}>
@@ -708,11 +850,12 @@ const ProductAnalysisDashboard = () => {
                 <tr style={{ background: 'rgba(255, 255, 255, 0.05)' }}>
                   {[
                     'PRODUCT NAME',
-                    'ZOMATO ORDERS',
-                    'SWIGGY ORDERS', 
-                    'TOTAL ORDERS',
+                    'TOTAL ORDERS (RISTA)',
+                    'RATED ORDERS',
+                    'COMPLAINTS',
                     'COMPLAINT RATE %',
                     'AVG RATING',
+                    'MATCH STATUS',
                     'ACTIONS'
                   ].map((header) => (
                     <th key={header} style={{ 
@@ -722,7 +865,8 @@ const ProductAnalysisDashboard = () => {
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       fontSize: '0.9rem',
                       letterSpacing: '1px',
-                      textTransform: 'uppercase'
+                      textTransform: 'uppercase',
+                      whiteSpace: 'nowrap'
                     }}>
                       {header}
                     </th>
@@ -731,13 +875,15 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => ((b.zomatoOrders || 0) + (b.swiggyOrders || 0)) - ((a.zomatoOrders || 0) + (a.swiggyOrders || 0)))
-                  .slice(0, 20)
+                  .sort((a, b) => (b.totalOrdersFromRista || 0) - (a.totalOrdersFromRista || 0))
+                  .slice(0, 30)
                   .map((product, i) => {
-                    const totalOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
+                    const totalRistaOrders = product.totalOrdersFromRista || 0;
+                    const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
                     const totalComplaints = (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0);
-                    const complaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
+                    const complaintRate = product.complaintRate || 0;
                     const isHighComplaintRate = complaintRate > 5;
+                    const matchBadge = getMatchTypeBadge(product.matchType, product.matchScore);
                     
                     return (
                       <tr 
@@ -760,38 +906,47 @@ const ProductAnalysisDashboard = () => {
                           padding: '18px', 
                           fontWeight: '600', 
                           color: isHighComplaintRate ? '#ef4444' : '#f8fafc',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace" 
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          maxWidth: '200px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
                         }}>
                           {product.name}
-                          {isHighComplaintRate && <span style={{ color: '#ef4444', fontSize: '0.7rem', marginLeft: '5px' }}>⚠ HIGH COMPLAINTS</span>}
+                          {isHighComplaintRate && <span style={{ color: '#ef4444', fontSize: '0.7rem', marginLeft: '5px' }}>⚠ HIGH</span>}
+                        </td>
+                        <td style={{ 
+                          padding: '18px',
+                          color: '#3b82f6',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700',
+                          fontSize: '1.1rem'
+                        }}>
+                          {totalRistaOrders}
                         </td>
                         <td style={{ 
                           padding: '18px',
                           color: '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                         }}>
-                          {product.zomatoOrders || 0}
+                          {totalRatedOrders}
+                          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                            Z:{product.zomatoOrders || 0} S:{product.swiggyOrders || 0}
+                          </div>
                         </td>
                         <td style={{ 
                           padding: '18px',
-                          color: '#94a3b8',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                        }}>
-                          {product.swiggyOrders || 0}
-                        </td>
-                        <td style={{ 
-                          padding: '18px',
-                          color: '#f8fafc',
+                          color: totalComplaints > 0 ? '#ef4444' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '600'
                         }}>
-                          {totalOrders}
+                          {totalComplaints}
                         </td>
                         <td style={{ 
                           padding: '18px',
                           color: complaintRate > 5 ? '#ef4444' : complaintRate > 2 ? '#f59e0b' : '#22c55e',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '600'
+                          fontWeight: '700',
+                          fontSize: '1.1rem'
                         }}>
                           {complaintRate.toFixed(2)}%
                         </td>
@@ -802,6 +957,20 @@ const ProductAnalysisDashboard = () => {
                           fontWeight: '600'
                         }}>
                           {product.avgRating?.toFixed(1) || 'N/A'}
+                        </td>
+                        <td style={{ padding: '18px' }}>
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontSize: '0.7rem',
+                            fontWeight: '600',
+                            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                            background: matchBadge.bg,
+                            color: matchBadge.color,
+                            border: `1px solid ${matchBadge.color}40`
+                          }}>
+                            {matchBadge.text}
+                          </span>
                         </td>
                         <td style={{ padding: '18px' }}>
                           <button 
@@ -820,10 +989,11 @@ const ProductAnalysisDashboard = () => {
                               background: isHighComplaintRate ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)',
                               color: isHighComplaintRate ? '#ef4444' : '#8b5cf6',
                               border: `1px solid ${isHighComplaintRate ? 'rgba(239, 68, 68, 0.5)' : 'rgba(139, 92, 246, 0.5)'}`,
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap'
                             }}
                           >
-                            {isHighComplaintRate ? 'URGENT ANALYSIS' : 'AI ANALYZE'}
+                            {isHighComplaintRate ? 'URGENT' : 'ANALYZE'}
                           </button>
                         </td>
                       </tr>
