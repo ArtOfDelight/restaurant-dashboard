@@ -4507,7 +4507,7 @@ function generateSwiggyFallbackInsights(data, period) {
 
 const API_KEY = '0693b6bd-4dbd-4ff3-806e-37f28b9b8c21';
 const PRIVATE_KEY = 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
-const BASE_URL = 'https://api.ristaapps.com';
+const BASE_URL = 'https://api.ristaapps.com/v1';
 
 // Branch codes from reference
 
@@ -4787,7 +4787,7 @@ async function processProductAnalysisData(spreadsheetId) {
       
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
-        range: 'swiggy_review!A:Z'
+        range: 'Copy of swiggy_review!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
       sheets.spreadsheets.values.get({
