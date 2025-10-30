@@ -212,9 +212,7 @@ const ProductAnalysisDashboard = () => {
   const complaintAnalysisData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
-    zomatoComplaints: product.zomatoComplaints || 0,
-    swiggyComplaints: product.swiggyComplaints || 0,
-    totalComplaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0),
+    totalComplaints: product.totalComplaints || product.igccComplaints || 0,
     complaintRate: product.complaintRate || 0,
     totalOrders: product.totalOrdersFromRista || 0
   })).filter(product => product.totalComplaints > 0)
@@ -229,7 +227,7 @@ const ProductAnalysisDashboard = () => {
     name: product.name,
     orders: product.totalOrdersFromRista || 0,
     rating: product.avgRating || 0,
-    complaints: (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0),
+    complaints: product.totalComplaints || product.igccComplaints || 0,
     complaintRate: product.complaintRate || 0
   })).filter(product => product.orders > 0);
 
@@ -646,7 +644,7 @@ const ProductAnalysisDashboard = () => {
           },
           { 
             title: 'TOTAL COMPLAINTS', 
-            value: (data.summary?.totalZomatoComplaints || 0) + (data.summary?.totalSwiggyComplaints || 0),
+            value: data.summary?.totalIgccComplaints || 0,
             color: '#ef4444',
             subtitle: 'Across all platforms'
           },
@@ -880,7 +878,7 @@ const ProductAnalysisDashboard = () => {
                   .map((product, i) => {
                     const totalRistaOrders = product.totalOrdersFromRista || 0;
                     const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
-                    const totalComplaints = (product.zomatoComplaints || 0) + (product.swiggyComplaints || 0);
+                    const totalComplaints = product.totalComplaints || product.igccComplaints || 0;
                     const complaintRate = product.complaintRate || 0;
                     const isHighComplaintRate = complaintRate > 5;
                     const matchBadge = getMatchTypeBadge(product.matchType, product.matchScore);
