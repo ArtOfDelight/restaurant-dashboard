@@ -4760,76 +4760,356 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
 /**
  * Enhanced processProductAnalysisData with Rista API integration
  */
-async function processProductAnalysisDataWithRista(spreadsheetId) {
-  console.log('Processing product analysis data with Rista API integration');
+// === PRODUCT ANALYSIS FUNCTIONS - FIXED VERSION ===
+
+/**
+ * Main function to process product analysis data from Google Sheets
+ * Fetches data from multiple sheets and aggregates by product
+ */
+async function processProductAnalysisData(spreadsheetId) {
+  console.log('Processing product analysis data from spreadsheet:', spreadsheetId);
   
   try {
-    // Step 1: Fetch product analysis data from sheets (existing function)
-    const productData = await processProductAnalysisData(spreadsheetId);
-    
-    // Step 2: Fetch total orders from Rista API
-    const ristaOrdersMap = await fetchTotalOrdersFromRista();
-    
-    // Step 3: Match and merge the data
-    const enrichedProducts = matchRistaOrdersWithProducts(
-      productData.products, 
-      ristaOrdersMap
-    );
-    
-    // Step 4: Recalculate complaint rates using accurate total orders
-    enrichedProducts.forEach(product => {
-      const accurateTotalOrders = product.totalOrdersFromRista || 0;
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    // Fetch data from all required sheets in parallel
+    console.log('Fetching data from all product sheets...');
+    const [zomatoOrdersData, swiggyReviewData, zomatoComplaintsData, swiggyComplaintsData, igccComplaintsData] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'zomato_orders!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message })),
       
-      // Recalculate overall complaint rate
-      product.complaintRate = accurateTotalOrders > 0 
-        ? ((product.totalComplaints / accurateTotalOrders) * 100) 
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'swiggy_review!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message })),
+      
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'zomato complaints!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message })),
+      
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'swiggy complaints!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message })),
+      
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'IGCC!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message }))
+    ]);
+
+    console.log('Sheet data fetched:');
+    console.log(`- Zomato Orders: ${zomatoOrdersData.data.values?.length || 0} rows`);
+    console.log(`- Swiggy Reviews: ${swiggyReviewData.data.values?.length || 0} rows`);
+    console.log(`- Zomato Complaints: ${zomatoComplaintsData.data.values?.length || 0} rows`);
+    console.log(`- Swiggy Complaints: ${swiggyComplaintsData.data.values?.length || 0} rows`);
+    console.log(`- IGCC Complaints: ${igccComplaintsData.data.values?.length || 0} rows`);
+
+    // Process each sheet's data
+    const zomatoOrders = processZomatoOrdersData(zomatoOrdersData.data.values);
+    const swiggyOrders = processSwiggyReviewData(swiggyReviewData.data.values);
+    const zomatoComplaints = processZomatoComplaintsData(zomatoComplaintsData.data.values);
+    const swiggyComplaints = await processSwiggyComplaintsData(swiggyComplaintsData.data.values);
+    const igccComplaints = processIGCCComplaintsData(igccComplaintsData.data.values);
+
+    console.log('Processed data:');
+    console.log(`- Zomato Orders: ${zomatoOrders.length} unique items`);
+    console.log(`- Swiggy Orders: ${swiggyOrders.length} unique items`);
+    console.log(`- Zomato Complaints: ${zomatoComplaints.length} items`);
+    console.log(`- Swiggy Complaints: ${swiggyComplaints.length} items`);
+    console.log(`- IGCC Complaints: ${igccComplaints.length} items`);
+
+    // Merge all data by product name
+    const productMap = new Map();
+
+    // Add Zomato order data
+    zomatoOrders.forEach(item => {
+      const normalizedName = normalizeProductName(item.name);
+      if (!productMap.has(normalizedName)) {
+        productMap.set(normalizedName, {
+          name: capitalizeWords(item.name),
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          zomatoComplaints: 0,
+          swiggyComplaints: 0,
+          igccComplaints: 0,
+          totalComplaints: 0,
+          avgRating: 0,
+          zomatoRating: 0,
+          swiggyRating: 0,
+          complaintRate: 0,
+          zomatoComplaintRate: 0,
+          swiggyComplaintRate: 0
+        });
+      }
+      const product = productMap.get(normalizedName);
+      product.zomatoOrders = item.orders;
+      product.zomatoRating = item.rating;
+    });
+
+    // Add Swiggy order data
+    swiggyOrders.forEach(item => {
+      const normalizedName = normalizeProductName(item.name);
+      if (!productMap.has(normalizedName)) {
+        productMap.set(normalizedName, {
+          name: capitalizeWords(item.name),
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          zomatoComplaints: 0,
+          swiggyComplaints: 0,
+          igccComplaints: 0,
+          totalComplaints: 0,
+          avgRating: 0,
+          zomatoRating: 0,
+          swiggyRating: 0,
+          complaintRate: 0,
+          zomatoComplaintRate: 0,
+          swiggyComplaintRate: 0
+        });
+      }
+      const product = productMap.get(normalizedName);
+      product.swiggyOrders = item.orders;
+      product.swiggyRating = item.rating;
+    });
+
+    // Add complaint data using fuzzy matching
+    const addComplaints = (complaints, platform) => {
+      complaints.forEach(complaint => {
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        // Find best matching product
+        for (const [normalizedName, product] of productMap.entries()) {
+          const score = calculateProductSimilarity(
+            normalizeProductName(complaint.productName),
+            normalizedName
+          );
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = product;
+          }
+        }
+        
+        // Only match if similarity is above 70%
+        if (bestMatch && bestScore > 0.70) {
+          if (platform === 'zomato') {
+            bestMatch.zomatoComplaints += complaint.count;
+          } else if (platform === 'swiggy') {
+            bestMatch.swiggyComplaints += complaint.count;
+          } else if (platform === 'igcc') {
+            bestMatch.igccComplaints += complaint.count;
+          }
+        }
+      });
+    };
+
+    addComplaints(zomatoComplaints, 'zomato');
+    addComplaints(swiggyComplaints, 'swiggy');
+    addComplaints(igccComplaints, 'igcc');
+
+    // Calculate final metrics for each product
+    const products = Array.from(productMap.values()).map(product => {
+      const totalOrders = product.zomatoOrders + product.swiggyOrders;
+      product.totalComplaints = product.zomatoComplaints + product.swiggyComplaints + product.igccComplaints;
+      
+      // Calculate average rating
+      const ratings = [];
+      if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
+      if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
+      product.avgRating = ratings.length > 0 
+        ? ratings.reduce((a, b) => a + b, 0) / ratings.length 
         : 0;
       
-      // Keep platform-specific complaint rates based on sheet data
+      // Calculate complaint rates
+      product.complaintRate = totalOrders > 0 
+        ? (product.totalComplaints / totalOrders * 100) 
+        : 0;
+      
       product.zomatoComplaintRate = product.zomatoOrders > 0 
-        ? ((product.zomatoComplaints / product.zomatoOrders) * 100) 
+        ? (product.zomatoComplaints / product.zomatoOrders * 100) 
         : 0;
       
       product.swiggyComplaintRate = product.swiggyOrders > 0 
-        ? ((product.swiggyComplaints / product.swiggyOrders) * 100) 
+        ? (product.swiggyComplaints / product.swiggyOrders * 100) 
         : 0;
+      
+      return product;
     });
-    
-    // Step 5: Update summary statistics
-    const updatedSummary = {
-      ...productData.summary,
-      totalOrdersFromRista: enrichedProducts.reduce(
-        (sum, p) => sum + (p.totalOrdersFromRista || 0), 0
-      ),
-      exactMatches: enrichedProducts.filter(p => p.matchType === 'exact').length,
-      fuzzyMatches: enrichedProducts.filter(p => p.matchType === 'fuzzy').length,
-      noMatches: enrichedProducts.filter(p => p.matchType === 'no_match').length
+
+    // Sort by total orders (descending)
+    products.sort((a, b) => {
+      const totalA = a.zomatoOrders + a.swiggyOrders;
+      const totalB = b.zomatoOrders + b.swiggyOrders;
+      return totalB - totalA;
+    });
+
+    // Calculate summary
+    const summary = {
+      totalProducts: products.length,
+      totalZomatoOrders: products.reduce((sum, p) => sum + p.zomatoOrders, 0),
+      totalSwiggyOrders: products.reduce((sum, p) => sum + p.swiggyOrders, 0),
+      totalZomatoComplaints: products.reduce((sum, p) => sum + p.zomatoComplaints, 0),
+      totalSwiggyComplaints: products.reduce((sum, p) => sum + p.swiggyComplaints, 0),
+      totalIGCCComplaints: products.reduce((sum, p) => sum + p.igccComplaints, 0),
+      totalComplaints: products.reduce((sum, p) => sum + p.totalComplaints, 0),
+      avgComplaintRate: 0
     };
-    
-    // Recalculate average complaint rate with accurate orders
-    const totalRistaOrders = updatedSummary.totalOrdersFromRista;
-    updatedSummary.avgComplaintRate = totalRistaOrders > 0 
-      ? (updatedSummary.totalComplaints / totalRistaOrders * 100) 
+
+    const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
+    summary.avgComplaintRate = totalOrders > 0 
+      ? (summary.totalComplaints / totalOrders * 100) 
       : 0;
-    
-    console.log('\n📊 MATCHING SUMMARY:');
-    console.log(`✓ Exact matches: ${updatedSummary.exactMatches}`);
-    console.log(`✓ Fuzzy matches: ${updatedSummary.fuzzyMatches}`);
-    console.log(`⚠ No matches: ${updatedSummary.noMatches}`);
-    console.log(`📦 Total orders from Rista: ${updatedSummary.totalOrdersFromRista}`);
-    console.log(`📊 Updated complaint rate: ${updatedSummary.avgComplaintRate.toFixed(2)}%`);
-    
+
+    console.log(`✅ Successfully processed ${products.length} products`);
+    console.log(`📊 Summary: ${totalOrders} orders, ${summary.totalComplaints} complaints (${summary.avgComplaintRate.toFixed(2)}%)`);
+
     return {
-      products: enrichedProducts,
-      summary: updatedSummary
+      products,
+      summary
     };
-    
+
   } catch (error) {
-    console.error('Error processing product analysis data with Rista:', error);
-    throw error;
+    console.error('❌ Error in processProductAnalysisData:', error.message);
+    console.error('Stack trace:', error.stack);
+    return createEmptyProductDataStructure();
   }
 }
 
+/**
+ * Normalize product name for matching
+ */
+function normalizeProductName(name) {
+  if (!name) return '';
+  return name.toLowerCase()
+    .replace(/[^\w\s]/g, '') // Remove special characters
+    .replace(/\s+/g, ' ') // Normalize spaces
+    .trim();
+}
+
+/**
+ * Calculate similarity between two product names
+ */
+function calculateProductSimilarity(name1, name2) {
+  const normalized1 = normalizeProductName(name1);
+  const normalized2 = normalizeProductName(name2);
+  
+  if (!normalized1 || !normalized2) return 0;
+  if (normalized1 === normalized2) return 1.0;
+  
+  // Exact substring match
+  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+    return 0.95;
+  }
+  
+  // Word overlap scoring
+  const words1 = normalized1.split(' ').filter(w => w.length > 2);
+  const words2 = normalized2.split(' ').filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const commonWords = words1.filter(word => words2.includes(word));
+  const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
+  
+  return wordOverlapScore;
+}
+
+/**
+ * Fallback insights for product data
+ */
+function generateProductFallbackInsights(data) {
+  const totalOrders = data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders;
+  const avgComplaintRate = data.summary.avgComplaintRate;
+  
+  // Find top performers and problem products
+  const sortedByOrders = [...data.products].sort((a, b) => 
+    (b.zomatoOrders + b.swiggyOrders) - (a.zomatoOrders + a.swiggyOrders)
+  );
+  
+  const sortedByComplaints = [...data.products]
+    .filter(p => (p.zomatoOrders + p.swiggyOrders) > 5)
+    .sort((a, b) => b.complaintRate - a.complaintRate);
+  
+  return {
+    keyFindings: [
+      `Analyzed ${data.summary.totalProducts} products across ${totalOrders} orders`,
+      `Average complaint rate: ${avgComplaintRate.toFixed(2)}%`,
+      `Top product: ${sortedByOrders[0]?.name} with ${sortedByOrders[0]?.zomatoOrders + sortedByOrders[0]?.swiggyOrders} orders`,
+      `${sortedByComplaints.filter(p => p.complaintRate > 5).length} products exceed 5% complaint threshold`
+    ],
+    recommendations: [
+      avgComplaintRate > 3 ? 'Implement quality control measures - complaint rate above target' : 'Maintain current quality standards',
+      'Focus on high-volume products with complaint rates above 3%',
+      'Standardize recipes and preparation procedures across platforms',
+      'Monitor customer feedback for improvement opportunities'
+    ],
+    topPerformers: sortedByOrders.slice(0, 5).map(p => ({
+      name: p.name,
+      orders: p.zomatoOrders + p.swiggyOrders,
+      rating: p.avgRating.toFixed(1),
+      complaintRate: p.complaintRate.toFixed(2)
+    })),
+    problemProducts: sortedByComplaints.slice(0, 5).map(p => ({
+      name: p.name,
+      complaintRate: p.complaintRate.toFixed(2),
+      totalComplaints: p.totalComplaints,
+      orders: p.zomatoOrders + p.swiggyOrders
+    })),
+    confidence: 0.75,
+    generatedAt: new Date().toISOString(),
+    source: 'fallback-analysis'
+  };
+}
+
+// Update the API endpoint to use the fixed function
+app.get('/api/product-analysis-data', async (req, res) => {
+  try {
+    console.log('📊 Product analysis data requested');
+    
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
+
+    console.log(`Fetching product data from: ${PRODUCT_SPREADSHEET_ID}`);
+    
+    const processedData = await processProductAnalysisData(PRODUCT_SPREADSHEET_ID);
+    
+    console.log(`✅ Successfully processed product data:`, {
+      products: processedData.products.length,
+      totalOrders: processedData.summary.totalZomatoOrders + processedData.summary.totalSwiggyOrders,
+      totalComplaints: processedData.summary.totalComplaints
+    });
+    
+    res.set('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      data: processedData,
+      aiEnabled: !!GEMINI_API_KEY,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('❌ Error fetching product analysis data:', error.message);
+    console.error('Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 /**
  * API endpoint handler
  */
