@@ -4509,7 +4509,8 @@ const BASE_URL = 'https://api.ristaapps.com/v1';
 
 // RISTA-SPECIFIC BRANCH CODES - UPDATE WITH YOUR ACTUAL BRANCH CODES
 // DO NOT USE `BRANCH_CODES` - it's used elsewhere for a different endpoint
-const RISTA_BRANCH_CODES = {
+// Human-readable branch names
+const BRANCH_NAME_TO_CODE = {
   'Sahakarnagar': 'AOD-6',
   'Residency Road': 'AOD-01',
   'Whitefield': 'AOD-4',
@@ -4522,7 +4523,10 @@ const RISTA_BRANCH_CODES = {
   'HSR Layout': 'CK - HSR',
   'Rajajinagar': 'AOD-RAJ',
   'Art Of Delight Central': 'HO AOD'
-}; // UPDATE THIS!
+};
+
+// ONLY CODES — Used in Rista API calls
+const RISTA_BRANCH_CODES = Object.values(BRANCH_NAME_TO_CODE);// UPDATE THIS!
 
 // Only these channels
 const ALLOWED_CHANNELS = ['AOD Swiggy', 'AOD Zomato'];
