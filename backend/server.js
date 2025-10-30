@@ -4503,8 +4503,6 @@ function generateSwiggyFallbackInsights(data, period) {
 // Process Zomato orders data with correct column mapping
 
 // Main function to process product data from multiple sheets - ADD THIS
-// Updated backend code to fetch total orders from Rista API
-
 const API_KEY = '0693b6bd-4dbd-4ff3-806e-37f28b9b8c21';
 const PRIVATE_KEY = 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
 const BASE_URL = 'https://api.ristaapps.com/v1';
@@ -4514,9 +4512,6 @@ const BASE_URL = 'https://api.ristaapps.com/v1';
 
 // Only these channels
 const ALLOWED_CHANNELS = ['AOD Swiggy', 'AOD Zomato'];
-
-// Branch codes from reference
-
 
 /**
  * Creates a JWT token for authentication with the RistaAPI.
@@ -4542,7 +4537,6 @@ function createJwtToken(expires_in_hours = 6) {
   return jwt.sign(payload, PRIVATE_KEY, { algorithm: 'HS256', header });
 }
 
-
 /**
  * Generates request headers with the JWT token.
  */
@@ -4556,6 +4550,9 @@ function getHeaders() {
   };
 }
 
+/**
+ * Get date string in YYYY-MM-DD format
+ */
 function getDateString(daysAgo = 0) {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
@@ -4564,6 +4561,7 @@ function getDateString(daysAgo = 0) {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
 /**
  * Advanced product name matching using multiple algorithms
  */
@@ -4618,6 +4616,7 @@ function calculateProductSimilarity(name1, name2) {
   
   return combinedScore;
 }
+
 /**
  * Levenshtein distance similarity
  */
@@ -4644,7 +4643,8 @@ function calculateLevenshteinSimilarity(str1, str2) {
 }
 
 /**
- * Fetches item activity data from Rista API for a specific branch
+ * Fetches sales data from Rista API for a specific branch and date
+ * Uses /sales/page endpoint
  */
 async function fetchSalesDataForBranch(branchCode, date, retryCount = 0) {
   const endpoint = '/sales/page';
@@ -4680,7 +4680,8 @@ async function fetchSalesDataForBranch(branchCode, date, retryCount = 0) {
 }
 
 /**
- * Fetches total orders for all items across all branches
+ * Fetches total orders for all items across all branches for the last 28 days
+ * Only counts orders from AOD Swiggy and AOD Zomato channels
  */
 async function fetchTotalOrdersFromRista() {
   console.log('🚀 Fetching total orders from Rista API (last 28 days)...');
@@ -4847,14 +4848,10 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
   
   return matchedProducts;
 }
-/**
- * Enhanced processProductAnalysisData with Rista API integration
- */
-// === PRODUCT ANALYSIS FUNCTIONS - FIXED VERSION ===
 
 /**
  * Main function to process product analysis data from Google Sheets
- * Fetches data from multiple sheets and aggregates by product
+ * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
@@ -5061,121 +5058,40 @@ async function processProductAnalysisData(spreadsheetId) {
   }
 }
 
-/**
- * Normalize product name for matching
- */
+// Helper function to capitalize words
+function capitalizeWords(str) {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
-
-/**
- * Fallback insights for product data
- */
-function generateProductFallbackInsights(data) {
-  const totalOrders = data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders;
-  const avgComplaintRate = data.summary.avgComplaintRate;
-  
-  // Find top performers and problem products
-  const sortedByOrders = [...data.products].sort((a, b) => 
-    (b.zomatoOrders + b.swiggyOrders) - (a.zomatoOrders + a.swiggyOrders)
-  );
-  
-  const sortedByComplaints = [...data.products]
-    .filter(p => (p.zomatoOrders + p.swiggyOrders) > 5)
-    .sort((a, b) => b.complaintRate - a.complaintRate);
-  
+// Create empty structure for error cases
+function createEmptyProductDataStructure() {
   return {
-    keyFindings: [
-      `Analyzed ${data.summary.totalProducts} products across ${totalOrders} orders`,
-      `Average complaint rate: ${avgComplaintRate.toFixed(2)}%`,
-      `Top product: ${sortedByOrders[0]?.name} with ${sortedByOrders[0]?.zomatoOrders + sortedByOrders[0]?.swiggyOrders} orders`,
-      `${sortedByComplaints.filter(p => p.complaintRate > 5).length} products exceed 5% complaint threshold`
-    ],
-    recommendations: [
-      avgComplaintRate > 3 ? 'Implement quality control measures - complaint rate above target' : 'Maintain current quality standards',
-      'Focus on high-volume products with complaint rates above 3%',
-      'Standardize recipes and preparation procedures across platforms',
-      'Monitor customer feedback for improvement opportunities'
-    ],
-    topPerformers: sortedByOrders.slice(0, 5).map(p => ({
-      name: p.name,
-      orders: p.zomatoOrders + p.swiggyOrders,
-      rating: p.avgRating.toFixed(1),
-      complaintRate: p.complaintRate.toFixed(2)
-    })),
-    problemProducts: sortedByComplaints.slice(0, 5).map(p => ({
-      name: p.name,
-      complaintRate: p.complaintRate.toFixed(2),
-      totalComplaints: p.totalComplaints,
-      orders: p.zomatoOrders + p.swiggyOrders
-    })),
-    confidence: 0.75,
-    generatedAt: new Date().toISOString(),
-    source: 'fallback-analysis'
+    products: [],
+    summary: {
+      totalProducts: 0,
+      totalZomatoOrders: 0,
+      totalSwiggyOrders: 0,
+      totalRistaOrders: 0,
+      totalIGCCComplaints: 0,
+      totalComplaints: 0,
+      avgComplaintRate: 0
+    }
   };
 }
 
-// Update the API endpoint to use the fixed function
-app.get('/api/product-analysis-data', async (req, res) => {
-  try {
-    console.log('📊 Product analysis data requested');
-    
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Sheets');
-      }
-    }
-
-    const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
-
-    console.log(`Fetching product data from: ${PRODUCT_SPREADSHEET_ID}`);
-    
-    const processedData = await processProductAnalysisData(PRODUCT_SPREADSHEET_ID);
-    
-    console.log(`✅ Successfully processed product data:`, {
-      products: processedData.products.length,
-      totalOrders: processedData.summary.totalZomatoOrders + processedData.summary.totalSwiggyOrders,
-      totalComplaints: processedData.summary.totalComplaints
-    });
-    
-    res.set('Content-Type', 'application/json');
-    res.json({
-      success: true,
-      data: processedData,
-      aiEnabled: !!GEMINI_API_KEY,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('❌ Error fetching product analysis data:', error.message);
-    console.error('Stack:', error.stack);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: error.stack,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-/**
- * API endpoint handler
- */
-app.get('/api/product-analysis-data', async (req, res) => {
-  try {
-    const spreadsheetId = process.env.GOOGLE_SHEETS_ID || 'your-spreadsheet-id';
-    const data = await processProductAnalysisData(spreadsheetId);
-    
-    res.json({
-      success: true,
-      data: data,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error in product-analysis-data endpoint:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+// NOTE: Add your sheet processing functions here:
+// - processZomatoOrdersData()
+// - processSwiggyReviewData()
+// - processIGCCComplaintsData()
+// - getCellValue()
+// - parseItemsFromCell()
+// - cleanItemName()
+// - parseFlexibleDate()
 
 module.exports = {
   processProductAnalysisData,
