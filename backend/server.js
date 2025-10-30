@@ -4917,7 +4917,7 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
       sheets.spreadsheets.values.get({
-        spreadsheetId: '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE',
+        spreadsheetId: '1v4vILy-ZLUGQdymcVKMfQaw_BSjB7Qvl24wTSUJMR4s',
         range: 'IGCC!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
