@@ -4508,7 +4508,7 @@ const PRIVATE_KEY = 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
 const BASE_URL = 'https://api.ristaapps.com/v1';
 
 // Branch codes - UPDATE WITH YOUR ACTUAL BRANCH CODES
-
+ // Add your branch codes here, e.g., ['branch1', 'branch2'];
 
 // Only these channels
 const ALLOWED_CHANNELS = ['AOD Swiggy', 'AOD Zomato'];
@@ -5084,22 +5084,6 @@ function createEmptyProductDataStructure() {
   };
 }
 
-// NOTE: Add your sheet processing functions here:
-// - processZomatoOrdersData()
-// - processSwiggyReviewData()
-// - processIGCCComplaintsData()
-// - getCellValue()
-// - parseItemsFromCell()
-// - cleanItemName()
-// - parseFlexibleDate()
-
-module.exports = {
-  processProductAnalysisData,
-  fetchTotalOrdersFromRista,
-  matchRistaOrdersWithProducts,
-  calculateProductSimilarity
-};
-
 // Process IGCC complaints data (last 28 days only)
 function processIGCCComplaintsData(rows) {
   if (!rows || rows.length < 2) {
@@ -5265,72 +5249,6 @@ function parseFlexibleDate(dateStr) {
   return null;
 }
 
-// Helper function to calculate string similarity (existing function)
-function calculateSimilarity(str1, str2) {
-  const longer = str1.length > str2.length ? str1 : str2;
-  const shorter = str1.length > str2.length ? str2 : str1;
-  
-  if (longer.length === 0) return 1.0;
-  
-  const editDistance = levenshteinDistance(longer, shorter);
-  return (longer.length - editDistance) / longer.length;
-}
-
-// Helper function to calculate Levenshtein distance (existing function)
-function levenshteinDistance(str1, str2) {
-  const matrix = [];
-  
-  for (let i = 0; i <= str2.length; i++) {
-    matrix[i] = [i];
-  }
-  
-  for (let j = 0; j <= str1.length; j++) {
-    matrix[0][j] = j;
-  }
-  
-  for (let i = 1; i <= str2.length; i++) {
-    for (let j = 1; j <= str1.length; j++) {
-      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  
-  return matrix[str2.length][str1.length];
-}
-
-// Helper function to capitalize words
-function capitalizeWords(str) {
-  if (!str) return '';
-  return str
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-// Create empty structure for error cases
-function createEmptyProductDataStructure() {
-  return {
-    products: [],
-    summary: {
-      totalProducts: 0,
-      totalZomatoOrders: 0,
-      totalSwiggyOrders: 0,
-      totalZomatoComplaints: 0,
-      totalSwiggyComplaints: 0,
-      totalComplaints: 0,
-      avgComplaintRate: 0
-    }
-  };
-}
-
 function processZomatoOrdersData(rawData) {
   if (!rawData || rawData.length <= 1) return [];
   
@@ -5463,101 +5381,6 @@ function processSwiggyReviewData(rawData) {
   return result;
 }
 
-// Process Zomato complaints data with correct column mapping
-function processZomatoComplaintsData(rawData) {
-  if (!rawData || rawData.length <= 1) return [];
-  
-  const headers = rawData[0];
-  const dataRows = rawData.slice(1);
-  
-  console.log('Zomato Complaints Headers:', headers);
-  
-  // Find correct column indices
-  const descriptionIndex = headers.findIndex(h => h && h.toLowerCase().includes('description'));
-  
-  console.log(`Zomato Complaints - Description column: ${descriptionIndex}`);
-  
-  // Count complaints per item extracted from description
-  const itemComplaints = new Map();
-  
-  dataRows.forEach(row => {
-    const description = getCellValue(row, descriptionIndex);
-    
-    if (description && description.trim()) {
-      // Extract product names from description using simple keyword matching
-      const items = extractItemsFromDescription(description);
-      
-      items.forEach(item => {
-        if (item && item.trim()) {
-          const cleanItem = item.trim().toLowerCase();
-          itemComplaints.set(cleanItem, (itemComplaints.get(cleanItem) || 0) + 1);
-        }
-      });
-    }
-  });
-  
-  // Convert to array format
-  const result = [];
-  itemComplaints.forEach((count, item) => {
-    result.push({
-      productName: capitalizeWords(item),
-      count: count
-    });
-  });
-  
-  console.log(`Processed ${result.length} unique items from Zomato complaints`);
-  return result;
-}
-
-// Process Swiggy complaints data with Gemini parsing for reason field
-async function processSwiggyComplaintsData(rawData) {
-  if (!rawData || rawData.length <= 1) return [];
-  
-  const headers = rawData[0];
-  const dataRows = rawData.slice(1);
-  
-  console.log('Swiggy Complaints Headers:', headers);
-  
-  // Find correct column indices
-  const reasonIndex = headers.findIndex(h => h && h.toLowerCase().includes('reason'));
-  
-  console.log(`Swiggy Complaints - Reason column: ${reasonIndex}`);
-  
-  // Extract unique reason texts for batch processing with Gemini
-  const reasonTexts = [];
-  dataRows.forEach(row => {
-    const reason = getCellValue(row, reasonIndex);
-    if (reason && reason.trim()) {
-      reasonTexts.push(reason.trim());
-    }
-  });
-  
-  // Use Gemini to parse product names from reason texts
-  const parsedItems = await parseProductNamesWithGemini(reasonTexts);
-  
-  // Count complaints per item
-  const itemComplaints = new Map();
-  
-  parsedItems.forEach(item => {
-    if (item && item.trim()) {
-      const cleanItem = item.trim().toLowerCase();
-      itemComplaints.set(cleanItem, (itemComplaints.get(cleanItem) || 0) + 1);
-    }
-  });
-  
-  // Convert to array format
-  const result = [];
-  itemComplaints.forEach((count, item) => {
-    result.push({
-      productName: capitalizeWords(item),
-      count: count
-    });
-  });
-  
-  console.log(`Processed ${result.length} unique items from Swiggy complaints using Gemini parsing`);
-  return result;
-}
-
 // Helper function to parse items from a cell (handles multiple items separated by various delimiters)
 function parseItemsFromCell(cellValue) {
   if (!cellValue) return [];
@@ -5594,236 +5417,16 @@ function cleanItemName(itemName) {
   return cleaned;
 }
 
-// Extract items from complaint descriptions using keyword matching
-function extractItemsFromDescription(description) {
-  if (!description) return [];
-  
-  // Common food-related keywords to help identify menu items
-  const foodKeywords = [
-    'pizza', 'burger', 'sandwich', 'pasta', 'rice', 'chicken', 'biryani',
-    'curry', 'dal', 'bread', 'roti', 'naan', 'dosa', 'idli', 'vada',
-    'samosa', 'pakora', 'roll', 'wrap', 'salad', 'soup', 'dessert',
-    'ice cream', 'cake', 'coffee', 'tea', 'juice', 'lassi', 'shake'
-  ];
-  
-  const words = description.toLowerCase().split(/\s+/);
-  const foundItems = [];
-  
-  // Look for food keywords and surrounding context
-  words.forEach((word, index) => {
-    foodKeywords.forEach(keyword => {
-      if (word.includes(keyword)) {
-        // Try to capture 1-3 words around the keyword for context
-        const start = Math.max(0, index - 1);
-        const end = Math.min(words.length, index + 2);
-        const context = words.slice(start, end).join(' ');
-        foundItems.push(context);
-      }
-    });
-  });
-  
-  return foundItems.length > 0 ? foundItems : [description]; // Fallback to full description
+function getCellValue(row, index) {
+  return (index >= 0 && row[index]) ? row[index].trim() : '';
 }
 
-// Use Gemini AI to parse product names from Swiggy complaint reasons
-async function parseProductNamesWithGemini(reasonTexts) {
-  if (!GEMINI_API_KEY || reasonTexts.length === 0) {
-    console.log('Gemini API not available or no reason texts, using fallback parsing');
-    return reasonTexts.flatMap(text => extractItemsFromDescription(text));
-  }
-
-  try {
-    // Process in batches to avoid token limits
-    const batchSize = 10;
-    const allParsedItems = [];
-    
-    for (let i = 0; i < reasonTexts.length; i += batchSize) {
-      const batch = reasonTexts.slice(i, i + batchSize);
-      
-      const prompt = `Extract food/menu item names from these Swiggy complaint reasons. Each reason may contain a product name along with complaint details. Extract only the food item names.
-
-COMPLAINT REASONS:
-${batch.map((reason, idx) => `${idx + 1}. ${reason}`).join('\n')}
-
-Return a JSON array with the extracted food item names. If multiple items are mentioned in one reason, include all. If no clear food item is found, try to infer from context. Example:
-["Pizza Margherita", "Chicken Biryani", "Chocolate Cake"]
-
-Focus only on the actual menu items, not complaint details.`;
-
-      const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 500,
-          }
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000
-        }
-      );
-
-      if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        const aiResponse = response.data.candidates[0].content.parts[0].text;
-        
-        try {
-          const jsonMatch = aiResponse.match(/\[[\s\S]*?\]/);
-          if (jsonMatch) {
-            const parsedItems = JSON.parse(jsonMatch[0]);
-            if (Array.isArray(parsedItems)) {
-              allParsedItems.push(...parsedItems);
-            }
-          }
-        } catch (parseError) {
-          console.log('Failed to parse Gemini response for batch, using fallback');
-          allParsedItems.push(...batch.flatMap(text => extractItemsFromDescription(text)));
-        }
-      }
-      
-      // Small delay between batches
-      if (i + batchSize < reasonTexts.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-    
-    console.log(`Gemini parsed ${allParsedItems.length} items from ${reasonTexts.length} complaint reasons`);
-    return allParsedItems;
-    
-  } catch (error) {
-    console.error('Gemini parsing error:', error.message);
-    // Fallback to simple extraction
-    return reasonTexts.flatMap(text => extractItemsFromDescription(text));
-  }
-}
-
-// Helper function to capitalize words
-function capitalizeWords(str) {
-  if (!str) return '';
-  return str.replace(/\b\w+/g, word => 
-    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-  );
-}
-
-// Enhanced product insights generation with better analysis
-async function generateEnhancedProductInsightsWithGemini(data) {
-  if (!GEMINI_API_KEY) {
-    return generateProductFallbackInsights(data);
-  }
-
-  try {
-    console.log(`Generating enhanced product AI insights for ${data.products.length} products`);
-    
-    // Create detailed analysis data
-    const productAnalysis = data.products
-      .map(p => ({
-        ...p,
-        totalOrders: (p.zomatoOrders || 0) + (p.swiggyOrders || 0),
-        totalComplaints: (p.zomatoComplaints || 0) + (p.swiggyComplaints || 0),
-        complaintRate: ((p.zomatoComplaints || 0) + (p.swiggyComplaints || 0)) / 
-                      Math.max((p.zomatoOrders || 0) + (p.swiggyOrders || 0), 1) * 100,
-        platformPreference: (p.zomatoOrders || 0) > (p.swiggyOrders || 0) ? 'Zomato' : 'Swiggy',
-        ratingCategory: p.avgRating > 4.5 ? 'Excellent' : p.avgRating > 4 ? 'Good' : p.avgRating > 3 ? 'Average' : 'Poor'
-      }))
-      .filter(p => p.totalOrders > 0)
-      .sort((a, b) => b.totalOrders - a.totalOrders);
-
-    const topPerformers = productAnalysis.slice(0, 5);
-    const highComplaintItems = productAnalysis
-      .filter(p => p.complaintRate > 3 && p.totalOrders > 5)
-      .sort((a, b) => b.complaintRate - a.complaintRate)
-      .slice(0, 5);
-
-    const prompt = `Analyze this comprehensive restaurant menu performance data extracted from real order and complaint records:
-
-BUSINESS METRICS:
-- Total Products Analyzed: ${data.summary.totalProducts}
-- Total Orders Processed: ${data.summary.totalZomatoOrders + data.summary.totalSwiggyOrders}
-- Total Complaints Logged: ${data.summary.totalZomatoComplaints + data.summary.totalSwiggyComplaints}
-- Overall Complaint Rate: ${data.summary.avgComplaintRate.toFixed(2)}%
-
-TOP 5 PERFORMING ITEMS (by volume):
-${topPerformers.map(p => `• ${p.name}: ${p.totalOrders} orders, ${p.avgRating.toFixed(1)}⭐, ${p.complaintRate.toFixed(1)}% complaints, Popular on ${p.platformPreference}`).join('\n')}
-
-HIGH-COMPLAINT ITEMS (>3% complaint rate):
-${highComplaintItems.map(p => `• ${p.name}: ${p.complaintRate.toFixed(1)}% complaint rate (${p.totalComplaints}/${p.totalOrders}), ${p.avgRating.toFixed(1)}⭐`).join('\n')}
-
-PLATFORM COMPARISON:
-- Zomato: ${data.summary.totalZomatoOrders} orders, ${data.summary.totalZomatoComplaints} complaints (${(data.summary.totalZomatoComplaints/Math.max(data.summary.totalZomatoOrders,1)*100).toFixed(2)}% rate)
-- Swiggy: ${data.summary.totalSwiggyOrders} orders, ${data.summary.totalSwiggyComplaints} complaints (${(data.summary.totalSwiggyComplaints/Math.max(data.summary.totalSwiggyOrders,1)*100).toFixed(2)}% rate)
-
-Provide strategic business insights in JSON format:
-{
-  "keyFindings": ["4-6 critical insights about menu performance and customer satisfaction patterns"],
-  "recommendations": ["4-6 specific actionable recommendations for menu optimization and quality control"],
-  "riskAlerts": ["2-4 immediate concerns requiring attention"],
-  "opportunities": ["3-4 growth opportunities based on successful items"],
-  "platformInsights": ["3-4 insights comparing Zomato vs Swiggy performance patterns"],
-  "qualityControl": ["3-4 specific quality control recommendations based on complaint patterns"]
-}
-
-Focus on business-critical insights that can drive revenue growth and customer satisfaction.`;
-
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1200,
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000
-      }
-    );
-
-    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      const aiResponse = response.data.candidates[0].content.parts[0].text;
-      
-      try {
-        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const insights = JSON.parse(jsonMatch[0]);
-          return {
-            ...insights,
-            topPerformers: topPerformers,
-            problemProducts: highComplaintItems,
-            confidence: 0.9,
-            generatedAt: new Date().toISOString(),
-            dataQuality: 'High - Real order and complaint data'
-          };
-        }
-      } catch (parseError) {
-        console.log('JSON parsing failed for enhanced insights, using fallback');
-      }
-    }
-
-    throw new Error('No valid AI response');
-
-  } catch (error) {
-    console.error('Enhanced product AI insight generation error:', error.message);
-    return generateProductFallbackInsights(data);
-  }
-}
+module.exports = {
+  processProductAnalysisData,
+  fetchTotalOrdersFromRista,
+  matchRistaOrdersWithProducts,
+  calculateProductSimilarity
+};
 // === EMPLOYEE DASHBOARD SPECIFIC FUNCTIONS ===
 
 // === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
