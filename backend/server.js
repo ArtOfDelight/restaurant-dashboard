@@ -4871,6 +4871,10 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
  * Main function to process product analysis data from Google Sheets
  * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS
  */
+/**
+ * Main function to process product analysis data from Google Sheets
+ * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + IGCC COMPLAINTS
+ */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('PROCESSING PRODUCT ANALYSIS DATA');
@@ -4885,7 +4889,7 @@ async function processProductAnalysisData(spreadsheetId) {
       }
     }
 
-    // Fetch data from sheets - NO COMPLAINT SHEETS EXCEPT IGCC
+    // Fetch data from sheets
     console.log('Fetching data from Google Sheets...');
     const [zomatoOrdersData, swiggyReviewData, igccComplaintsData] = await Promise.all([
       sheets.spreadsheets.values.get({
@@ -4907,19 +4911,19 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log('Sheet data fetched:');
     console.log(`   - Zomato Orders: ${zomatoOrdersData.data.values?.length || 0} rows`);
     console.log(`   - Swiggy Reviews: ${swiggyReviewData.data.values?.length || 0} rows`);
-    console.log(`   - IGCC Complaints (ONLY SOURCE): ${igccComplaintsData.data.values?.length || 0} rows`);
+    console.log(`   - IGCC Complaints: ${igccComplaintsData.data.values?.length || 0} rows`);
 
     // Process order data from sheets
     const zomatoOrders = processZomatoOrdersData(zomatoOrdersData.data.values);
     const swiggyOrders = processSwiggyReviewData(swiggyReviewData.data.values);
     
-    // Process IGCC complaints ONLY
-    const igccComplaints = processIGCCComplaintsData(igccComplaintsData.data.values);
+    // Process IGCC complaints (NEW: counts + 28 days)
+    const igccCounts = processIGCCComplaintsData(igccComplaintsData.data.values);
 
     console.log('\nProcessed sheet data:');
     console.log(`   - Zomato Orders: ${zomatoOrders.length} unique items`);
     console.log(`   - Swiggy Orders: ${swiggyOrders.length} unique items`);
-    console.log(`   - IGCC Complaints (last 28 days): ${igccComplaints.length} complaints`);
+    console.log(`   - IGCC Complaints (last 28 days): ${igccCounts.reduce((s, c) => s + c.count, 0)} total`);
 
     // Merge all data by product name
     const productMap = new Map();
@@ -4968,30 +4972,30 @@ async function processProductAnalysisData(spreadsheetId) {
       product.swiggyRating = item.rating;
     });
 
-    // Add IGCC complaint data using fuzzy matching
-    console.log('\nMatching IGCC complaints with products...');
-    let complaintsMatched = 0;
-    igccComplaints.forEach(complaint => {
-      let bestMatch = null;
+    // ---- NEW: Match IGCC complaint counts to products ----
+    console.log('\nMatching IGCC complaint counts to products...');
+    let igccMatched = 0;
+
+    igccCounts.forEach(entry => {
+      let bestProduct = null;
       let bestScore = 0;
-      
-      for (const [normalizedName, product] of productMap.entries()) {
-        const score = calculateProductSimilarity(
-          normalizeProductName(complaint.item),
-          normalizedName
-        );
+
+      for (const [normProd, prod] of productMap.entries()) {
+        const score = calculateProductSimilarity(entry.normalized, normProd);
         if (score > bestScore) {
           bestScore = score;
-          bestMatch = product;
+          bestProduct = prod;
         }
       }
-      
-      if (bestMatch && bestScore > 0.70) {
-        bestMatch.igccComplaints += 1;
-        complaintsMatched++;
+
+      if (bestProduct && bestScore >= 0.70) {
+        bestProduct.igccComplaints += entry.count;
+        igccMatched += entry.count;
+        console.log(`   IGCC match (${(bestScore*100).toFixed(1)}%): "${entry.raw}" → "${bestProduct.name}" (+${entry.count})`);
       }
     });
-    console.log(`   Matched ${complaintsMatched} of ${igccComplaints.length} complaints to products`);
+
+    console.log(`   Total IGCC complaints attached: ${igccMatched}`);
 
     // Fetch Rista API orders (last 28 days)
     console.log('\n' + '═'.repeat(60));
@@ -5004,14 +5008,12 @@ async function processProductAnalysisData(spreadsheetId) {
 
     // Calculate final metrics for each product
     products = products.map(product => {
-      // Use Rista orders as the total if available, otherwise fallback to sheet data
       const totalOrders = product.totalOrdersFromRista > 0 
         ? product.totalOrdersFromRista 
         : product.zomatoOrders + product.swiggyOrders;
       
       product.totalComplaints = product.igccComplaints;
       
-      // Calculate average rating
       const ratings = [];
       if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
       if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
@@ -5019,7 +5021,6 @@ async function processProductAnalysisData(spreadsheetId) {
         ? ratings.reduce((a, b) => a + b, 0) / ratings.length 
         : 0;
       
-      // Calculate complaint rate based on total orders
       product.complaintRate = totalOrders > 0 
         ? (product.totalComplaints / totalOrders * 100) 
         : 0;
@@ -5027,7 +5028,7 @@ async function processProductAnalysisData(spreadsheetId) {
       return product;
     });
 
-    // Sort by total orders from Rista (or fallback to sheet data)
+    // Sort by total orders
     products.sort((a, b) => {
       const totalA = a.totalOrdersFromRista > 0 ? a.totalOrdersFromRista : a.zomatoOrders + a.swiggyOrders;
       const totalB = b.totalOrdersFromRista > 0 ? b.totalOrdersFromRista : b.zomatoOrders + b.swiggyOrders;
@@ -5045,7 +5046,6 @@ async function processProductAnalysisData(spreadsheetId) {
       avgComplaintRate: 0
     };
 
-    // Calculate average complaint rate based on Rista orders (preferred) or sheet orders
     const totalOrdersForRate = summary.totalRistaOrders > 0 
       ? summary.totalRistaOrders 
       : summary.totalZomatoOrders + summary.totalSwiggyOrders;
@@ -5058,16 +5058,13 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log('PROCESSING COMPLETE');
     console.log('═'.repeat(60));
     console.log(`Products: ${products.length}`);
-    console.log(`Orders (Rista - 28 days): ${summary.totalRistaOrders}`);
-    console.log(`Orders (Sheets - Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
-    console.log(`Complaints (IGCC - 28 days): ${summary.totalIGCCComplaints}`);
-    console.log(`Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
+    console.log(`Orders (Rista): ${summary.totalRistaOrders}`);
+    console.log(`Orders (Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
+    console.log(`Complaints (IGCC): ${summary.totalIGCCComplaints}`);
+    console.log(`Avg Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
     console.log('═'.repeat(60) + '\n');
 
-    return {
-      products,
-      summary
-    };
+    return { products, summary };
 
   } catch (error) {
     console.error('Error in processProductAnalysisData:', error.message);
@@ -5105,97 +5102,61 @@ function createEmptyProductDataStructure() {
 // Process IGCC complaints data (last 28 days only)
 function processIGCCComplaintsData(rows) {
   if (!rows || rows.length < 2) {
-    console.log('No IGCC complaints data found');
+    console.log('No IGCC data – sheet empty or only header');
     return [];
   }
 
-  const headers = rows[0].map(h => h.trim().toLowerCase());
-  console.log('IGCC Headers:', headers);
+  // ----- Header row (exact order you gave) -----
+  const headerRow = rows[0];
+  const headerMap = {
+    orderDate:      headerRow.findIndex(h => h?.trim() === 'Order Date'),
+    platform:       headerRow.findIndex(h => h?.trim() === 'Platform'),
+    outlet:         headerRow.findIndex(h => h?.trim() === 'Outlet Name'),
+    complaintType:  headerRow.findIndex(h => h?.trim() === 'Complaint Type'),
+    item:           headerRow.findIndex(h => h?.trim() === 'Item')
+  };
 
-  // Find column indices
-  const platformIndex = headers.findIndex(h => h.includes('platform'));
-  const itemIndex = headers.findIndex(h => h.includes('item'));
-  const outletIndex = headers.findIndex(h => h.includes('outlet'));
-  const complaintTypeIndex = headers.findIndex(h => h.includes('complaint type'));
-  const dateIndex = headers.findIndex(h => h.includes('order date') || h.includes('date'));
+  console.log('IGCC column indices →', headerMap);
 
-  console.log('Column indices:', { platformIndex, itemIndex, outletIndex, complaintTypeIndex, dateIndex });
-
-  // Calculate date 28 days ago
+  // ----- 28-day window -----
   const today = new Date();
-  const twentyEightDaysAgo = new Date(today.getTime() - (28 * 24 * 60 * 60 * 1000));
-  console.log(`Filtering complaints from ${twentyEightDaysAgo.toDateString()} to ${today.toDateString()}`);
+  const twentyEightDaysAgo = new Date(today);
+  twentyEightDaysAgo.setDate(today.getDate() - 28);
 
-  const complaints = [];
-  let totalRows = 0;
-  let filteredByDate = 0;
-  let missingDate = 0;
-  
-  // Process each row
+  const complaints = [];               // raw rows (for debugging)
+  const itemCount = new Map();         // normalizedName → count
+
   for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    
-    // Skip if row is empty or item is missing
-    if (!row || row.length === 0) continue;
-    
-    totalRows++;
-    
-    const item = itemIndex >= 0 ? row[itemIndex] : null;
-    
-    // Skip if no item specified
-    if (!item || item.trim() === '') continue;
-    
-    const dateStr = dateIndex >= 0 ? row[dateIndex] : '';
-    
-    // Parse the date - try multiple formats
-    let complaintDate = null;
-    if (dateStr && dateStr.trim() !== '') {
-      complaintDate = parseFlexibleDate(dateStr);
-      
-      if (!complaintDate) {
-        console.log(`Could not parse date: "${dateStr}" for item: "${item}"`);
-        missingDate++;
-        continue;
-      }
-      
-      if (complaintDate < twentyEightDaysAgo) {
-        filteredByDate++;
-        continue;
-      }
-    } else {
-      missingDate++;
-      continue;
-    }
-    
-    const platform = platformIndex >= 0 ? row[platformIndex] : 'Unknown';
-    const outlet = outletIndex >= 0 ? row[outletIndex] : 'Unknown';
-    const complaintType = complaintTypeIndex >= 0 ? row[complaintTypeIndex] : 'General';
+    const r = rows[i];
+    if (!r || r.length === 0) continue;
+
+    const rawDate = headerMap.orderDate >= 0 ? r[headerMap.orderDate] : '';
+    const rawItem = headerMap.item >= 0 ? r[headerMap.item] : '';
+
+    if (!rawItem?.trim()) continue;                     // no item → ignore
+
+    // ---- date parsing (very forgiving) ----
+    const parsed = parseFlexibleDate(rawDate);
+    if (!parsed || parsed < twentyEightDaysAgo) continue; // older than 28 d
+
+    const norm = normalizeProductName(rawItem);
+    itemCount.set(norm, (itemCount.get(norm) || 0) + 1);
 
     complaints.push({
-      item: item.trim(),
-      platform: platform,
-      outlet: outlet,
-      complaintType: complaintType,
-      date: dateStr,
-      parsedDate: complaintDate
+      rawItem,
+      norm,
+      date: rawDate,
+      platform: headerMap.platform >= 0 ? r[headerMap.platform] : '',
+      outlet: headerMap.outlet >= 0 ? r[headerMap.outlet] : ''
     });
   }
 
-  console.log(`IGCC Complaints Processing Summary:`);
-  console.log(`- Total rows processed: ${totalRows}`);
-  console.log(`- Missing/invalid dates: ${missingDate}`);
-  console.log(`- Filtered out (older than 28 days): ${filteredByDate}`);
-  console.log(`- Final complaints (last 28 days): ${complaints.length}`);
-  
-  if (complaints.length > 0) {
-    console.log('Sample recent complaints:', complaints.slice(0, 5).map(c => ({
-      item: c.item,
-      date: c.date,
-      platform: c.platform
-    })));
-  }
-
-  return complaints;
+  console.log(`IGCC → ${complaints.length} rows in last 28 days, ${itemCount.size} unique items`);
+  return Array.from(itemCount.entries()).map(([norm, count]) => ({
+    normalized: norm,
+    raw: complaints.find(c => c.norm === norm).rawItem,
+    count
+  }));
 }
 
 // Helper function to parse dates flexibly
