@@ -5114,72 +5114,65 @@ function createEmptyProductDataStructure() {
 }
 
 // Process IGCC complaints data (last 28 days only)
+/**
+ * Fetch IGCC complaints from sheet, filter to last 28 days,
+ * count occurrences per item (after normalizing).
+ * @param {Array} rows - 2D array from Google Sheets (headers + data)
+ * @returns {Array} [{ normalized, raw, count }, ...]
+ */
 function processIGCCComplaintsData(rows) {
-  if (!rows || rows.length < 2) {
-    console.log('No IGCC data – sheet empty or only header');
+  if (!rows || rows.length < 2) return [];
+
+  // 1. Map headers (exact match)
+  const headers = rows[0];
+  const col = {
+    orderDate: headers.findIndex(h => String(h).trim() === 'Order Date'),
+    item:      headers.findIndex(h => String(h).trim() === 'Item')
+  };
+
+  if (col.item === -1) {
+    console.warn('IGCC: "Item" column not found');
     return [];
   }
 
-  // ----- Header row (exact order you gave) -----
-  const headerRow = rows[0];
-  const headerMap = {
-    orderDate:      headerRow.findIndex(h => h?.trim() === 'Order Date'),
-    platform:       headerRow.findIndex(h => h?.trim() === 'Platform'),
-    outlet:         headerRow.findIndex(h => h?.trim() === 'Outlet Name'),
-    complaintType:  headerRow.findIndex(h => h?.trim() === 'Complaint Type'),
-    item:           headerRow.findIndex(h => h?.trim() === 'Item')
-  };
-
-  console.log('IGCC column indices →', headerMap);
-
-  // ----- 28-day window (FIXED) -----
+  // 2. 28-day window
   const today = new Date();
-  const twentyEightDaysAgo = new Date(today);
-  twentyEightDaysAgo.setDate(today.getDate() - 28);
-  
-  // 💥 FIX: Set the time component to midnight (00:00:00.000) for the local timezone.
-  // This is crucial to correctly include all records from the start of the 28th day.
-  twentyEightDaysAgo.setHours(0, 0, 0, 0); 
+  const cutoff = new Date(today);
+  cutoff.setDate(today.getDate() - 28);
 
-  const complaints = [];             // raw rows (for debugging) - REMOVED: no longer needed for final output
-  const itemCount = new Map();       // normalizedName → count
-  const rawMap = new Map();          // normalizedName → rawItem (for robust final output)
+  // 3. Count items
+  const countMap = new Map();   // normalized → count
+  const rawMap   = new Map();   // normalized → original name
 
   for (let i = 1; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || r.length === 0) continue;
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
 
-    const rawDate = headerMap.orderDate >= 0 ? r[headerMap.orderDate] : '';
-    const rawItem = headerMap.item >= 0 ? r[headerMap.item] : '';
+    const rawDate = col.orderDate >= 0 ? row[col.orderDate] : '';
+    const rawItem = row[col.item];
 
-    if (!rawItem?.trim()) continue;         // no item → ignore
+    // Skip if no item
+    if (!rawItem || String(rawItem).trim() === '') continue;
 
-    // ---- date parsing (very forgiving) ----
-    const parsed = parseFlexibleDate(rawDate);
-    
-    // Check if the date is valid AND on or after the corrected cutoff date.
-    if (!parsed || parsed < twentyEightDaysAgo) continue; // older than 28 d
+    // Parse date and filter
+    const date = parseFlexibleDate(String(rawDate));
+    if (!date || date < cutoff) continue;
 
-    const norm = normalizeProductName(rawItem);
-    itemCount.set(norm, (itemCount.get(norm) || 0) + 1);
-    
-    // 💡 IMPROVEMENT: Store the raw name reliably the first time we see the normalized name.
-    if (!rawMap.has(norm)) {
-      rawMap.set(norm, rawItem.trim());
+    const normalized = normalizeProductName(String(rawItem));
+
+    // Save raw name (first occurrence)
+    if (!rawMap.has(normalized)) {
+      rawMap.set(normalized, String(rawItem).trim());
     }
-    
-    // NOTE: The 'complaints.push' section from your original snippet is no longer used for the final result, 
-    // but the counting logic is preserved using itemCount and rawMap.
+
+    // Increment count
+    countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
   }
 
-  console.log(`IGCC → ${Array.from(itemCount.values()).reduce((s, c) => s + c, 0)} complaints in last 28 days, ${itemCount.size} unique items`);
-  
-  // Reconstruct the final array using the itemCount and rawMap
-  return Array.from(itemCount.entries()).map(([norm, count]) => ({
-    normalized: norm,
-    // Use the reliable rawMap instead of complaints.find(), which is less efficient and requires
-    // storing all rows.
-    raw: rawMap.get(norm), 
+  // 4. Convert to array
+  return Array.from(countMap.entries()).map(([normalized, count]) => ({
+    normalized,
+    raw: rawMap.get(normalized),
     count
   }));
 }
