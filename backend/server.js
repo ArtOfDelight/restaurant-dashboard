@@ -5116,7 +5116,7 @@ app.get('/api/product-analysis-data', async (req, res) => {
 app.get('/api/product-analysis-data', async (req, res) => {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEETS_ID || 'your-spreadsheet-id';
-    const data = await processProductAnalysisDataWithRista(spreadsheetId);
+    const data = await processProductAnalysisData(spreadsheetId);
     
     res.json({
       success: true,
@@ -5133,7 +5133,7 @@ app.get('/api/product-analysis-data', async (req, res) => {
 });
 
 module.exports = {
-  processProductAnalysisDataWithRista,
+  processProductAnalysisData,
   fetchTotalOrdersFromRista,
   matchRistaOrdersWithProducts,
   calculateProductSimilarity
