@@ -5064,40 +5064,7 @@ async function processProductAnalysisData(spreadsheetId) {
 /**
  * Normalize product name for matching
  */
-function normalizeProductName(name) {
-  if (!name) return '';
-  return name.toLowerCase()
-    .replace(/[^\w\s]/g, '') // Remove special characters
-    .replace(/\s+/g, ' ') // Normalize spaces
-    .trim();
-}
 
-/**
- * Calculate similarity between two product names
- */
-function calculateProductSimilarity(name1, name2) {
-  const normalized1 = normalizeProductName(name1);
-  const normalized2 = normalizeProductName(name2);
-  
-  if (!normalized1 || !normalized2) return 0;
-  if (normalized1 === normalized2) return 1.0;
-  
-  // Exact substring match
-  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-    return 0.95;
-  }
-  
-  // Word overlap scoring
-  const words1 = normalized1.split(' ').filter(w => w.length > 2);
-  const words2 = normalized2.split(' ').filter(w => w.length > 2);
-  
-  if (words1.length === 0 || words2.length === 0) return 0;
-  
-  const commonWords = words1.filter(word => words2.includes(word));
-  const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
-  
-  return wordOverlapScore;
-}
 
 /**
  * Fallback insights for product data
