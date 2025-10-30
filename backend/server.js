@@ -5118,13 +5118,18 @@ function processIGCCComplaintsData(rows) {
 
   console.log('IGCC column indices →', headerMap);
 
-  // ----- 28-day window -----
+  // ----- 28-day window (FIXED) -----
   const today = new Date();
   const twentyEightDaysAgo = new Date(today);
   twentyEightDaysAgo.setDate(today.getDate() - 28);
+  
+  // 💥 FIX: Set the time component to midnight (00:00:00.000) for the local timezone.
+  // This is crucial to correctly include all records from the start of the 28th day.
+  twentyEightDaysAgo.setHours(0, 0, 0, 0); 
 
-  const complaints = [];               // raw rows (for debugging)
-  const itemCount = new Map();         // normalizedName → count
+  const complaints = [];             // raw rows (for debugging) - REMOVED: no longer needed for final output
+  const itemCount = new Map();       // normalizedName → count
+  const rawMap = new Map();          // normalizedName → rawItem (for robust final output)
 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -5133,28 +5138,34 @@ function processIGCCComplaintsData(rows) {
     const rawDate = headerMap.orderDate >= 0 ? r[headerMap.orderDate] : '';
     const rawItem = headerMap.item >= 0 ? r[headerMap.item] : '';
 
-    if (!rawItem?.trim()) continue;                     // no item → ignore
+    if (!rawItem?.trim()) continue;         // no item → ignore
 
     // ---- date parsing (very forgiving) ----
     const parsed = parseFlexibleDate(rawDate);
+    
+    // Check if the date is valid AND on or after the corrected cutoff date.
     if (!parsed || parsed < twentyEightDaysAgo) continue; // older than 28 d
 
     const norm = normalizeProductName(rawItem);
     itemCount.set(norm, (itemCount.get(norm) || 0) + 1);
-
-    complaints.push({
-      rawItem,
-      norm,
-      date: rawDate,
-      platform: headerMap.platform >= 0 ? r[headerMap.platform] : '',
-      outlet: headerMap.outlet >= 0 ? r[headerMap.outlet] : ''
-    });
+    
+    // 💡 IMPROVEMENT: Store the raw name reliably the first time we see the normalized name.
+    if (!rawMap.has(norm)) {
+      rawMap.set(norm, rawItem.trim());
+    }
+    
+    // NOTE: The 'complaints.push' section from your original snippet is no longer used for the final result, 
+    // but the counting logic is preserved using itemCount and rawMap.
   }
 
-  console.log(`IGCC → ${complaints.length} rows in last 28 days, ${itemCount.size} unique items`);
+  console.log(`IGCC → ${Array.from(itemCount.values()).reduce((s, c) => s + c, 0)} complaints in last 28 days, ${itemCount.size} unique items`);
+  
+  // Reconstruct the final array using the itemCount and rawMap
   return Array.from(itemCount.entries()).map(([norm, count]) => ({
     normalized: norm,
-    raw: complaints.find(c => c.norm === norm).rawItem,
+    // Use the reliable rawMap instead of complaints.find(), which is less efficient and requires
+    // storing all rows.
+    raw: rawMap.get(norm), 
     count
   }));
 }
