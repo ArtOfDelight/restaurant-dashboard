@@ -4912,7 +4912,7 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
       sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
         range: 'Copy of swiggy_review!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message })),
       
