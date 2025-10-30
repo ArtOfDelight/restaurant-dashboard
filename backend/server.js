@@ -5113,7 +5113,6 @@ function createEmptyProductDataStructure() {
   };
 }
 
-// Process IGCC complaints data (last 28 days only)
 /**
  * Fetch IGCC complaints from sheet, filter to last 28 days,
  * count occurrences per item (after normalizing).
@@ -5123,11 +5122,12 @@ function createEmptyProductDataStructure() {
 function processIGCCComplaintsData(rows) {
   if (!rows || rows.length < 2) return [];
 
-  // 1. Map headers (exact match)
-  const headers = rows[0];
+  // 1. Normalize header names (case-insensitive)
+  const normalizeHeader = h => String(h).trim().toLowerCase();
+  const headers = rows[0].map(normalizeHeader);
   const col = {
-    orderDate: headers.findIndex(h => String(h).trim() === 'Order Date'),
-    item:      headers.findIndex(h => String(h).trim() === 'Item')
+    orderDate: headers.findIndex(h => h === 'order date'),
+    item: headers.findIndex(h => h === 'item')
   };
 
   if (col.item === -1) {
@@ -5135,28 +5135,26 @@ function processIGCCComplaintsData(rows) {
     return [];
   }
 
-  // 2. 28-day window
+  // 2. Define 28-day window
   const today = new Date();
   const cutoff = new Date(today);
   cutoff.setDate(today.getDate() - 28);
 
-  // 3. Count items
-  const countMap = new Map();   // normalized → count
-  const rawMap   = new Map();   // normalized → original name
+  // 3. Initialize maps
+  const countMap = new Map(); // normalized → count
+  const rawMap = new Map();   // normalized → original name
 
+  // 4. Process each row
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
     const rawDate = col.orderDate >= 0 ? row[col.orderDate] : '';
     const rawItem = row[col.item];
-
-    // Skip if no item
     if (!rawItem || String(rawItem).trim() === '') continue;
 
-    // Parse date and filter
-    const date = parseFlexibleDate(String(rawDate));
-    if (!date || date < cutoff) continue;
+    const date = parseFlexibleDate(rawDate);
+    if (!date || date < cutoff) continue; // skip old data
 
     const normalized = normalizeProductName(String(rawItem));
 
@@ -5169,13 +5167,40 @@ function processIGCCComplaintsData(rows) {
     countMap.set(normalized, (countMap.get(normalized) || 0) + 1);
   }
 
-  // 4. Convert to array
+  // 5. Convert to array output
   return Array.from(countMap.entries()).map(([normalized, count]) => ({
     normalized,
     raw: rawMap.get(normalized),
     count
   }));
+
+  // ---------- Helper Functions ----------
+
+  function parseFlexibleDate(value) {
+    if (!value) return null;
+
+    // If it's already a Date object
+    if (value instanceof Date) return value;
+
+    // If it looks like DD/MM/YYYY or D/M/YYYY
+    const parts = String(value).split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      const [d, m, y] = parts.map(Number);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        return new Date(y, m - 1, d);
+      }
+    }
+
+    // Fallback to native Date parsing
+    const parsed = new Date(value);
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  function normalizeProductName(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
 }
+
 
 // Helper function to parse dates flexibly
 function parseFlexibleDate(dateStr) {
