@@ -213,10 +213,10 @@ const ProductAnalysisDashboard = () => {
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
     lowRated: product.lowRated || 0,
-    lowRatedPercentage: product.lowRatedPercentage || 0,
+    lowRatedPercentage: (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0,
     totalOrders: product.totalOrdersFromRista || 0
   })).filter(product => product.lowRated > 0)
-    .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage).slice(0, 10);
+    .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)).slice(0, 10);
 
   const platformDistribution = [
     { name: 'Zomato Orders (Rated)', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
@@ -228,7 +228,7 @@ const ProductAnalysisDashboard = () => {
     orders: product.totalOrdersFromRista || 0,
     rating: product.avgRating || 0,
     lowRated: product.lowRated || 0,
-    lowRatedPercentage: product.lowRatedPercentage || 0
+    lowRatedPercentage: (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0
   })).filter(product => product.orders > 0);
 
   const COLORS = ['#dc2626', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'];
@@ -515,7 +515,7 @@ const ProductAnalysisDashboard = () => {
                       fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                       fontSize: '0.8rem'
                     }}>
-                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Low Rated: {product.lowRated || 0} | Low Rated %: {product.lowRatedPercentage?.toFixed(2) || 0}%
+                      Rating: {product.avgRating?.toFixed(1) || 'N/A'} | Low Rated: {product.lowRated || 0} | Low Rated %: {((product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0).toFixed(2)}%
                     </p>
                   </div>
                 ))}
@@ -650,7 +650,7 @@ const ProductAnalysisDashboard = () => {
           },
           { 
             title: 'AVG LOW RATED %', 
-            value: `${data.summary?.avgLowRatedPercentage?.toFixed(2) || 0}%`,
+            value: `${((data.summary?.avgLowRatedPercentage != null && !isNaN(data.summary?.avgLowRatedPercentage)) ? data.summary.avgLowRatedPercentage : 0).toFixed(2)}%`,
             color: '#f59e0b',
             subtitle: 'Based on Rista orders'
           }
@@ -874,13 +874,13 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0))
+                  .sort((a, b) => ((b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)))
                   .map((product, i) => {
                     const totalRistaOrders = product.totalOrdersFromRista || 0;
                     const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
                     const highRated = product.highRated || 0;
                     const lowRated = product.lowRated || 0;
-                    const lowRatedPercentage = product.lowRatedPercentage || 0;
+                    const lowRatedPercentage = (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0;
                     const isHighLowRatedRate = lowRatedPercentage > 5;
                     const matchBadge = getMatchTypeBadge(product.matchType, product.matchScore);
                     

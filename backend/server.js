@@ -4517,11 +4517,11 @@ const BRANCH_NAME_TO_CODE = {
   'Koramangala': 'AOD-02',
   'Kalyan Nagar': 'AOD-5',
   'Bellandur': 'AOD-3',
-  'Indiranagar': 'AOD-CVR',
+  'Indiranagar': 'AOD-IND',
   'Arekere': 'AOD-ARK',
   'Jayanagar': 'AOD-JAY',
-  'HSR Layout': 'CK - HSR',
-  'Rajajinagar': 'AOD-RAJ',
+  'HSR Layout': 'HSR',
+  'Rajajinagar': 'RAJ',
   'Art Of Delight Central': 'HO AOD'
 };
 
