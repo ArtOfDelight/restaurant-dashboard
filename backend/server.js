@@ -4503,12 +4503,26 @@ function generateSwiggyFallbackInsights(data, period) {
 // Process Zomato orders data with correct column mapping
 
 // Main function to process product data from multiple sheets - ADD THIS
-const API_KEY = '0693b6bd-4dbd-4ff3-806e-37f28b9b8c21';
-const PRIVATE_KEY = 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
+const API_KEY = process.env.RISTA_API_KEY;
+const PRIVATE_KEY = process.env.RISTA_SECRET_KEY;
 const BASE_URL = 'https://api.ristaapps.com/v1';
 
-// Branch codes - UPDATE WITH YOUR ACTUAL BRANCH CODES
- // Add your branch codes here, e.g., ['branch1', 'branch2'];
+// RISTA-SPECIFIC BRANCH CODES - UPDATE WITH YOUR ACTUAL BRANCH CODES
+// DO NOT USE `BRANCH_CODES` - it's used elsewhere for a different endpoint
+const RISTA_BRANCH_CODES = {
+  'Sahakarnagar': 'AOD-6',
+  'Residency Road': 'AOD-01',
+  'Whitefield': 'AOD-4',
+  'Koramangala': 'AOD-02',
+  'Kalyan Nagar': 'AOD-5',
+  'Bellandur': 'AOD-3',
+  'Indiranagar': 'AOD-CVR',
+  'Arekere': 'AOD-ARK',
+  'Jayanagar': 'AOD-JAY',
+  'HSR Layout': 'CK - HSR',
+  'Rajajinagar': 'AOD-RAJ',
+  'Art Of Delight Central': 'HO AOD'
+}; // UPDATE THIS!
 
 // Only these channels
 const ALLOWED_CHANNELS = ['AOD Swiggy', 'AOD Zomato'];
@@ -4680,12 +4694,12 @@ async function fetchSalesDataForBranch(branchCode, date, retryCount = 0) {
 }
 
 /**
- * Fetches total orders for all items across all branches for the last 28 days
+ * Fetches total orders for all items across all RISTA branches for the last 28 days
  * Only counts orders from AOD Swiggy and AOD Zomato channels
  */
 async function fetchTotalOrdersFromRista() {
-  console.log('🚀 Fetching total orders from Rista API (last 28 days)...');
-  console.log(`📱 Channels: ${ALLOWED_CHANNELS.join(', ')}\n`);
+  console.log('Fetching total orders from Rista API (last 28 days)...');
+  console.log(`Channels: ${ALLOWED_CHANNELS.join(', ')}\n`);
   
   const itemOrdersMap = {}; // Map of normalized item name -> total quantity
   
@@ -4695,17 +4709,17 @@ async function fetchTotalOrdersFromRista() {
     dates.push(getDateString(i));
   }
   
-  console.log(`📅 Date range: ${dates[27]} to ${dates[0]} (28 days)`);
-  console.log(`🏢 Branches: ${BRANCH_CODES.length}`);
-  console.log(`📊 Total requests: ${BRANCH_CODES.length * dates.length}\n`);
+  console.log(`Date range: ${dates[27]} to ${dates[0]} (28 days)`);
+  console.log(`Branches: ${RISTA_BRANCH_CODES.length}`);
+  console.log(`Total requests: ${RISTA_BRANCH_CODES.length * dates.length}\n`);
   
-  let totalBranchDays = BRANCH_CODES.length * dates.length;
+  let totalBranchDays = RISTA_BRANCH_CODES.length * dates.length;
   let currentRequest = 0;
   let totalOrdersProcessed = 0;
   let totalItemsFound = 0;
   
-  for (const branchCode of BRANCH_CODES) {
-    console.log(`\n📍 Processing branch: ${branchCode}`);
+  for (const branchCode of RISTA_BRANCH_CODES) {
+    console.log(`\nProcessing branch: ${branchCode}`);
     let branchOrders = 0;
     
     for (const date of dates) {
@@ -4763,13 +4777,13 @@ async function fetchTotalOrdersFromRista() {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    console.log(`   ✅ Branch complete: ${branchOrders} valid orders`);
+    console.log(`   Branch complete: ${branchOrders} valid orders`);
   }
   
   const uniqueProducts = Object.keys(itemOrdersMap).length;
   
-  console.log('\n✅ Data collection complete!');
-  console.log(`📊 Summary:`);
+  console.log('\nData collection complete!');
+  console.log(`Summary:`);
   console.log(`   - Unique Products: ${uniqueProducts}`);
   console.log(`   - Total Valid Orders: ${totalOrdersProcessed}`);
   console.log(`   - Total Items Sold: ${totalItemsFound}`);
@@ -4782,7 +4796,7 @@ async function fetchTotalOrdersFromRista() {
  * Matches Rista item names with product analysis data
  */
 function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
-  console.log('\n🔍 Matching Rista orders with product analysis data...');
+  console.log('\nMatching Rista orders with product analysis data...');
   
   let exactMatches = 0;
   let fuzzyMatches = 0;
@@ -4820,7 +4834,7 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
     // Use 75% similarity threshold for matching
     if (bestScore >= 0.75) {
       fuzzyMatches++;
-      console.log(`   ✓ Fuzzy match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
+      console.log(`   Fuzzy match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
       return {
         ...product,
         totalOrdersFromRista: bestMatch,
@@ -4832,7 +4846,7 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
     // No match found - use 0 for Rista orders
     noMatches++;
     if (noMatches <= 5) {
-      console.log(`   ⚠ No match: "${product.name}"`);
+      console.log(`   No match: "${product.name}"`);
     }
     return {
       ...product,
@@ -4841,7 +4855,7 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
     };
   });
   
-  console.log(`\n📊 Matching Results:`);
+  console.log(`\nMatching Results:`);
   console.log(`   - Exact matches: ${exactMatches}`);
   console.log(`   - Fuzzy matches: ${fuzzyMatches}`);
   console.log(`   - No matches: ${noMatches}`);
@@ -4855,7 +4869,7 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('📊 PROCESSING PRODUCT ANALYSIS DATA');
+  console.log('PROCESSING PRODUCT ANALYSIS DATA');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
   
@@ -4868,7 +4882,7 @@ async function processProductAnalysisData(spreadsheetId) {
     }
 
     // Fetch data from sheets - NO COMPLAINT SHEETS EXCEPT IGCC
-    console.log('📥 Fetching data from Google Sheets...');
+    console.log('Fetching data from Google Sheets...');
     const [zomatoOrdersData, swiggyReviewData, igccComplaintsData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
@@ -4886,7 +4900,7 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
-    console.log('✅ Sheet data fetched:');
+    console.log('Sheet data fetched:');
     console.log(`   - Zomato Orders: ${zomatoOrdersData.data.values?.length || 0} rows`);
     console.log(`   - Swiggy Reviews: ${swiggyReviewData.data.values?.length || 0} rows`);
     console.log(`   - IGCC Complaints (ONLY SOURCE): ${igccComplaintsData.data.values?.length || 0} rows`);
@@ -4898,7 +4912,7 @@ async function processProductAnalysisData(spreadsheetId) {
     // Process IGCC complaints ONLY
     const igccComplaints = processIGCCComplaintsData(igccComplaintsData.data.values);
 
-    console.log('\n✅ Processed sheet data:');
+    console.log('\nProcessed sheet data:');
     console.log(`   - Zomato Orders: ${zomatoOrders.length} unique items`);
     console.log(`   - Swiggy Orders: ${swiggyOrders.length} unique items`);
     console.log(`   - IGCC Complaints (last 28 days): ${igccComplaints.length} complaints`);
@@ -4951,7 +4965,7 @@ async function processProductAnalysisData(spreadsheetId) {
     });
 
     // Add IGCC complaint data using fuzzy matching
-    console.log('\n🔍 Matching IGCC complaints with products...');
+    console.log('\nMatching IGCC complaints with products...');
     let complaintsMatched = 0;
     igccComplaints.forEach(complaint => {
       let bestMatch = null;
@@ -4973,7 +4987,7 @@ async function processProductAnalysisData(spreadsheetId) {
         complaintsMatched++;
       }
     });
-    console.log(`   ✅ Matched ${complaintsMatched} of ${igccComplaints.length} complaints to products`);
+    console.log(`   Matched ${complaintsMatched} of ${igccComplaints.length} complaints to products`);
 
     // Fetch Rista API orders (last 28 days)
     console.log('\n' + '═'.repeat(60));
@@ -5037,13 +5051,13 @@ async function processProductAnalysisData(spreadsheetId) {
       : 0;
 
     console.log('\n' + '═'.repeat(60));
-    console.log('✅ PROCESSING COMPLETE');
+    console.log('PROCESSING COMPLETE');
     console.log('═'.repeat(60));
-    console.log(`📦 Products: ${products.length}`);
-    console.log(`📊 Orders (Rista - 28 days): ${summary.totalRistaOrders}`);
-    console.log(`📊 Orders (Sheets - Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
-    console.log(`⚠️  Complaints (IGCC - 28 days): ${summary.totalIGCCComplaints}`);
-    console.log(`📈 Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
+    console.log(`Products: ${products.length}`);
+    console.log(`Orders (Rista - 28 days): ${summary.totalRistaOrders}`);
+    console.log(`Orders (Sheets - Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
+    console.log(`Complaints (IGCC - 28 days): ${summary.totalIGCCComplaints}`);
+    console.log(`Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
     console.log('═'.repeat(60) + '\n');
 
     return {
@@ -5052,7 +5066,7 @@ async function processProductAnalysisData(spreadsheetId) {
     };
 
   } catch (error) {
-    console.error('❌ Error in processProductAnalysisData:', error.message);
+    console.error('Error in processProductAnalysisData:', error.message);
     console.error('Stack trace:', error.stack);
     return createEmptyProductDataStructure();
   }
@@ -5132,23 +5146,21 @@ function processIGCCComplaintsData(rows) {
     // Parse the date - try multiple formats
     let complaintDate = null;
     if (dateStr && dateStr.trim() !== '') {
-      // Try parsing various date formats
       complaintDate = parseFlexibleDate(dateStr);
       
       if (!complaintDate) {
         console.log(`Could not parse date: "${dateStr}" for item: "${item}"`);
         missingDate++;
-        continue; // Skip complaints without valid dates
+        continue;
       }
       
-      // Filter to last 28 days
       if (complaintDate < twentyEightDaysAgo) {
         filteredByDate++;
-        continue; // Skip old complaints
+        continue;
       }
     } else {
       missingDate++;
-      continue; // Skip if no date
+      continue;
     }
     
     const platform = platformIndex >= 0 ? row[platformIndex] : 'Unknown';
@@ -5171,7 +5183,6 @@ function processIGCCComplaintsData(rows) {
   console.log(`- Filtered out (older than 28 days): ${filteredByDate}`);
   console.log(`- Final complaints (last 28 days): ${complaints.length}`);
   
-  // Log sample complaints for verification
   if (complaints.length > 0) {
     console.log('Sample recent complaints:', complaints.slice(0, 5).map(c => ({
       item: c.item,
@@ -5189,61 +5200,42 @@ function parseFlexibleDate(dateStr) {
   
   const trimmed = dateStr.trim();
   
-  // Try standard Date parsing first
   let date = new Date(trimmed);
-  if (!isNaN(date.getTime())) {
-    return date;
-  }
+  if (!isNaN(date.getTime())) return date;
   
-  // Try DD/MM/YYYY format
   const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (ddmmyyyyMatch) {
     const [, day, month, year] = ddmmyyyyMatch;
     date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
+    if (!isNaN(date.getTime())) return date;
   }
   
-  // Try DD-MM-YYYY format
   const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})\-(\d{1,2})\-(\d{4})$/);
   if (ddmmyyyyDashMatch) {
     const [, day, month, year] = ddmmyyyyDashMatch;
     date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
+    if (!isNaN(date.getTime())) return date;
   }
   
-  // Try MM/DD/YYYY format
   const mmddyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (mmddyyyyMatch) {
     const [, month, day, year] = mmddyyyyMatch;
     date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
+    if (!isNaN(date.getTime())) return date;
   }
   
-  // Try YYYY-MM-DD format (ISO)
   const yyyymmddMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (yyyymmddMatch) {
     const [, year, month, day] = yyyymmddMatch;
     date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
+    if (!isNaN(date.getTime())) return date;
   }
   
-  // Try Google Sheets serial date format (days since 1899-12-30)
   const serialNumber = parseFloat(trimmed);
-  if (!isNaN(serialNumber) && serialNumber > 0) {
-    // Convert Excel/Sheets serial date to JavaScript Date
+  if (serialNumber > 0) {
     const baseDate = new Date(1899, 11, 30);
     date = new Date(baseDate.getTime() + serialNumber * 24 * 60 * 60 * 1000);
-    if (!isNaN(date.getTime())) {
-      return date;
-    }
+    if (!isNaN(date.getTime())) return date;
   }
   
   return null;
@@ -5257,14 +5249,12 @@ function processZomatoOrdersData(rawData) {
   
   console.log('Zomato Orders Headers:', headers);
   
-  // Find correct column indices based on actual headers
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
   const restaurantNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('restaurant name'));
   
   console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Restaurant column: ${restaurantNameIndex}`);
   
-  // Count orders per item
   const itemCounts = new Map();
   const itemRatings = new Map();
   
@@ -5278,15 +5268,13 @@ function processZomatoOrdersData(rawData) {
     
     totalOrders++;
     
-    // MODIFIED: Only process orders with valid ratings (rating > 0)
     if (!itemsCell || !itemsCell.trim() || rating <= 0) {
       if (rating <= 0) ordersWithoutRatings++;
-      return; // Skip this order if no items or no valid rating
+      return;
     }
     
     ordersWithRatings++;
     
-    // Parse multiple items from the cell (they might be separated by commas, semicolons, etc.)
     const items = parseItemsFromCell(itemsCell);
     
     items.forEach(item => {
@@ -5294,7 +5282,6 @@ function processZomatoOrdersData(rawData) {
         const cleanItem = item.trim().toLowerCase();
         itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
         
-        // Store ratings for averaging
         if (!itemRatings.has(cleanItem)) {
           itemRatings.set(cleanItem, []);
         }
@@ -5303,7 +5290,6 @@ function processZomatoOrdersData(rawData) {
     });
   });
   
-  // Convert to array format
   const result = [];
   itemCounts.forEach((count, item) => {
     const ratings = itemRatings.get(item) || [];
@@ -5322,7 +5308,6 @@ function processZomatoOrdersData(rawData) {
   return result;
 }
 
-// Process Swiggy review data with correct column mapping
 function processSwiggyReviewData(rawData) {
   if (!rawData || rawData.length <= 1) return [];
   
@@ -5331,13 +5316,11 @@ function processSwiggyReviewData(rawData) {
   
   console.log('Swiggy Review Headers:', headers);
   
-  // Find correct column indices
   const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
   
   console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
   
-  // Count orders per item
   const itemCounts = new Map();
   const itemRatings = new Map();
   
@@ -5364,7 +5347,6 @@ function processSwiggyReviewData(rawData) {
     }
   });
   
-  // Convert to array format
   const result = [];
   itemCounts.forEach((count, item) => {
     const ratings = itemRatings.get(item) || [];
@@ -5381,11 +5363,9 @@ function processSwiggyReviewData(rawData) {
   return result;
 }
 
-// Helper function to parse items from a cell (handles multiple items separated by various delimiters)
 function parseItemsFromCell(cellValue) {
   if (!cellValue) return [];
   
-  // Common separators in food order data
   const separators = [',', ';', '|', '\n', ' + ', ' & ', ' and '];
   let items = [cellValue];
   
@@ -5399,19 +5379,17 @@ function parseItemsFromCell(cellValue) {
     .map(item => cleanItemName(item));
 }
 
-// Helper function to clean item names
 function cleanItemName(itemName) {
   if (!itemName) return '';
   
-  // Remove common prefixes, quantities, and formatting
   let cleaned = itemName
-    .replace(/^\d+[\sx]?\s*/i, '') // Remove leading numbers like "2x ", "1 "
-    .replace(/\(.*?\)/g, '') // Remove content in parentheses
-    .replace(/\[.*?\]/g, '') // Remove content in square brackets
-    .replace(/qty\s*:?\s*\d+/gi, '') // Remove quantity indicators
-    .replace(/quantity\s*:?\s*\d+/gi, '') // Remove quantity indicators
-    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '') // Remove size indicators
-    .replace(/₹\s*\d+/g, '') // Remove price indicators
+    .replace(/^\d+[\sx]?\s*/i, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/qty\s*:?\s*\d+/gi, '')
+    .replace(/quantity\s*:?\s*\d+/gi, '')
+    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
+    .replace(/₹\s*\d+/g, '')
     .trim();
   
   return cleaned;
