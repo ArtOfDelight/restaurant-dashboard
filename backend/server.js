@@ -4503,191 +4503,289 @@ function generateSwiggyFallbackInsights(data, period) {
 // Process Zomato orders data with correct column mapping
 
 // Main function to process product data from multiple sheets - ADD THIS
-async function processProductAnalysisData(spreadsheetId) {
-  console.log('Processing product analysis data from multiple sheets');
+// Updated backend code to fetch total orders from Rista API
+
+const API_KEY = '0693b6bd-4dbd-4ff3-806e-37f28b9b8c21';
+const PRIVATE_KEY = 'TloWzOxlF7oK6kQBxLrj0Aj-rOIZ9ZuTpPlSawAR2rg';
+const BASE_URL = 'https://api.ristaapps.com';
+
+// Branch codes from reference
+
+
+/**
+ * Creates a JWT token for authentication with the RistaAPI.
+ */
+function createJwtToken(expires_in_hours = 6) {
+  const current_time = Math.floor(new Date().getTime() / 1000);
+  const expiration_time = current_time + (expires_in_hours * 3600);
+  
+  const header = {
+    "alg": "HS256",
+    "typ": "JWT"
+  };
+  
+  const payload = {
+    "iss": API_KEY,
+    "userId": 123,
+    "name": "Script User",
+    "iat": current_time,
+    "exp": expiration_time
+  };
+
+  const jwt = require('jsonwebtoken');
+  return jwt.sign(payload, PRIVATE_KEY, { algorithm: 'HS256', header });
+}
+
+/**
+ * Generates request headers with the JWT token.
+ */
+function getHeaders() {
+  const accessToken = createJwtToken();
+  return {
+    'x-api-key': API_KEY,
+    'x-api-token': accessToken,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+}
+
+/**
+ * Advanced product name matching using multiple algorithms
+ */
+function normalizeProductName(name) {
+  if (!name) return '';
+  return name.toLowerCase()
+    .replace(/[^\w\s]/g, '') // Remove special characters
+    .replace(/\s+/g, ' ') // Normalize spaces
+    .trim();
+}
+
+/**
+ * Calculate similarity between two product names using multiple methods
+ */
+function calculateProductSimilarity(name1, name2) {
+  const normalized1 = normalizeProductName(name1);
+  const normalized2 = normalizeProductName(name2);
+  
+  if (!normalized1 || !normalized2) return 0;
+  if (normalized1 === normalized2) return 1.0;
+  
+  // Method 1: Exact substring match
+  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+    const containmentScore = Math.min(normalized1.length, normalized2.length) / 
+                             Math.max(normalized1.length, normalized2.length);
+    return Math.max(0.90, containmentScore);
+  }
+  
+  // Method 2: Word overlap scoring
+  const words1 = normalized1.split(' ').filter(w => w.length > 2); // Filter small words
+  const words2 = normalized2.split(' ').filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  const commonWords = words1.filter(word => words2.includes(word));
+  const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
+  
+  // Method 3: Levenshtein distance
+  const levenshteinScore = calculateLevenshteinSimilarity(normalized1, normalized2);
+  
+  // Method 4: Check if key words match (first significant word)
+  const firstWord1 = words1[0] || '';
+  const firstWord2 = words2[0] || '';
+  const firstWordMatch = firstWord1 === firstWord2 ? 0.5 : 0;
+  
+  // Weighted combination of all methods
+  const combinedScore = Math.max(
+    wordOverlapScore * 0.4 + levenshteinScore * 0.3 + firstWordMatch * 0.3,
+    wordOverlapScore,
+    levenshteinScore
+  );
+  
+  return combinedScore;
+}
+
+/**
+ * Levenshtein distance similarity
+ */
+function calculateLevenshteinSimilarity(str1, str2) {
+  const track = Array(str2.length + 1).fill(null).map(() =>
+    Array(str1.length + 1).fill(null));
+  
+  for (let i = 0; i <= str1.length; i++) track[0][i] = i;
+  for (let j = 0; j <= str2.length; j++) track[j][0] = j;
+  
+  for (let j = 1; j <= str2.length; j++) {
+    for (let i = 1; i <= str1.length; i++) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      track[j][i] = Math.min(
+        track[j][i - 1] + 1,
+        track[j - 1][i] + 1,
+        track[j - 1][i - 1] + indicator
+      );
+    }
+  }
+  
+  const maxLength = Math.max(str1.length, str2.length);
+  return maxLength === 0 ? 1.0 : 1.0 - (track[str2.length][str1.length] / maxLength);
+}
+
+/**
+ * Fetches item activity data from Rista API for a specific branch
+ */
+async function fetchItemActivityForBranch(branchCode, retryCount = 0) {
+  const endpoint = '/v1/inventory/item/activity/page';
+  const url = `${BASE_URL}${endpoint}?branch=${encodeURIComponent(branchCode)}&limit=500`;
   
   try {
-    // Fetch all three sheets in parallel (Zomato orders, Swiggy reviews, and IGCC complaints)
-    const [zomatoOrdersResponse, swiggyReviewResponse, igccComplaintsResponse] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `zomato_orders!A:Z`,
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `Copy of swiggy_review!A:Z`,
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId: '1v4vILy-ZLUGQdymcVKMfQaw_BSjB7Qvl24wTSUJMR4s', // IGCC sheet
-        range: `IGCC!A:Z`,
-      })
-    ]);
-
-    // Process each sheet using the enhanced functions
-    console.log('Processing Zomato orders...');
-    const zomatoOrders = processZomatoOrdersData(zomatoOrdersResponse.data.values);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: getHeaders()
+    });
     
-    console.log('Processing Swiggy reviews...');
-    const swiggyOrders = processSwiggyReviewData(swiggyReviewResponse.data.values);
+    if (response.status === 200) {
+      const data = await response.json();
+      return data.data || [];
+    } else if (response.status === 429 && retryCount < 3) {
+      // Rate limit hit, wait and retry
+      console.log(`Rate limit hit for branch ${branchCode}, retrying in ${2 ** retryCount} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, (2 ** retryCount) * 1000));
+      return fetchItemActivityForBranch(branchCode, retryCount + 1);
+    } else {
+      console.error(`HTTP Error ${response.status} for branch ${branchCode}`);
+      return [];
+    }
+  } catch (error) {
+    if (retryCount < 2) {
+      console.log(`Error fetching item activity for branch ${branchCode}, retrying: ${error.message}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return fetchItemActivityForBranch(branchCode, retryCount + 1);
+    } else {
+      console.error(`Final error fetching item activity for branch ${branchCode}: ${error.message}`);
+      return [];
+    }
+  }
+}
+
+/**
+ * Fetches total orders for all items across all branches
+ */
+async function fetchTotalOrdersFromRista() {
+  console.log('Fetching total orders from Rista API across all branches...');
+  
+  const itemOrdersMap = new Map(); // Map of normalized item name -> total sales quantity
+  
+  for (const branchCode of BRANCH_CODES) {
+    console.log(`Fetching item activity for branch: ${branchCode}`);
     
-    console.log('Processing IGCC complaints...');
-    const complaints = processIGCCComplaintsData(igccComplaintsResponse.data.values);
+    const items = await fetchItemActivityForBranch(branchCode);
+    
+    items.forEach(item => {
+      if (!item.itemName || item.itemType !== 'Product') return;
+      
+      // Find sales activity
+      const salesActivity = item.activities?.find(a => a.type === 'Sales');
+      if (!salesActivity || !salesActivity.quantity) return;
+      
+      const normalizedName = normalizeProductName(item.itemName);
+      const currentQuantity = itemOrdersMap.get(normalizedName) || 0;
+      itemOrdersMap.set(normalizedName, currentQuantity + salesActivity.quantity);
+    });
+    
+    // Add delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 800));
+  }
+  
+  console.log(`Fetched order data for ${itemOrdersMap.size} unique items from Rista API`);
+  return itemOrdersMap;
+}
 
-    // Combine data by product name using fuzzy matching
-    const productMap = new Map();
-
-    // Helper function to normalize product names for better matching
-    const normalizeProductName = (name) => {
-      if (!name) return '';
-      return name.toLowerCase()
-        .replace(/[^\w\s]/g, '') // Remove special characters
-        .replace(/\s+/g, ' ') // Normalize spaces
-        .trim();
-    };
-
-    // Enhanced similarity calculation with multiple methods
-    const calculateEnhancedSimilarity = (str1, str2) => {
-      const normalized1 = normalizeProductName(str1);
-      const normalized2 = normalizeProductName(str2);
-      
-      if (normalized1 === normalized2) return 1.0;
-      if (!normalized1 || !normalized2) return 0;
-      
-      // Method 1: Check if one string contains the other
-      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-        const containmentScore = Math.min(normalized1.length, normalized2.length) / 
-                                 Math.max(normalized1.length, normalized2.length);
-        return Math.max(0.85, containmentScore); // At least 85% if one contains the other
-      }
-      
-      // Method 2: Check word overlap
-      const words1 = normalized1.split(' ');
-      const words2 = normalized2.split(' ');
-      const commonWords = words1.filter(word => words2.includes(word));
-      const wordOverlapScore = (commonWords.length * 2) / (words1.length + words2.length);
-      
-      // Method 3: Levenshtein distance
-      const levenshteinScore = calculateSimilarity(normalized1, normalized2);
-      
-      // Return the maximum of all methods (most lenient)
-      return Math.max(wordOverlapScore, levenshteinScore);
-    };
-
-    // Helper function to find matching product with lenient matching
-    const findBestMatchingProduct = (productName) => {
-      const normalized = normalizeProductName(productName);
-      
-      if (!normalized) return null;
-      
-      // First try exact match
-      if (productMap.has(normalized)) {
-        return productMap.get(normalized);
-      }
-      
-      // Try fuzzy matching with existing products
-      let bestMatch = null;
-      let bestScore = 0;
-      
-      for (let [key, product] of productMap.entries()) {
-        const similarity = calculateEnhancedSimilarity(normalized, key);
-        if (similarity > bestScore) {
-          bestScore = similarity;
-          bestMatch = product;
-        }
-      }
-      
-      // Use 70% similarity threshold for more lenient matching
-      if (bestScore > 0.70) {
-        console.log(`Matched "${productName}" with existing "${bestMatch.name}" (${(bestScore * 100).toFixed(1)}% similarity)`);
-        return bestMatch;
-      }
-      
-      return null;
-    };
-
-    // Helper function to find or create product
-    const findOrCreateProduct = (productName) => {
-      const normalized = normalizeProductName(productName);
-      
-      if (!normalized) return null;
-      
-      // Try to find existing match
-      const existingProduct = findBestMatchingProduct(productName);
-      if (existingProduct) {
-        return existingProduct;
-      }
-      
-      // Create new product
-      const newProduct = {
-        name: capitalizeWords(productName),
-        normalizedName: normalized,
-        zomatoOrders: 0,
-        swiggyOrders: 0,
-        zomatoComplaints: 0,
-        swiggyComplaints: 0,
-        totalComplaints: 0,
-        avgRating: 0,
-        platform: 'Both'
+/**
+ * Matches Rista item names with product analysis data
+ */
+function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
+  console.log('Matching Rista orders with product analysis data...');
+  
+  const matchedProducts = products.map(product => {
+    const productNormalized = normalizeProductName(product.name);
+    
+    // Try exact match first
+    if (ristaOrdersMap.has(productNormalized)) {
+      const ristaOrders = ristaOrdersMap.get(productNormalized);
+      console.log(`✓ Exact match: "${product.name}" -> ${ristaOrders} orders`);
+      return {
+        ...product,
+        totalOrdersFromRista: ristaOrders,
+        matchType: 'exact'
       };
-      productMap.set(normalized, newProduct);
-      return newProduct;
-    };
-
-    // Add Zomato orders
-    console.log(`Adding ${zomatoOrders.length} Zomato order items...`);
-    zomatoOrders.forEach(product => {
-      const existingProduct = findOrCreateProduct(product.name);
-      if (existingProduct) {
-        existingProduct.zomatoOrders = product.orders || 0;
-        existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
-      }
-    });
-
-    // Add Swiggy orders
-    console.log(`Adding ${swiggyOrders.length} Swiggy order items...`);
-    swiggyOrders.forEach(product => {
-      const existingProduct = findOrCreateProduct(product.name);
-      if (existingProduct) {
-        existingProduct.swiggyOrders = product.orders || 0;
-        existingProduct.avgRating = Math.max(existingProduct.avgRating, product.rating || 0);
-      }
-    });
-
-    // Add IGCC complaints (grouped by platform)
-    console.log(`Adding ${complaints.length} IGCC complaint items...`);
-    complaints.forEach(complaint => {
-      const existingProduct = findOrCreateProduct(complaint.item);
-      if (existingProduct) {
-        const platform = (complaint.platform || '').toLowerCase();
-        
-        if (platform.includes('zomato')) {
-          existingProduct.zomatoComplaints += 1;
-        } else if (platform.includes('swiggy')) {
-          existingProduct.swiggyComplaints += 1;
-        } else {
-          // If platform is unclear, distribute evenly
-          existingProduct.zomatoComplaints += 0.5;
-          existingProduct.swiggyComplaints += 0.5;
-        }
-        existingProduct.totalComplaints += 1;
-      }
-    });
-
-    // Convert to array and calculate summary
-    const products = Array.from(productMap.values());
+    }
     
-    // Filter out products with very low order counts (likely parsing errors)
-    const filteredProducts = products.filter(p => 
-      (p.zomatoOrders + p.swiggyOrders) >= 1
+    // Try fuzzy matching
+    let bestMatch = null;
+    let bestScore = 0;
+    let bestMatchName = '';
+    
+    for (const [ristaName, ristaOrders] of ristaOrdersMap.entries()) {
+      const similarity = calculateProductSimilarity(productNormalized, ristaName);
+      
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestMatch = ristaOrders;
+        bestMatchName = ristaName;
+      }
+    }
+    
+    // Use 75% similarity threshold for matching
+    if (bestScore >= 0.75) {
+      console.log(`✓ Fuzzy match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
+      return {
+        ...product,
+        totalOrdersFromRista: bestMatch,
+        matchType: 'fuzzy',
+        matchScore: bestScore
+      };
+    }
+    
+    // No match found - use sheet data as fallback
+    console.log(`⚠ No match found for: "${product.name}" - using sheet data`);
+    return {
+      ...product,
+      totalOrdersFromRista: (product.zomatoOrders || 0) + (product.swiggyOrders || 0),
+      matchType: 'no_match'
+    };
+  });
+  
+  return matchedProducts;
+}
+
+/**
+ * Enhanced processProductAnalysisData with Rista API integration
+ */
+async function processProductAnalysisDataWithRista(spreadsheetId) {
+  console.log('Processing product analysis data with Rista API integration');
+  
+  try {
+    // Step 1: Fetch product analysis data from sheets (existing function)
+    const productData = await processProductAnalysisData(spreadsheetId);
+    
+    // Step 2: Fetch total orders from Rista API
+    const ristaOrdersMap = await fetchTotalOrdersFromRista();
+    
+    // Step 3: Match and merge the data
+    const enrichedProducts = matchRistaOrdersWithProducts(
+      productData.products, 
+      ristaOrdersMap
     );
     
-    // Calculate complaint rates for each product
-    filteredProducts.forEach(product => {
-      const totalOrders = product.zomatoOrders + product.swiggyOrders;
-      product.complaintRate = totalOrders > 0 
-        ? ((product.totalComplaints / totalOrders) * 100) 
+    // Step 4: Recalculate complaint rates using accurate total orders
+    enrichedProducts.forEach(product => {
+      const accurateTotalOrders = product.totalOrdersFromRista || 0;
+      
+      // Recalculate overall complaint rate
+      product.complaintRate = accurateTotalOrders > 0 
+        ? ((product.totalComplaints / accurateTotalOrders) * 100) 
         : 0;
       
+      // Keep platform-specific complaint rates based on sheet data
       product.zomatoComplaintRate = product.zomatoOrders > 0 
         ? ((product.zomatoComplaints / product.zomatoOrders) * 100) 
         : 0;
@@ -4697,32 +4795,69 @@ async function processProductAnalysisData(spreadsheetId) {
         : 0;
     });
     
-    const summary = {
-      totalProducts: filteredProducts.length,
-      totalZomatoOrders: filteredProducts.reduce((sum, p) => sum + (p.zomatoOrders || 0), 0),
-      totalSwiggyOrders: filteredProducts.reduce((sum, p) => sum + (p.swiggyOrders || 0), 0),
-      totalZomatoComplaints: filteredProducts.reduce((sum, p) => sum + (p.zomatoComplaints || 0), 0),
-      totalSwiggyComplaints: filteredProducts.reduce((sum, p) => sum + (p.swiggyComplaints || 0), 0),
-      totalComplaints: filteredProducts.reduce((sum, p) => sum + (p.totalComplaints || 0), 0),
-      avgComplaintRate: 0
+    // Step 5: Update summary statistics
+    const updatedSummary = {
+      ...productData.summary,
+      totalOrdersFromRista: enrichedProducts.reduce(
+        (sum, p) => sum + (p.totalOrdersFromRista || 0), 0
+      ),
+      exactMatches: enrichedProducts.filter(p => p.matchType === 'exact').length,
+      fuzzyMatches: enrichedProducts.filter(p => p.matchType === 'fuzzy').length,
+      noMatches: enrichedProducts.filter(p => p.matchType === 'no_match').length
     };
-
-    const totalOrders = summary.totalZomatoOrders + summary.totalSwiggyOrders;
-    const totalComplaints = summary.totalComplaints;
-    summary.avgComplaintRate = totalOrders > 0 ? (totalComplaints / totalOrders * 100) : 0;
-
-    console.log(`Successfully processed ${filteredProducts.length} products:`);
-    console.log(`- Total Orders: ${totalOrders}`);
-    console.log(`- Total Complaints: ${totalComplaints}`);
-    console.log(`- Average Complaint Rate: ${summary.avgComplaintRate.toFixed(2)}%`);
-
-    return { products: filteredProducts, summary };
-
+    
+    // Recalculate average complaint rate with accurate orders
+    const totalRistaOrders = updatedSummary.totalOrdersFromRista;
+    updatedSummary.avgComplaintRate = totalRistaOrders > 0 
+      ? (updatedSummary.totalComplaints / totalRistaOrders * 100) 
+      : 0;
+    
+    console.log('\n📊 MATCHING SUMMARY:');
+    console.log(`✓ Exact matches: ${updatedSummary.exactMatches}`);
+    console.log(`✓ Fuzzy matches: ${updatedSummary.fuzzyMatches}`);
+    console.log(`⚠ No matches: ${updatedSummary.noMatches}`);
+    console.log(`📦 Total orders from Rista: ${updatedSummary.totalOrdersFromRista}`);
+    console.log(`📊 Updated complaint rate: ${updatedSummary.avgComplaintRate.toFixed(2)}%`);
+    
+    return {
+      products: enrichedProducts,
+      summary: updatedSummary
+    };
+    
   } catch (error) {
-    console.error('Error processing product analysis data:', error);
-    return createEmptyProductDataStructure();
+    console.error('Error processing product analysis data with Rista:', error);
+    throw error;
   }
 }
+
+/**
+ * API endpoint handler
+ */
+app.get('/api/product-analysis-data', async (req, res) => {
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEETS_ID || 'your-spreadsheet-id';
+    const data = await processProductAnalysisDataWithRista(spreadsheetId);
+    
+    res.json({
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in product-analysis-data endpoint:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+module.exports = {
+  processProductAnalysisDataWithRista,
+  fetchTotalOrdersFromRista,
+  matchRistaOrdersWithProducts,
+  calculateProductSimilarity
+};
 
 // Process IGCC complaints data (last 28 days only)
 function processIGCCComplaintsData(rows) {
