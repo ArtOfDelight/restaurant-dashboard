@@ -638,13 +638,13 @@ const ProductAnalysisDashboard = () => {
           },
           { 
             title: 'TOTAL ORDERS (RISTA)', 
-            value: data.summary?.totalOrdersFromRista || 0,
+            value: data.summary?.totalRistaOrders || data.summary?.totalOrdersFromRista || 0,
             color: '#3b82f6',
             subtitle: 'All orders from inventory'
           },
           { 
             title: 'TOTAL COMPLAINTS', 
-            value: data.summary?.totalIgccComplaints || 0,
+            value: data.summary?.totalIGCCComplaints || data.summary?.totalComplaints || 0,
             color: '#ef4444',
             subtitle: 'Across all platforms'
           },
@@ -873,8 +873,7 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => (b.totalOrdersFromRista || 0) - (a.totalOrdersFromRista || 0))
-                  .slice(0, 30)
+                  .sort((a, b) => (b.complaintRate || 0) - (a.complaintRate || 0))
                   .map((product, i) => {
                     const totalRistaOrders = product.totalOrdersFromRista || 0;
                     const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
