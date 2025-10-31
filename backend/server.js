@@ -945,6 +945,8 @@ async function initializeCriticalStockBot() {
     return null;
   }
 }
+// Replace the sendCriticalStockAlerts function with this improved version:
+
 async function sendCriticalStockAlerts() {
   if (!criticalStockBot) {
     console.log('Critical Stock Bot not available');
@@ -966,13 +968,12 @@ async function sendCriticalStockAlerts() {
     // Step 1: Get critical items from MasterSheet
     const masterResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `MasterSheet!A:C`, // A=skuCode, B=longName, C=Critical
+      range: `MasterSheet!A:C`,
     });
 
     const masterData = masterResponse.data.values || [];
     const criticalItems = [];
 
-    // Find items where Critical column = "yes"
     for (let i = 1; i < masterData.length; i++) {
       const row = masterData[i];
       if (row && row[0] && row[1] && row[2]) {
@@ -1002,7 +1003,7 @@ async function sendCriticalStockAlerts() {
 
     const trackerData = trackerResponse.data.values || [];
     const now = new Date();
-    const yesterday = new Date(now.getTime() - 15 * 60 * 1000);
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // Step 3: Find critical items that are recently out of stock
     const alertsToSend = [];
@@ -1010,7 +1011,6 @@ async function sendCriticalStockAlerts() {
     for (const criticalItem of criticalItems) {
       const affectedOutlets = new Set();
 
-      // Search tracker for recent mentions of this critical item
       for (let i = 1; i < trackerData.length; i++) {
         const row = trackerData[i];
         if (row && row[1] && row[2] && row[3]) {
@@ -1018,11 +1018,9 @@ async function sendCriticalStockAlerts() {
           const outlet = row[2].toString().trim();
           const items = row[3].toString().trim();
 
-          // Check if this is recent (last 24 hours)
           try {
             const entryDate = parseTrackerDateSimple(time);
             if (entryDate >= yesterday) {
-              // Check if this entry contains our critical item
               if (containsExactItem(items, criticalItem.longName)) {
                 affectedOutlets.add(outlet);
               }
@@ -1033,7 +1031,6 @@ async function sendCriticalStockAlerts() {
         }
       }
 
-      // If this critical item is out of stock in any outlets, add to alerts
       if (affectedOutlets.size > 0) {
         alertsToSend.push({
           item: criticalItem,
@@ -1044,13 +1041,95 @@ async function sendCriticalStockAlerts() {
 
     console.log(`Preparing ${alertsToSend.length} critical stock alerts`);
 
-    // Step 4: Send alerts to all users
+    // Step 4: Send alerts with rate limiting
     if (alertsToSend.length > 0) {
-      await sendAlertsToAllUsers(alertsToSend);
+      await sendAlertsWithRateLimit(alertsToSend);
     }
 
   } catch (error) {
     console.error('Error checking critical stock:', error.message);
+  }
+}
+
+// NEW: Rate-limited alert sending
+async function sendAlertsWithRateLimit(alerts) {
+  try {
+    // Create alert message
+    let alertMessage = '🚨 CRITICAL STOCK ALERT 🚨\n\n';
+    alertMessage += 'The following CRITICAL items are out of stock:\n\n';
+
+    alerts.forEach((alert, index) => {
+      alertMessage += `${index + 1}. 📦 ${alert.item.longName}\n`;
+      alertMessage += `   SKU: ${alert.item.skuCode}\n`;
+      alertMessage += `   🏪 Outlets: ${alert.outlets.join(', ')}\n\n`;
+    });
+
+    alertMessage += '⚠️ Please take immediate action to restock these critical items.\n';
+    alertMessage += `🕒 Alert sent at: ${new Date().toLocaleString()}`;
+
+    // OPTION 1: Send to group (ONE MESSAGE ONLY)
+    if (SEND_TO_GROUP && CRITICAL_STOCK_GROUP_ID) {
+      console.log('Sending critical stock alert to group...');
+      try {
+        await criticalStockBot.sendMessage(CRITICAL_STOCK_GROUP_ID, alertMessage);
+        console.log('✅ Critical stock alert sent to group successfully');
+        return; // EXIT EARLY - don't send to individual users
+      } catch (groupError) {
+        console.error('Failed to send to group:', groupError.message);
+        // Don't fall back to individual users to avoid rate limits
+        return;
+      }
+    }
+
+    // OPTION 2: Send to individual users (ONLY if group sending failed)
+    console.log('Sending critical stock alerts to individual users...');
+    
+    await initializeUserMappingTab();
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${USER_MAPPING_TAB}!A:C`
+    });
+
+    const rows = response.data.values || [];
+    const users = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i][0] && rows[i][1]) {
+        users.push({
+          name: rows[i][0],
+          chatId: rows[i][1]
+        });
+      }
+    }
+
+    if (users.length === 0) {
+      console.log('No individual users to send critical stock alerts to');
+      return;
+    }
+
+    // IMPORTANT: Add delay between messages to avoid rate limits
+    for (const user of users) {
+      try {
+        await criticalStockBot.sendMessage(user.chatId, alertMessage);
+        console.log(`✅ Alert sent to ${user.name}`);
+        
+        // CRITICAL: Wait 1 second between messages to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (sendError) {
+        // Handle rate limit errors gracefully
+        if (sendError.message.includes('429')) {
+          console.error(`⚠️ Rate limit hit, stopping alerts to avoid bot shutdown`);
+          break; // Stop sending to avoid triggering rate limits
+        }
+        console.error(`Failed to send alert to ${user.name}: ${sendError.message}`);
+      }
+    }
+
+    console.log('Critical stock alerts sending complete');
+
+  } catch (error) {
+    console.error('Error sending critical stock alerts:', error.message);
   }
 }
 
@@ -1183,6 +1262,8 @@ async function initializeServicesWithTickets() {
 
 // UPDATE THE EXISTING gracefulShutdown() FUNCTION 
 // FIND THIS FUNCTION (around line 400) AND ADD CRITICAL BOT SHUTDOWN:
+// Replace the gracefulShutdown function with this improved version:
+
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -1190,19 +1271,50 @@ async function gracefulShutdown(signal) {
   console.log(`\n${signal} received, shutting down gracefully...`);
   
   try {
-    if (bot) {
-      console.log('Stopping original Telegram bot...');
-      await bot.stopPolling();
-      console.log('Original Telegram bot stopped');
+    // Clear any scheduled intervals FIRST
+    if (global.criticalStockInterval) {
+      clearInterval(global.criticalStockInterval);
+      console.log('Critical stock schedule cleared');
     }
     
+    // Stop bots with error handling for rate limits
+    if (bot) {
+      console.log('Stopping original Telegram bot...');
+      try {
+        await Promise.race([
+          bot.stopPolling(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+        ]);
+        console.log('Original Telegram bot stopped');
+      } catch (error) {
+        console.log(`Original bot stop warning: ${error.message} (continuing shutdown)`);
+      }
+    }
     
+    if (ticketBot) {
+      console.log('Stopping ticket Telegram bot...');
+      try {
+        await Promise.race([
+          ticketBot.stopPolling(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+        ]);
+        console.log('Ticket Telegram bot stopped');
+      } catch (error) {
+        console.log(`Ticket bot stop warning: ${error.message} (continuing shutdown)`);
+      }
+    }
     
-    // ADD THESE LINES
     if (criticalStockBot) {
       console.log('Stopping critical stock Telegram bot...');
-      await criticalStockBot.stopPolling();
-      console.log('Critical stock Telegram bot stopped');
+      try {
+        await Promise.race([
+          criticalStockBot.stopPolling(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
+        ]);
+        console.log('Critical stock Telegram bot stopped');
+      } catch (error) {
+        console.log(`Critical bot stop warning: ${error.message} (continuing shutdown)`);
+      }
     }
     
     console.log('Graceful shutdown complete');
@@ -1212,7 +1324,6 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }
 }
-
 // ADD THIS API ENDPOINT TO MANUALLY TRIGGER CRITICAL STOCK CHECK
 app.post('/api/check-critical-stock', async (req, res) => {
   try {
@@ -9087,7 +9198,7 @@ app.listen(PORT, async () => {
       } catch (error) {
         console.error('Error in scheduled critical stock check:', error.message);
       }
-    }, 60 * 60 * 1000); // 1 hour in milliseconds
+    }, 6 * 60 * 60 * 1000); // 1 hour in milliseconds
     console.log('✅ Critical stock alert scheduler started (every 1 hour)');
   }
 
