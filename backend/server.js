@@ -4719,48 +4719,48 @@ function normalizeProductName(name) {
 }
 
 /**
- * Similarity between two product names (0-1).
- * Uses the *new* normaliser above.
+ * Similarity between two product names using Gemini AI (0-1).
  */
-function calculateProductSimilarity(name1, name2) {
+async function calculateProductSimilarity(name1, name2) {
   const n1 = normalizeProductName(name1);
   const n2 = normalizeProductName(name2);
 
   if (!n1 || !n2) return 0;
   if (n1 === n2) return 1.0;
 
-  // 1. Sub-string containment (high confidence)
-  if (n1.includes(n2) || n2.includes(n1)) {
-    const ratio = Math.min(n1.length, n2.length) / Math.max(n1.length, n2.length);
-    return Math.max(0.90, ratio);
+  try {
+    const prompt = `Compare these two product names and return ONLY a similarity score between 0 and 1, where:
+- 1.0 = identical products
+- 0.9-0.99 = very similar (minor variations)
+- 0.75-0.89 = same product, different formatting
+- 0.5-0.74 = related but different variants
+- Below 0.5 = different products
+
+Product 1: "${n1}"
+Product 2: "${n2}"
+
+Return only the numerical score (e.g., 0.85), nothing else.`;
+
+    const result = await geminiModel.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text().trim();
+    
+    const score = parseFloat(text);
+    
+    if (isNaN(score) || score < 0 || score > 1) {
+      console.warn(`Invalid Gemini score for "${name1}" vs "${name2}": ${text}`);
+      return 0;
+    }
+    
+    return score;
+  } catch (error) {
+    console.error(`Gemini matching error for "${name1}" vs "${name2}":`, error.message);
+    return 0;
   }
-
-  // 2. Word-overlap (Jaccard-style)
-  const words1 = n1.split(' ').filter(w => w.length > 2);
-  const words2 = n2.split(' ').filter(w => w.length > 2);
-  if (!words1.length || !words2.length) return 0;
-
-  const common = words1.filter(w => words2.includes(w));
-  const overlap = (common.length * 2) / (words1.length + words2.length);
-
-  // 3. Levenshtein distance
-  const lev = calculateLevenshteinSimilarity(n1, n2);
-
-  // 4. First-word match (extra boost for brand-like names)
-  const firstMatch = (words1[0] === words2[0]) ? 0.5 : 0;
-
-  // Weighted combination
-  const combined = Math.max(
-    overlap * 0.4 + lev * 0.3 + firstMatch * 0.3,
-    overlap,
-    lev
-  );
-
-  return combined;
 }
 
 /**
- * Levenshtein distance similarity
+ * Levenshtein distance similarity (kept as fallback, not used in main flow)
  */
 function calculateLevenshteinSimilarity(str1, str2) {
   const track = Array(str2.length + 1).fill(null).map(() =>
@@ -4921,71 +4921,77 @@ async function fetchTotalOrdersFromRista() {
 }
 
 /**
- * Matches Rista item names with product analysis data
+ * Matches Rista item names with product analysis data using Gemini AI
  */
-function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
-  console.log('\nMatching Rista orders with product analysis data...');
+async function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
+  console.log('\nMatching Rista orders with product analysis data using Gemini AI...');
   
   let exactMatches = 0;
   let fuzzyMatches = 0;
   let noMatches = 0;
   
-  const matchedProducts = products.map(product => {
+  const matchedProducts = [];
+  
+  for (const product of products) {
     const productNormalized = normalizeProductName(product.name);
     
     // Try exact match first
     if (ristaOrdersMap[productNormalized]) {
       const ristaOrders = ristaOrdersMap[productNormalized].totalQuantity;
       exactMatches++;
-      return {
+      matchedProducts.push({
         ...product,
         totalOrdersFromRista: ristaOrders,
         matchType: 'exact'
-      };
+      });
+      continue;
     }
     
-    // Try fuzzy matching
+    // Try Gemini-powered fuzzy matching
     let bestMatch = null;
     let bestScore = 0;
     let bestMatchName = '';
     
     for (const [ristaName, ristaData] of Object.entries(ristaOrdersMap)) {
-      const similarity = calculateProductSimilarity(productNormalized, ristaName);
+      const similarity = await calculateProductSimilarity(productNormalized, ristaName);
       
       if (similarity > bestScore) {
         bestScore = similarity;
         bestMatch = ristaData.totalQuantity;
         bestMatchName = ristaData.name;
       }
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     // Use 75% similarity threshold for matching
     if (bestScore >= 0.75) {
       fuzzyMatches++;
-      console.log(`   Fuzzy match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
-      return {
+      console.log(`   Gemini match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
+      matchedProducts.push({
         ...product,
         totalOrdersFromRista: bestMatch,
         matchType: 'fuzzy',
         matchScore: bestScore
-      };
+      });
+    } else {
+      // No match found - use 0 for Rista orders
+      noMatches++;
+      if (noMatches <= 5) {
+        console.log(`   No match: "${product.name}"`);
+      }
+      matchedProducts.push({
+        ...product,
+        totalOrdersFromRista: 0,
+        matchType: 'no_match'
+      });
     }
-    
-    // No match found - use 0 for Rista orders
-    noMatches++;
-    if (noMatches <= 5) {
-      console.log(`   No match: "${product.name}"`);
-    }
-    return {
-      ...product,
-      totalOrdersFromRista: 0,
-      matchType: 'no_match'
-    };
-  });
+  }
   
   console.log(`\nMatching Results:`);
   console.log(`   - Exact matches: ${exactMatches}`);
-  console.log(`   - Fuzzy matches: ${fuzzyMatches}`);
+  console.log(`   - Gemini fuzzy matches: ${fuzzyMatches}`);
   console.log(`   - No matches: ${noMatches}`);
   
   return matchedProducts;
@@ -4993,11 +4999,11 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
 
 /**
  * Main function to process product analysis data from Google Sheets
- * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + LOW RATED METRICS
+ * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + LOW RATED METRICS + GEMINI MATCHING
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING RISTA NAMES');
+  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING RISTA NAMES + GEMINI');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
   
@@ -5060,13 +5066,13 @@ async function processProductAnalysisData(spreadsheetId) {
     console.log(`   - Zomato data: ${zomatoOrders.length} items`);
     console.log(`   - Swiggy data: ${swiggyOrders.length} items`);
 
-    // Step 4: Match Zomato/Swiggy ratings to existing Rista products
-    console.log('\nMatching ratings to Rista products...');
+    // Step 4: Match Zomato/Swiggy ratings to existing Rista products using Gemini
+    console.log('\nMatching ratings to Rista products with Gemini AI...');
     let zomatoMatches = 0;
     let swiggyMatches = 0;
 
     // Match Zomato ratings
-    zomatoOrders.forEach(item => {
+    for (const item of zomatoOrders) {
       const normalizedName = normalizeProductName(item.name);
       
       // Try exact match first
@@ -5076,19 +5082,20 @@ async function processProductAnalysisData(spreadsheetId) {
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         zomatoMatches++;
-        return;
+        continue;
       }
       
-      // Try fuzzy match
+      // Try Gemini-powered fuzzy match
       let bestMatch = null;
       let bestScore = 0;
       
       for (const [mapKey, product] of productMap.entries()) {
-        const similarity = calculateProductSimilarity(normalizedName, mapKey);
+        const similarity = await calculateProductSimilarity(normalizedName, mapKey);
         if (similarity > bestScore && similarity >= 0.75) {
           bestScore = similarity;
           bestMatch = mapKey;
         }
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
       
       if (bestMatch) {
@@ -5097,12 +5104,12 @@ async function processProductAnalysisData(spreadsheetId) {
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         zomatoMatches++;
-        console.log(`   Fuzzy match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
+        console.log(`   Gemini match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
       }
-    });
+    }
 
     // Match Swiggy ratings
-    swiggyOrders.forEach(item => {
+    for (const item of swiggyOrders) {
       const normalizedName = normalizeProductName(item.name);
       
       // Try exact match first
@@ -5112,19 +5119,20 @@ async function processProductAnalysisData(spreadsheetId) {
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         swiggyMatches++;
-        return;
+        continue;
       }
       
-      // Try fuzzy match
+      // Try Gemini-powered fuzzy match
       let bestMatch = null;
       let bestScore = 0;
       
       for (const [mapKey, product] of productMap.entries()) {
-        const similarity = calculateProductSimilarity(normalizedName, mapKey);
+        const similarity = await calculateProductSimilarity(normalizedName, mapKey);
         if (similarity > bestScore && similarity >= 0.75) {
           bestScore = similarity;
           bestMatch = mapKey;
         }
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
       
       if (bestMatch) {
@@ -5133,9 +5141,9 @@ async function processProductAnalysisData(spreadsheetId) {
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         swiggyMatches++;
-        console.log(`   Fuzzy match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
+        console.log(`   Gemini match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
       }
-    });
+    }
 
     console.log(`\nRating matches: Zomato ${zomatoMatches}, Swiggy ${swiggyMatches}`);
 
@@ -5192,7 +5200,7 @@ async function processProductAnalysisData(spreadsheetId) {
     if (isNaN(summary.avgLowRatedPercentage)) summary.avgLowRatedPercentage = 0;
 
     console.log('\n' + '═'.repeat(60));
-    console.log('PROCESSING COMPLETE - USING RISTA NAMES');
+    console.log('PROCESSING COMPLETE - USING RISTA NAMES + GEMINI MATCHING');
     console.log('═'.repeat(60));
     console.log(`Products: ${products.length} (${summary.ristaProductsUsed} from Rista)`);
     console.log(`Orders (Rista): ${summary.totalRistaOrders}`);
