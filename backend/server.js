@@ -5988,41 +5988,44 @@ app.get('/api/debug-employee', async (req, res) => {
 // GET: Full Product Analysis Data
 app.get('/api/product-analysis-data', async (req, res) => {
   try {
-    console.log('Product analysis data requested');
+    console.log('=== API CALL STARTED ===');
     
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Sheets');
-      }
+    const data = await processProductAnalysisData(SPREADSHEET_ID);
+    
+    console.log('=== PROCESSING COMPLETE ===');
+    console.log('Data structure:', {
+      hasProducts: !!data.products,
+      productsLength: data.products?.length,
+      hasSummary: !!data.summary,
+      summaryKeys: data.summary ? Object.keys(data.summary) : []
+    });
+    
+    // Check summary values
+    if (data.summary) {
+      console.log('Summary avgLowRatedPercentage:', data.summary.avgLowRatedPercentage);
+      console.log('Type:', typeof data.summary.avgLowRatedPercentage);
     }
-
-    const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
-    console.log(`Fetching product data from: ${PRODUCT_SPREADSHEET_ID}`);
     
-    const processedData = await processProductAnalysisData(PRODUCT_SPREADSHEET_ID);
+    // Check first product
+    if (data.products && data.products[0]) {
+      console.log('First product lowRatedPercentage:', data.products[0].lowRatedPercentage);
+      console.log('Type:', typeof data.products[0].lowRatedPercentage);
+    }
     
-    console.log(`Successfully processed product data:`, {
-      products: processedData.products.length,
-      totalZomatoOrders: processedData.summary.totalZomatoOrders,
-      totalSwiggyOrders: processedData.summary.totalSwiggyOrders,
-      totalRistaOrders: processedData.summary.totalRistaOrders,
-      totalIGCCComplaints: processedData.summary.totalIGCCComplaints,
-      avgComplaintRate: `${processedData.summary.avgComplaintRate.toFixed(2)}%`
+    res.json({ 
+      success: true, 
+      data: data 
     });
     
-    res.json({
-      success: true,
-      data: processedData,
-      aiEnabled: !!process.env.GEMINI_API_KEY,
-      timestamp: new Date().toISOString(),
-    });
   } catch (error) {
-    console.error('Error in /api/product-analysis-data:', error.message);
-    res.status(500).json({
-      success: false,
+    console.error('=== ERROR CAUGHT ===');
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
+    
+    res.status(500).json({ 
+      success: false, 
       error: error.message,
-      timestamp: new Date().toISOString(),
+      stack: error.stack 
     });
   }
 });
