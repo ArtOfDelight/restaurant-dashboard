@@ -4704,16 +4704,16 @@ function normalizeProductName(name) {
 
   return name
     .trim()
-    .replace(/^\s*[xX][\s\-.]*/g, '')           // <-- NEW: strip leading X
-    .replace(/^\d+[\sx]?\s*/i, '')              // 2x , 1 , 3 pcs …
-    .replace(/\(.*?\)/g, '')                    // (small) , (250 ml)
-    .replace(/\[.*?\]/g, '')                    // [veg] , [non-veg]
+    .replace(/^\s*[xX][\s\-.]*/g, '')           // Strip leading X
+    .replace(/^\d+[\sx]?\s*/i, '')              // Strip leading numbers
+    .replace(/\(.*?\)/g, '')                    // Remove parentheses content
+    .replace(/\[.*?\]/g, '')                    // Remove brackets content
     .replace(/qty\s*:?\s*\d+/gi, '')
     .replace(/quantity\s*:?\s*\d+/gi, '')
     .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
-    .replace(/₹\s*\d+/g, '')                    // ₹120
-    .replace(/[^\w\s]/g, '')                    // punctuation
-    .replace(/\s+/g, ' ')                       // collapse spaces
+    .replace(/₹\s*\d+/g, '')                    // Remove prices
+    .replace(/[^\w\s]/g, '')                    // Remove punctuation
+    .replace(/\s+/g, ' ')                       // Collapse spaces
     .toLowerCase()
     .trim();
 }
@@ -4997,7 +4997,7 @@ function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT ANALYSIS DATA WITH LOW RATED METRICS');
+  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING RISTA NAMES');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
   
@@ -5009,8 +5009,39 @@ async function processProductAnalysisData(spreadsheetId) {
       }
     }
 
-    // Fetch data from sheets
-    console.log('Fetching data from Google Sheets...');
+    // Step 1: Fetch Rista orders (last 28 days) - THIS WILL BE OUR PRIMARY SOURCE
+    console.log('\n' + '═'.repeat(60));
+    const ristaOrdersMap = await fetchTotalOrdersFromRista();
+    console.log('═'.repeat(60));
+    
+    // Step 2: Create product map using Rista names as primary
+    const productMap = new Map();
+    
+    // Populate with Rista data FIRST (using original Rista item names)
+    for (const [ristaName, ristaData] of Object.entries(ristaOrdersMap)) {
+      const normalizedName = normalizeProductName(ristaName);
+      
+      if (!productMap.has(normalizedName)) {
+        productMap.set(normalizedName, {
+          name: ristaData.name, // ← USE ORIGINAL RISTA NAME (not normalized)
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          totalOrdersFromRista: ristaData.totalQuantity,
+          highRated: 0,
+          lowRated: 0,
+          lowRatedPercentage: 0,
+          avgRating: 0,
+          zomatoRating: 0,
+          swiggyRating: 0,
+          primarySource: 'rista' // Track that this came from Rista
+        });
+      }
+    }
+
+    console.log(`\nInitialized ${productMap.size} products from Rista data`);
+
+    // Step 3: Fetch sheet data for ratings only
+    console.log('\nFetching Zomato/Swiggy data for ratings...');
     const [zomatoOrdersData, swiggyReviewData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
@@ -5023,84 +5054,98 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
-    console.log('Sheet data fetched:');
-    console.log(`   - Zomato Orders: ${zomatoOrdersData.data.values?.length || 0} rows`);
-    console.log(`   - Swiggy Reviews: ${swiggyReviewData.data.values?.length || 0} rows`);
-
-    // Process order data from sheets - NOW INCLUDES HIGH/LOW RATED
     const zomatoOrders = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
     const swiggyOrders = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
 
-    console.log('\nProcessed sheet data:');
-    console.log(`   - Zomato Orders: ${zomatoOrders.length} unique items`);
-    console.log(`   - Swiggy Orders: ${swiggyOrders.length} unique items`);
+    console.log(`   - Zomato data: ${zomatoOrders.length} items`);
+    console.log(`   - Swiggy data: ${swiggyOrders.length} items`);
 
-    // Merge all data by product name
-    const productMap = new Map();
+    // Step 4: Match Zomato/Swiggy ratings to existing Rista products
+    console.log('\nMatching ratings to Rista products...');
+    let zomatoMatches = 0;
+    let swiggyMatches = 0;
 
-    // Add Zomato order data
+    // Match Zomato ratings
     zomatoOrders.forEach(item => {
       const normalizedName = normalizeProductName(item.name);
-      if (!productMap.has(normalizedName)) {
-        productMap.set(normalizedName, {
-          name: capitalizeWords(item.name),
-          zomatoOrders: 0,
-          swiggyOrders: 0,
-          totalOrdersFromRista: 0,
-          highRated: 0,
-          lowRated: 0,
-          lowRatedPercentage: 0,
-          avgRating: 0,
-          zomatoRating: 0,
-          swiggyRating: 0
-        });
+      
+      // Try exact match first
+      if (productMap.has(normalizedName)) {
+        const product = productMap.get(normalizedName);
+        product.zomatoRating = item.rating;
+        product.highRated += item.highRated || 0;
+        product.lowRated += item.lowRated || 0;
+        zomatoMatches++;
+        return;
       }
-      const product = productMap.get(normalizedName);
-      product.zomatoOrders = item.orders;
-      product.zomatoRating = item.rating;
-      product.highRated += item.highRated || 0;
-      product.lowRated += item.lowRated || 0;
+      
+      // Try fuzzy match
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (const [mapKey, product] of productMap.entries()) {
+        const similarity = calculateProductSimilarity(normalizedName, mapKey);
+        if (similarity > bestScore && similarity >= 0.75) {
+          bestScore = similarity;
+          bestMatch = mapKey;
+        }
+      }
+      
+      if (bestMatch) {
+        const product = productMap.get(bestMatch);
+        product.zomatoRating = item.rating;
+        product.highRated += item.highRated || 0;
+        product.lowRated += item.lowRated || 0;
+        zomatoMatches++;
+        console.log(`   Fuzzy match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
+      }
     });
 
-    // Add Swiggy order data
+    // Match Swiggy ratings
     swiggyOrders.forEach(item => {
       const normalizedName = normalizeProductName(item.name);
-      if (!productMap.has(normalizedName)) {
-        productMap.set(normalizedName, {
-          name: capitalizeWords(item.name),
-          zomatoOrders: 0,
-          swiggyOrders: 0,
-          totalOrdersFromRista: 0,
-          highRated: 0,
-          lowRated: 0,
-          lowRatedPercentage: 0,
-          avgRating: 0,
-          zomatoRating: 0,
-          swiggyRating: 0
-        });
+      
+      // Try exact match first
+      if (productMap.has(normalizedName)) {
+        const product = productMap.get(normalizedName);
+        product.swiggyRating = item.rating;
+        product.highRated += item.highRated || 0;
+        product.lowRated += item.lowRated || 0;
+        swiggyMatches++;
+        return;
       }
-      const product = productMap.get(normalizedName);
-      product.swiggyOrders = item.orders;
-      product.swiggyRating = item.rating;
-      product.highRated += item.highRated || 0;
-      product.lowRated += item.lowRated || 0;
+      
+      // Try fuzzy match
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (const [mapKey, product] of productMap.entries()) {
+        const similarity = calculateProductSimilarity(normalizedName, mapKey);
+        if (similarity > bestScore && similarity >= 0.75) {
+          bestScore = similarity;
+          bestMatch = mapKey;
+        }
+      }
+      
+      if (bestMatch) {
+        const product = productMap.get(bestMatch);
+        product.swiggyRating = item.rating;
+        product.highRated += item.highRated || 0;
+        product.lowRated += item.lowRated || 0;
+        swiggyMatches++;
+        console.log(`   Fuzzy match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
+      }
     });
 
-    // Fetch Rista API orders (last 28 days)
-    console.log('\n' + '═'.repeat(60));
-    const ristaOrdersMap = await fetchTotalOrdersFromRista();
-    console.log('═'.repeat(60));
-    
-    // Convert productMap to array and match with Rista orders
-    let products = Array.from(productMap.values());
-    products = matchRistaOrdersWithProducts(products, ristaOrdersMap);
+    console.log(`\nRating matches: Zomato ${zomatoMatches}, Swiggy ${swiggyMatches}`);
 
-    // Calculate final metrics for each product
+    // Step 5: Calculate final metrics
+    let products = Array.from(productMap.values());
+    
     products = products.map(product => {
-      const totalOrders = product.totalOrdersFromRista > 0 
-        ? product.totalOrdersFromRista 
-        : product.zomatoOrders + product.swiggyOrders;
+      const totalOrders = product.totalOrdersFromRista;
       
+      // Calculate average rating
       const ratings = [];
       if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
       if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
@@ -5108,30 +5153,22 @@ async function processProductAnalysisData(spreadsheetId) {
         ? ratings.reduce((a, b) => a + b, 0) / ratings.length 
         : 0;
       
-      // Calculate low rated percentage based on Rista total orders
+      // Calculate low rated percentage
       const lowRated = product.lowRated || 0;
       product.lowRatedPercentage = totalOrders > 0 
         ? (lowRated / totalOrders * 100) 
         : 0;
       
-      // Ensure lowRatedPercentage is a valid number
-      if (isNaN(product.lowRatedPercentage) || product.lowRatedPercentage === null || product.lowRatedPercentage === undefined) {
-        product.lowRatedPercentage = 0;
-      }
-      
-      // Ensure highRated and lowRated have default values
+      // Ensure valid numbers
+      if (isNaN(product.lowRatedPercentage)) product.lowRatedPercentage = 0;
       product.highRated = product.highRated || 0;
       product.lowRated = lowRated;
       
       return product;
     });
 
-    // Sort by total orders
-    products.sort((a, b) => {
-      const totalA = a.totalOrdersFromRista > 0 ? a.totalOrdersFromRista : a.zomatoOrders + a.swiggyOrders;
-      const totalB = b.totalOrdersFromRista > 0 ? b.totalOrdersFromRista : b.zomatoOrders + b.swiggyOrders;
-      return totalB - totalA;
-    });
+    // Sort by total orders (descending)
+    products.sort((a, b) => b.totalOrdersFromRista - a.totalOrdersFromRista);
 
     // Calculate summary
     const summary = {
@@ -5142,33 +5179,28 @@ async function processProductAnalysisData(spreadsheetId) {
       totalHighRated: products.reduce((sum, p) => sum + (p.highRated || 0), 0),
       totalLowRated: products.reduce((sum, p) => sum + (p.lowRated || 0), 0),
       avgLowRatedPercentage: 0,
-      exactMatches: products.filter(p => p.matchType === 'exact').length,
-      fuzzyMatches: products.filter(p => p.matchType === 'fuzzy').length,
-      noMatches: products.filter(p => p.matchType === 'no_match').length
+      ristaProductsUsed: products.filter(p => p.primarySource === 'rista').length,
+      zomatoRatingMatches: zomatoMatches,
+      swiggyRatingMatches: swiggyMatches
     };
 
-    const totalOrdersForRate = summary.totalRistaOrders > 0 
-      ? summary.totalRistaOrders 
-      : summary.totalZomatoOrders + summary.totalSwiggyOrders;
-    
+    const totalOrdersForRate = summary.totalRistaOrders;
     summary.avgLowRatedPercentage = totalOrdersForRate > 0 
       ? (summary.totalLowRated / totalOrdersForRate * 100) 
       : 0;
     
-    // Ensure avgLowRatedPercentage is a valid number
-    if (isNaN(summary.avgLowRatedPercentage) || summary.avgLowRatedPercentage === null || summary.avgLowRatedPercentage === undefined) {
-      summary.avgLowRatedPercentage = 0;
-    }
+    if (isNaN(summary.avgLowRatedPercentage)) summary.avgLowRatedPercentage = 0;
 
     console.log('\n' + '═'.repeat(60));
-    console.log('PROCESSING COMPLETE');
+    console.log('PROCESSING COMPLETE - USING RISTA NAMES');
     console.log('═'.repeat(60));
-    console.log(`Products: ${products.length}`);
+    console.log(`Products: ${products.length} (${summary.ristaProductsUsed} from Rista)`);
     console.log(`Orders (Rista): ${summary.totalRistaOrders}`);
-    console.log(`Orders (Z+S): ${summary.totalZomatoOrders + summary.totalSwiggyOrders}`);
     console.log(`High Rated: ${summary.totalHighRated}`);
     console.log(`Low Rated: ${summary.totalLowRated}`);
     console.log(`Avg Low Rated %: ${(summary.avgLowRatedPercentage || 0).toFixed(2)}%`);
+    console.log(`Zomato ratings matched: ${zomatoMatches}`);
+    console.log(`Swiggy ratings matched: ${swiggyMatches}`);
     console.log('═'.repeat(60) + '\n');
 
     return { products, summary };
@@ -5179,6 +5211,8 @@ async function processProductAnalysisData(spreadsheetId) {
     return createEmptyProductDataStructure();
   }
 }
+
+// UPDATED: normalizeProductName to better preserve original names
 
 // Helper function to capitalize words
 function capitalizeWords(str) {
