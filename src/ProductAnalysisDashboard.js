@@ -199,15 +199,17 @@ const ProductAnalysisDashboard = () => {
     ? data.products 
     : data.products.filter(product => product.platform === selectedPlatform);
 
-  // Prepare chart data - NOW USING RISTA TOTAL ORDERS
-  const orderVolumeData = filteredProducts.map(product => ({
+  // Prepare chart data - HIGH RATED ANALYSIS
+  const highRatedData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
+    highRated: product.highRated || 0,
     zomatoOrders: product.zomatoOrders || 0,
     swiggyOrders: product.swiggyOrders || 0,
-    ristaTotal: product.totalOrdersFromRista || 0,
-    sheetTotal: (product.zomatoOrders || 0) + (product.swiggyOrders || 0)
-  })).sort((a, b) => b.ristaTotal - a.ristaTotal).slice(0, 10);
+    // Calculate high rated per platform (assuming proportional distribution)
+    zomatoHighRated: Math.round((product.highRated || 0) * ((product.zomatoOrders || 0) / ((product.zomatoOrders || 0) + (product.swiggyOrders || 0) || 1))),
+    swiggyHighRated: Math.round((product.highRated || 0) * ((product.swiggyOrders || 0) / ((product.zomatoOrders || 0) + (product.swiggyOrders || 0) || 1)))
+  })).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => ({
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
@@ -701,7 +703,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* Order Volume Chart - USING RISTA DATA */}
+        {/* High Rated Chart - SEPARATE FOR ZOMATO AND SWIGGY */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -719,12 +721,12 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY TOTAL ORDERS (RISTA API)
+              TOP 10 PRODUCTS BY HIGH RATED (ZOMATO & SWIGGY)
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={orderVolumeData}>
+              <BarChart data={highRatedData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
                 <XAxis 
                   dataKey="name" 
@@ -742,20 +744,18 @@ const ProductAnalysisDashboard = () => {
                     color: '#f8fafc'
                   }}
                   labelFormatter={(label, payload) => {
-                    const item = orderVolumeData.find(d => d.name === label);
+                    const item = highRatedData.find(d => d.name === label);
                     return item ? item.fullName : label;
                   }}
                   formatter={(value, name, props) => {
-                    if (name === 'ristaTotal') return [value, 'Total Orders (Rista)'];
-                    if (name === 'zomatoOrders') return [value, 'Zomato Orders (Rated)'];
-                    if (name === 'swiggyOrders') return [value, 'Swiggy Orders (Rated)'];
+                    if (name === 'zomatoHighRated') return [value, 'Zomato High Rated'];
+                    if (name === 'swiggyHighRated') return [value, 'Swiggy High Rated'];
                     return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="ristaTotal" fill="#3b82f6" name="Total Orders (Rista)" />
-                <Bar dataKey="zomatoOrders" fill="#dc2626" name="Zomato (Rated)" />
-                <Bar dataKey="swiggyOrders" fill="#f97316" name="Swiggy (Rated)" />
+                <Bar dataKey="zomatoHighRated" fill="#dc2626" name="Zomato High Rated" />
+                <Bar dataKey="swiggyHighRated" fill="#f97316" name="Swiggy High Rated" />
               </BarChart>
             </ResponsiveContainer>
           </div>
