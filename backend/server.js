@@ -4721,12 +4721,22 @@ function normalizeProductName(name) {
 /**
  * Similarity between two product names using Gemini AI (0-1).
  */
+/**
+ * Similarity between two product names using Gemini AI (0-1).
+ * FIXED: Now uses the initialized Gemini API via axios instead of local geminiModel
+ */
 async function calculateProductSimilarity(name1, name2) {
   const n1 = normalizeProductName(name1);
   const n2 = normalizeProductName(name2);
 
   if (!n1 || !n2) return 0;
   if (n1 === n2) return 1.0;
+
+  // Check if Gemini API is available
+  if (!GEMINI_API_KEY) {
+    console.warn('Gemini API key not configured, using fallback matching');
+    return calculateLevenshteinSimilarity(n1, n2);
+  }
 
   try {
     const prompt = `Compare these two product names and return ONLY a similarity score between 0 and 1, where:
@@ -4741,21 +4751,47 @@ Product 2: "${n2}"
 
 Return only the numerical score (e.g., 0.85), nothing else.`;
 
-    const result = await geminiModel.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text().trim();
-    
-    const score = parseFloat(text);
-    
-    if (isNaN(score) || score < 0 || score > 1) {
-      console.warn(`Invalid Gemini score for "${name1}" vs "${name2}": ${text}`);
-      return 0;
+    // USE THE SAME GEMINI API CALL AS OTHER ENDPOINTS
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 50,  // Short response, just a number
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000  // 10 second timeout for faster matching
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const text = response.data.candidates[0].content.parts[0].text.trim();
+      const score = parseFloat(text);
+      
+      if (isNaN(score) || score < 0 || score > 1) {
+        console.warn(`Invalid Gemini score for "${name1}" vs "${name2}": ${text}`);
+        return 0;
+      }
+      
+      return score;
     }
     
-    return score;
+    throw new Error('No valid response from Gemini');
+    
   } catch (error) {
     console.error(`Gemini matching error for "${name1}" vs "${name2}":`, error.message);
-    return 0;
+    
+    // Fallback to Levenshtein distance if Gemini fails
+    return calculateLevenshteinSimilarity(n1, n2);
   }
 }
 
@@ -5220,6 +5256,203 @@ async function processProductAnalysisData(spreadsheetId) {
   }
 }
 
+/**
+ * Generate enhanced AI insights for product analysis data
+ * Analyzes product performance, ratings, and provides actionable recommendations
+ */
+async function generateEnhancedProductInsightsWithGemini(data, analysisType = 'comprehensive') {
+  if (!GEMINI_API_KEY) {
+    return generateProductFallbackInsights(data);
+  }
+
+  try {
+    console.log(`Generating product AI insights for ${data.products.length} products`);
+    
+    // Prepare data summary
+    const topProducts = data.products.slice(0, 10);
+    const bottomProducts = data.products.slice(-10);
+    const highRatedProducts = data.products.filter(p => p.avgRating >= 4.0).length;
+    const lowRatedProducts = data.products.filter(p => p.avgRating < 3.0 && p.avgRating > 0).length;
+    
+    // Calculate products with high low-rated percentage
+    const problematicProducts = data.products.filter(p => p.lowRatedPercentage > 5).slice(0, 5);
+
+    const prompt = `You are a restaurant product analyst. Analyze this product performance data and provide actionable insights.
+
+PRODUCT PERFORMANCE SUMMARY:
+- Total Products: ${data.products.length}
+- Total Orders (Last 28 Days): ${data.summary.totalRistaOrders}
+- High Rated Orders: ${data.summary.totalHighRated}
+- Low Rated Orders: ${data.summary.totalLowRated}
+- Average Low Rated %: ${data.summary.avgLowRatedPercentage.toFixed(2)}%
+
+TOP 5 PERFORMERS (by orders):
+${topProducts.slice(0, 5).map(p => `- ${p.name}: ${p.totalOrdersFromRista} orders, ${p.avgRating.toFixed(1)}★, ${p.lowRatedPercentage.toFixed(1)}% low rated`).join('\n')}
+
+BOTTOM 5 PERFORMERS (by orders):
+${bottomProducts.slice(0, 5).map(p => `- ${p.name}: ${p.totalOrdersFromRista} orders, ${p.avgRating.toFixed(1)}★, ${p.lowRatedPercentage.toFixed(1)}% low rated`).join('\n')}
+
+TOP 5 QUALITY ISSUES (by low-rated percentage):
+${problematicProducts.map(p => `- ${p.name}: ${p.lowRatedPercentage.toFixed(1)}% low rated (${p.lowRated} complaints from ${p.totalOrdersFromRista} orders)`).join('\n')}
+
+RATING DISTRIBUTION:
+- High Rated Products (4★+): ${highRatedProducts}
+- Low Rated Products (<3★): ${lowRatedProducts}
+
+Provide a JSON response with:
+{
+  "keyFindings": ["3-5 critical insights about product performance"],
+  "qualityIssues": ["3-5 products with quality concerns and why"],
+  "recommendations": ["3-5 specific, actionable recommendations"],
+  "opportunities": ["2-3 growth opportunities based on popular products"]
+}
+
+Focus on identifying quality issues, popular items, and actionable improvements.`;
+
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.4,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1000,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000
+      }
+    );
+
+    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      console.log('Product AI Response received:', aiResponse.substring(0, 200) + '...');
+      
+      try {
+        // Try to parse JSON from AI response
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const insights = JSON.parse(jsonMatch[0]);
+          return {
+            ...insights,
+            topProducts: topProducts.slice(0, 5).map(p => ({
+              name: p.name,
+              orders: p.totalOrdersFromRista,
+              rating: p.avgRating.toFixed(1),
+              lowRatedPercent: p.lowRatedPercentage.toFixed(1)
+            })),
+            problematicProducts: problematicProducts.map(p => ({
+              name: p.name,
+              orders: p.totalOrdersFromRista,
+              lowRatedPercent: p.lowRatedPercentage.toFixed(1),
+              lowRatedCount: p.lowRated
+            })),
+            confidence: 0.85,
+            generatedAt: new Date().toISOString()
+          };
+        }
+      } catch (parseError) {
+        console.log('JSON parsing failed for product insights, using fallback');
+      }
+      
+      // Fallback: Extract insights from text format
+      return {
+        keyFindings: extractListFromText(aiResponse, 'findings') || [
+          `${data.products.length} products analyzed from last 28 days`,
+          `${highRatedProducts} products with ratings above 4 stars`,
+          `${problematicProducts.length} products need quality attention`
+        ],
+        qualityIssues: extractListFromText(aiResponse, 'quality') || 
+          problematicProducts.map(p => `${p.name} has ${p.lowRatedPercentage.toFixed(1)}% low ratings`),
+        recommendations: extractListFromText(aiResponse, 'recommendations') || [
+          'Focus on improving products with high low-rated percentages',
+          'Investigate quality issues with bottom performers',
+          'Leverage success of top-rated products'
+        ],
+        opportunities: extractListFromText(aiResponse, 'opportunities') || [
+          'Expand popular product variants',
+          'Address quality consistency issues'
+        ],
+        topProducts: topProducts.slice(0, 5).map(p => ({
+          name: p.name,
+          orders: p.totalOrdersFromRista,
+          rating: p.avgRating.toFixed(1),
+          lowRatedPercent: p.lowRatedPercentage.toFixed(1)
+        })),
+        problematicProducts: problematicProducts.map(p => ({
+          name: p.name,
+          orders: p.totalOrdersFromRista,
+          lowRatedPercent: p.lowRatedPercentage.toFixed(1),
+          lowRatedCount: p.lowRated
+        })),
+        confidence: 0.75,
+        generatedAt: new Date().toISOString()
+      };
+    }
+
+    throw new Error('No valid response from AI');
+
+  } catch (error) {
+    console.error('Product AI insight generation error:', error.message);
+    return generateProductFallbackInsights(data);
+  }
+}
+
+/**
+ * Fallback insights generation for product analysis
+ */
+function generateProductFallbackInsights(data) {
+  const topProducts = data.products.slice(0, 10);
+  const bottomProducts = data.products.slice(-10);
+  const problematicProducts = data.products.filter(p => p.lowRatedPercentage > 5).slice(0, 5);
+  const highRatedProducts = data.products.filter(p => p.avgRating >= 4.0).length;
+  
+  return {
+    keyFindings: [
+      `${data.products.length} products analyzed with ${data.summary.totalRistaOrders} total orders`,
+      `${highRatedProducts} products have ratings above 4 stars`,
+      `${problematicProducts.length} products have low-rated percentage above 5%`,
+      `Average low-rated percentage: ${data.summary.avgLowRatedPercentage.toFixed(2)}%`
+    ],
+    qualityIssues: problematicProducts.length > 0 
+      ? problematicProducts.map(p => 
+          `${p.name}: ${p.lowRatedPercentage.toFixed(1)}% low rated (${p.lowRated} complaints)`
+        )
+      : ['No major quality issues detected'],
+    recommendations: [
+      'Focus on products with low-rated percentage above 5%',
+      'Investigate quality consistency for high-volume items',
+      'Monitor customer feedback on problematic products',
+      'Consider menu optimization based on popularity and ratings'
+    ],
+    opportunities: [
+      'Expand variants of top-performing products',
+      'Improve quality consistency across all outlets',
+      'Address specific quality issues identified in low-rated feedback'
+    ],
+    topProducts: topProducts.slice(0, 5).map(p => ({
+      name: p.name,
+      orders: p.totalOrdersFromRista,
+      rating: p.avgRating.toFixed(1),
+      lowRatedPercent: p.lowRatedPercentage.toFixed(1)
+    })),
+    problematicProducts: problematicProducts.map(p => ({
+      name: p.name,
+      orders: p.totalOrdersFromRista,
+      lowRatedPercent: p.lowRatedPercentage.toFixed(1),
+      lowRatedCount: p.lowRated
+    })),
+    confidence: 0.65,
+    generatedAt: new Date().toISOString(),
+    source: 'fallback-analysis'
+  };
+}
 // UPDATED: normalizeProductName to better preserve original names
 
 // Helper function to capitalize words
@@ -6073,6 +6306,7 @@ app.get('/api/product-analysis-data', async (req, res) => {
 });
 
 // POST: Generate AI Insights
+// POST: Generate AI Insights
 app.post('/api/product-generate-insights', async (req, res) => {
   try {
     const { data, analysisType } = req.body;
@@ -6086,6 +6320,7 @@ app.post('/api/product-generate-insights', async (req, res) => {
 
     console.log(`Generating AI insights for ${data.products.length} products (${analysisType || 'default'})`);
     
+    // NOW THIS FUNCTION EXISTS!
     const insights = await generateEnhancedProductInsightsWithGemini(data, analysisType);
     
     res.json({
