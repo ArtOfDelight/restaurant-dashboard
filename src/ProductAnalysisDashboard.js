@@ -18,24 +18,49 @@ const ProductAnalysisDashboard = () => {
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showMatchingDetails, setShowMatchingDetails] = useState(false);
 
-  // Fetch product data using fetch API
+  // Fetch product data using fetch API - NOW USING SHEET-BASED MATCHING
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      const response = await fetch(`${API_URL}/api/product-analysis-data`);
+
+      // Use new sheet-based matching endpoint (NO RISTA API)
+      const response = await fetch(`${API_URL}/api/product-matching-sheets`);
       const result = await response.json();
-      
+
       if (result.success) {
-        setData(result.data);
-        if (result.aiEnabled) {
-          generateAIInsights(result.data);
-        }
+        // Transform the matched data into the format expected by charts
+        const transformedData = {
+          products: result.data.map(item => ({
+            name: item.productDetails_item,
+            totalOrdersFromRista: item.order_count,
+            zomatoOrders: item.zomato_score === 100 ? item.order_count : 0,
+            swiggyOrders: item.swiggy_score === 100 ? item.order_count : 0,
+            zomatoMatch: item.zomato_match,
+            zomatoScore: item.zomato_score,
+            swiggyMatch: item.swiggy_match,
+            swiggyScore: item.swiggy_score,
+            highRated: 0,
+            lowRated: 0,
+            lowRatedPercentage: 0,
+            avgRating: 0
+          })),
+          summary: {
+            totalProducts: result.metadata.totalProductDetails,
+            totalZomatoItems: result.metadata.totalZomatoItems,
+            totalSwiggyItems: result.metadata.totalSwiggyItems,
+            perfectMatches: result.metadata.perfectMatches,
+            totalOrdersFromRista: result.data.reduce((sum, item) => sum + item.order_count, 0),
+            totalZomatoOrders: result.data.filter(item => item.zomato_score === 100).length,
+            totalSwiggyOrders: result.data.filter(item => item.swiggy_score === 100).length
+          }
+        };
+
+        setData(transformedData);
       } else {
         throw new Error(result.error || 'Failed to fetch data');
       }
-      
+
     } catch (err) {
       console.error('API Error:', err);
       setError(err.message || 'Failed to load data. Make sure backend is running.');
@@ -129,15 +154,15 @@ const ProductAnalysisDashboard = () => {
           borderRadius: '50%',
           animation: 'spin 1s linear infinite'
         }}></div>
-        <p style={{ 
-          color: '#374151', 
-          fontSize: '1.2rem', 
+        <p style={{
+          color: '#374151',
+          fontSize: '1.2rem',
           fontWeight: '600',
           textTransform: 'uppercase',
           letterSpacing: '2px',
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
         }}>
-          LOADING PRODUCT ANALYSIS WITH RISTA API DATA...
+          MATCHING PRODUCTS ACROSS SHEETS (100% MATCHES)...
         </p>
         <style>{`
           @keyframes spin {
@@ -286,15 +311,15 @@ const ProductAnalysisDashboard = () => {
           }}>
             PRODUCT ANALYSIS
           </h1>
-          <p style={{ 
-            color: '#94a3b8', 
+          <p style={{
+            color: '#94a3b8',
             marginTop: '10px',
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             fontSize: '0.9rem',
             letterSpacing: '1px',
             margin: '10px 0 0 0'
           }}>
-            AI-POWERED • RISTA API INTEGRATION • {data.summary?.totalProducts || 0} PRODUCTS • {data.summary?.totalOrdersFromRista || 0} TOTAL ORDERS
+            SHEET-BASED MATCHING • 100% PERFECT MATCHES • {data.summary?.perfectMatches || 0} MATCHED • {data.summary?.totalProducts || 0} TOTAL PRODUCTS
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -872,7 +897,7 @@ const ProductAnalysisDashboard = () => {
             textTransform: 'uppercase',
             letterSpacing: '1px'
           }}>
-            DETAILED PRODUCT ANALYSIS (RISTA INTEGRATED)
+            MATCHED PRODUCTS (100% PERFECT MATCHES ONLY)
           </h3>
         </div>
         <div style={{ padding: '25px' }}>
@@ -882,14 +907,12 @@ const ProductAnalysisDashboard = () => {
                 <tr style={{ background: 'rgba(255, 255, 255, 0.05)' }}>
                   {[
                     'PRODUCT NAME',
-                    'TOTAL ORDERS (RISTA)',
-                    'RATED ORDERS',
-                    'HIGH RATED',
-                    'LOW RATED',
-                    'LOW RATED %',
-                    'AVG RATING',
-                    'MATCH STATUS',
-                    'ACTIONS'
+                    'ORDER COUNT',
+                    'SWIGGY MATCH',
+                    'SWIGGY SCORE',
+                    'ZOMATO MATCH',
+                    'ZOMATO SCORE',
+                    'MATCH STATUS'
                   ].map((header) => (
                     <th key={header} style={{ 
                       padding: '18px', 
@@ -908,93 +931,100 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => ((b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)))
+                  .sort((a, b) => (b.totalOrdersFromRista || 0) - (a.totalOrdersFromRista || 0))
                   .map((product, i) => {
-                    const totalRistaOrders = product.totalOrdersFromRista || 0;
-                    const totalRatedOrders = (product.zomatoOrders || 0) + (product.swiggyOrders || 0);
-                    const highRated = product.highRated || 0;
-                    const lowRated = product.lowRated || 0;
-                    const lowRatedPercentage = (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0;
-                    const isHighLowRatedRate = lowRatedPercentage > 5;
-                    const matchBadge = getMatchTypeBadge(product.matchType, product.matchScore);
-                    
+                    const orderCount = product.totalOrdersFromRista || 0;
+                    const swiggyMatch = product.swiggyMatch || '-';
+                    const swiggyScore = product.swiggyScore || 0;
+                    const zomatoMatch = product.zomatoMatch || '-';
+                    const zomatoScore = product.zomatoScore || 0;
+                    const hasBothMatches = swiggyScore === 100 && zomatoScore === 100;
+
                     return (
-                      <tr 
-                        key={i} 
-                        style={{ 
+                      <tr
+                        key={i}
+                        style={{
                           borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          cursor: 'pointer',
                           transition: 'background 0.2s ease',
-                          background: isHighLowRatedRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent'
+                          background: hasBothMatches ? 'rgba(34, 197, 94, 0.1)' : 'transparent'
                         }}
-                        onClick={() => analyzeProduct(product.name)}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = isHighLowRatedRate ? 'rgba(239, 68, 68, 0.1)' : 'transparent';
+                          e.currentTarget.style.background = hasBothMatches ? 'rgba(34, 197, 94, 0.1)' : 'transparent';
                         }}
                       >
-                        <td style={{ 
-                          padding: '18px', 
-                          fontWeight: '600', 
-                          color: isHighLowRatedRate ? '#ef4444' : '#f8fafc',
+                        <td style={{
+                          padding: '18px',
+                          fontWeight: '600',
+                          color: '#f8fafc',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          maxWidth: '200px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
+                          maxWidth: '250px'
                         }}>
                           {product.name}
-                          {isHighLowRatedRate && <span style={{ color: '#ef4444', fontSize: '0.7rem', marginLeft: '5px' }}>⚠ HIGH</span>}
+                          {hasBothMatches && <span style={{ color: '#22c55e', fontSize: '0.7rem', marginLeft: '5px' }}>✓ BOTH</span>}
                         </td>
-                        <td style={{ 
+                        <td style={{
                           padding: '18px',
                           color: '#3b82f6',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '700',
                           fontSize: '1.1rem'
                         }}>
-                          {totalRistaOrders}
+                          {orderCount}
                         </td>
                         <td style={{
                           padding: '18px',
-                          color: '#94a3b8',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-                        }}>
-                          {totalRatedOrders}
-                        </td>
-                        <td style={{ 
-                          padding: '18px',
-                          color: '#22c55e',
+                          color: swiggyScore === 100 ? '#22c55e' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '600'
+                          maxWidth: '200px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
                         }}>
-                          {highRated}
+                          {swiggyMatch}
                         </td>
-                        <td style={{ 
+                        <td style={{
                           padding: '18px',
-                          color: lowRated > 0 ? '#ef4444' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '600'
+                          fontWeight: '700'
                         }}>
-                          {lowRated}
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.8rem',
+                            background: swiggyScore === 100 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            color: swiggyScore === 100 ? '#22c55e' : '#ef4444',
+                            border: `1px solid ${swiggyScore === 100 ? '#22c55e40' : '#ef444440'}`
+                          }}>
+                            {swiggyScore === 100 ? '100%' : '0%'}
+                          </span>
                         </td>
-                        <td style={{ 
+                        <td style={{
                           padding: '18px',
-                          color: lowRatedPercentage > 5 ? '#ef4444' : lowRatedPercentage > 2 ? '#f59e0b' : '#22c55e',
+                          color: zomatoScore === 100 ? '#22c55e' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '700',
-                          fontSize: '1.1rem'
+                          maxWidth: '200px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
                         }}>
-                          {lowRatedPercentage.toFixed(2)}%
+                          {zomatoMatch}
                         </td>
-                        <td style={{ 
+                        <td style={{
                           padding: '18px',
-                          color: (product.avgRating || 0) > 4 ? '#22c55e' : (product.avgRating || 0) > 3.5 ? '#f59e0b' : '#ef4444',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '600'
+                          fontWeight: '700'
                         }}>
-                          {product.avgRating?.toFixed(1) || 'N/A'}
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '0.8rem',
+                            background: zomatoScore === 100 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            color: zomatoScore === 100 ? '#22c55e' : '#ef4444',
+                            border: `1px solid ${zomatoScore === 100 ? '#22c55e40' : '#ef444440'}`
+                          }}>
+                            {zomatoScore === 100 ? '100%' : '0%'}
+                          </span>
                         </td>
                         <td style={{ padding: '18px' }}>
                           <span style={{
@@ -1003,36 +1033,12 @@ const ProductAnalysisDashboard = () => {
                             fontSize: '0.7rem',
                             fontWeight: '600',
                             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                            background: matchBadge.bg,
-                            color: matchBadge.color,
-                            border: `1px solid ${matchBadge.color}40`
+                            background: hasBothMatches ? 'rgba(34, 197, 94, 0.2)' : (swiggyScore === 100 || zomatoScore === 100) ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            color: hasBothMatches ? '#22c55e' : (swiggyScore === 100 || zomatoScore === 100) ? '#f59e0b' : '#ef4444',
+                            border: `1px solid ${hasBothMatches ? '#22c55e40' : (swiggyScore === 100 || zomatoScore === 100) ? '#f59e0b40' : '#ef444440'}`
                           }}>
-                            {matchBadge.text}
+                            {hasBothMatches ? 'BOTH PLATFORMS' : (swiggyScore === 100 || zomatoScore === 100) ? 'PARTIAL MATCH' : 'NO MATCH'}
                           </span>
-                        </td>
-                        <td style={{ padding: '18px' }}>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              analyzeProduct(product.name);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              fontSize: '0.75rem',
-                              fontWeight: '600',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.5px',
-                              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                              background: isHighLowRatedRate ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)',
-                              color: isHighLowRatedRate ? '#ef4444' : '#8b5cf6',
-                              border: `1px solid ${isHighLowRatedRate ? 'rgba(239, 68, 68, 0.5)' : 'rgba(139, 92, 246, 0.5)'}`,
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {isHighLowRatedRate ? 'URGENT' : 'ANALYZE'}
-                          </button>
                         </td>
                       </tr>
                     );

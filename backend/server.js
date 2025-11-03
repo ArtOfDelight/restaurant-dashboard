@@ -5782,6 +5782,279 @@ module.exports = {
   matchRistaOrdersWithProducts,
   calculateProductSimilarity
 };
+
+// ===================================================================
+// === CSV-BASED PRODUCT MATCHING (NO RISTA API) ===
+// ===================================================================
+
+/**
+ * Preprocess item name for 100% matching
+ * Removes: punctuation, extra spaces, units, special chars
+ */
+function preprocessItemName(name) {
+  if (!name) return '';
+
+  return name
+    .toLowerCase()
+    .trim()
+    // Remove quantity indicators
+    .replace(/\d+\s*(ml|gm|gms|g|kg|mg|l|ltr|litre|piece|pcs|pack)/gi, '')
+    .replace(/\(.*?\)/g, '') // Remove content in parentheses
+    .replace(/\[.*?\]/g, '') // Remove content in brackets
+    // Remove punctuation
+    .replace(/[.,;:!?'"]/g, '')
+    // Remove extra spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Calculate similarity score between two strings (0-100)
+ * Uses Levenshtein distance algorithm
+ */
+function calculateSimilarityScore(str1, str2) {
+  const s1 = preprocessItemName(str1);
+  const s2 = preprocessItemName(str2);
+
+  if (s1 === s2) return 100;
+  if (!s1 || !s2) return 0;
+
+  // Levenshtein distance calculation
+  const len1 = s1.length;
+  const len2 = s2.length;
+  const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(0));
+
+  for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+  for (let j = 0; j <= len2; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= len2; j++) {
+    for (let i = 1; i <= len1; i++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,     // deletion
+        matrix[j - 1][i] + 1,     // insertion
+        matrix[j - 1][i - 1] + cost // substitution
+      );
+    }
+  }
+
+  const distance = matrix[len2][len1];
+  const maxLen = Math.max(len1, len2);
+  const similarity = maxLen === 0 ? 100 : Math.round((1 - distance / maxLen) * 100);
+
+  return similarity;
+}
+
+/**
+ * Process ProductDetails sheet - Extract item names and order counts
+ */
+function processProductDetailsSheet(rawData) {
+  if (!rawData || rawData.length < 2) return [];
+
+  const headers = rawData[0];
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+  const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+
+  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
+
+  const items = [];
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const itemName = row[itemNameIndex]?.toString().trim();
+    const orderCount = parseInt(row[orderCountIndex]) || 0;
+
+    if (itemName) {
+      items.push({
+        itemName,
+        orderCount,
+        normalizedName: preprocessItemName(itemName)
+      });
+    }
+  }
+
+  console.log(`Processed ${items.length} items from ProductDetails`);
+  return items;
+}
+
+/**
+ * Process Zomato Orders sheet - Extract item names from "Items in order" column
+ */
+function processZomatoItemNames(rawData) {
+  if (!rawData || rawData.length < 2) return [];
+
+  const headers = rawData[0];
+  const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
+
+  console.log(`Zomato - Items in order column: ${itemsIndex}`);
+
+  const itemsSet = new Set();
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const itemsCell = row[itemsIndex]?.toString().trim();
+
+    if (itemsCell) {
+      // Split by common delimiters
+      const items = itemsCell.split(/[,;|+&]/).map(item => item.trim()).filter(item => item);
+      items.forEach(item => itemsSet.add(item));
+    }
+  }
+
+  const uniqueItems = Array.from(itemsSet).map(item => ({
+    originalName: item,
+    normalizedName: preprocessItemName(item)
+  }));
+
+  console.log(`Processed ${uniqueItems.length} unique items from Zomato`);
+  return uniqueItems;
+}
+
+/**
+ * Process Swiggy Review sheet - Extract item names from "Item Ordered" column
+ */
+function processSwiggyItemNames(rawData) {
+  if (!rawData || rawData.length < 2) return [];
+
+  const headers = rawData[0];
+  const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
+
+  console.log(`Swiggy - Item Ordered column: ${itemOrderedIndex}`);
+
+  const itemsSet = new Set();
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const itemName = row[itemOrderedIndex]?.toString().trim();
+
+    if (itemName) {
+      itemsSet.add(itemName);
+    }
+  }
+
+  const uniqueItems = Array.from(itemsSet).map(item => ({
+    originalName: item,
+    normalizedName: preprocessItemName(item)
+  }));
+
+  console.log(`Processed ${uniqueItems.length} unique items from Swiggy`);
+  return uniqueItems;
+}
+
+/**
+ * Match items across three datasets - ONLY keep 100% matches
+ */
+function matchItemsAcrossSheets(productDetails, zomatoItems, swiggyItems) {
+  console.log('\nMatching items (100% matches only)...');
+
+  const results = [];
+
+  for (const product of productDetails) {
+    const productNormalized = product.normalizedName;
+
+    // Find 100% match in Zomato
+    let zomatoMatch = null;
+    let zomatoScore = 0;
+    for (const zItem of zomatoItems) {
+      const score = calculateSimilarityScore(product.itemName, zItem.originalName);
+      if (score === 100) {
+        zomatoMatch = zItem.originalName;
+        zomatoScore = 100;
+        break;
+      }
+    }
+
+    // Find 100% match in Swiggy
+    let swiggyMatch = null;
+    let swiggyScore = 0;
+    for (const sItem of swiggyItems) {
+      const score = calculateSimilarityScore(product.itemName, sItem.originalName);
+      if (score === 100) {
+        swiggyMatch = sItem.originalName;
+        swiggyScore = 100;
+        break;
+      }
+    }
+
+    // Only include if at least one platform has a 100% match
+    if (zomatoScore === 100 || swiggyScore === 100) {
+      results.push({
+        productDetails_item: product.itemName,
+        order_count: product.orderCount,
+        swiggy_match: swiggyMatch || '',
+        swiggy_score: swiggyScore,
+        zomato_match: zomatoMatch || '',
+        zomato_score: zomatoScore
+      });
+    }
+  }
+
+  console.log(`Found ${results.length} items with 100% matches`);
+  return results;
+}
+
+/**
+ * Main function - Process product matching from Google Sheets (NO RISTA API)
+ */
+async function processProductMatchingFromSheets(spreadsheetId) {
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('PROCESSING PRODUCT MATCHING - SHEET-BASED (NO RISTA API)');
+  console.log('═══════════════════════════════════════════════════════════\n');
+
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    // Fetch all three sheets in parallel
+    console.log('Fetching sheets...');
+    const [productDetailsData, zomatoData, swiggyData] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'ProductDetails!A:Z'
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'zomato_orders!A:Z'
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Copy of swiggy_review!A:Z'
+      })
+    ]);
+
+    // Process each sheet
+    const productDetails = processProductDetailsSheet(productDetailsData.data.values);
+    const zomatoItems = processZomatoItemNames(zomatoData.data.values);
+    const swiggyItems = processSwiggyItemNames(swiggyData.data.values);
+
+    // Match items (100% only)
+    const matchedResults = matchItemsAcrossSheets(productDetails, zomatoItems, swiggyItems);
+
+    console.log('\n✓ Product matching complete!');
+    console.log(`  Total ProductDetails items: ${productDetails.length}`);
+    console.log(`  Total Zomato items: ${zomatoItems.length}`);
+    console.log(`  Total Swiggy items: ${swiggyItems.length}`);
+    console.log(`  Perfect matches (100%): ${matchedResults.length}\n`);
+
+    return {
+      success: true,
+      data: matchedResults,
+      metadata: {
+        totalProductDetails: productDetails.length,
+        totalZomatoItems: zomatoItems.length,
+        totalSwiggyItems: swiggyItems.length,
+        perfectMatches: matchedResults.length
+      }
+    };
+
+  } catch (error) {
+    console.error('Error processing product matching:', error.message);
+    throw error;
+  }
+}
+
 // === EMPLOYEE DASHBOARD SPECIFIC FUNCTIONS ===
 
 // === INTELLIGENT EMPLOYEE DATA MAPPING WITH GEMINI ===
@@ -6355,6 +6628,31 @@ app.get('/api/product-analysis-data', async (req, res) => {
       success: false, 
       error: error.message,
       stack: error.stack 
+    });
+  }
+});
+
+// GET: Product Matching from Sheets (NO RISTA API - 100% matches only)
+app.get('/api/product-matching-sheets', async (req, res) => {
+  try {
+    console.log('=== Product Matching API Call Started (Sheet-based) ===');
+
+    const result = await processProductMatchingFromSheets(DASHBOARD_SPREADSHEET_ID);
+
+    console.log('=== Product Matching Complete ===');
+    console.log(`Found ${result.data.length} perfect matches (100% score)`);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('=== Product Matching Error ===');
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
     });
   }
 });
