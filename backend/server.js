@@ -5006,25 +5006,23 @@ function matchProductsWithRatings(productDetails, zomatoItems, swiggyItems) {
   
   for (const product of productDetails) {
     const productNormalized = product.normalizedName;
-    
+
     let zomatoMatch = null;
     let swiggyMatch = null;
     let hasMatch = false;
-    
-    // Find 100% match in Zomato
+
+    // Find exact match in Zomato (both are already normalized)
     for (const zItem of zomatoItems) {
-      const score = calculateFuzzyScore(product.itemName, zItem.normalizedName);
-      if (score === 100) {
+      if (productNormalized === zItem.normalizedName) {
         zomatoMatch = zItem;
         hasMatch = true;
         break; // Take first perfect match only
       }
     }
-    
-    // Find 100% match in Swiggy
+
+    // Find exact match in Swiggy (both are already normalized)
     for (const sItem of swiggyItems) {
-      const score = calculateFuzzyScore(product.itemName, sItem.normalizedName);
-      if (score === 100) {
+      if (productNormalized === sItem.normalizedName) {
         swiggyMatch = sItem;
         hasMatch = true;
         break; // Take first perfect match only
