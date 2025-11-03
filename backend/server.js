@@ -4607,160 +4607,17 @@ function generateSwiggyFallbackInsights(data, period) {
   };
 }
 
-// === ENHANCED PRODUCT ANALYSIS FUNCTIONS WITH LOW RATED METRICS ===
+// === ENHANCED PRODUCT ANALYSIS - NO RISTA API VERSION ===
+// Uses ProductDetails sheet aggregation + 100% fuzzy matching with rapidfuzz
 
-// Process Zomato orders data with correct column mapping
+const { fuzz } = require('fuzzywuzzy'); // Using fuzzywuzzy as rapidfuzz equivalent for Node.js
 
-// Main function to process product data from multiple sheets - ADD THIS
-const API_KEY = process.env.RISTA_API_KEY;
-const PRIVATE_KEY = process.env.RISTA_SECRET_KEY;
-const BASE_URL = 'https://api.ristaapps.com/v1';
-
-// RISTA-SPECIFIC BRANCH CODES - UPDATE WITH YOUR ACTUAL BRANCH CODES
-// DO NOT USE `BRANCH_CODES` - it's used elsewhere for a different endpoint
-// Human-readable branch names
-const BRANCH_NAME_TO_CODE = {
-  'Sahakarnagar': 'AOD-6',
-  'Residency Road': 'AOD-01',
-  'Whitefield': 'AOD-4',
-  'Koramangala': 'AOD-02',
-  'Kalyan Nagar': 'AOD-5',
-  'Bellandur': 'AOD-3',
-  'Indiranagar': 'AOD-IND',
-  'Arekere': 'AOD-ARK',
-  'Jayanagar': 'AOD-JAY',
-  'HSR Layout': 'HSR',
-  'Rajajinagar': 'RAJ',
-};
-
-// ONLY CODES — Used in Rista API calls
-const RISTA_BRANCH_CODES = Object.values(BRANCH_NAME_TO_CODE);// UPDATE THIS!
-
-// Only these channels
-const ALLOWED_CHANNELS = ['AOD Swiggy', 'AOD Zomato'];
+// Configuration
+const DATE_FILTER_DAYS = 28; // Set to null to use all dates, or specify number of days (e.g., 28, 90)
 
 /**
- * Creates a JWT token for authentication with the RistaAPI.
- */
-function createJwtToken(expires_in_hours = 6) {
-  const current_time = Math.floor(new Date().getTime() / 1000);
-  const expiration_time = current_time + (expires_in_hours * 3600);
-  
-  const header = {
-    "alg": "HS256",
-    "typ": "JWT"
-  };
-  
-  const payload = {
-    "iss": API_KEY,
-    "userId": 123,
-    "name": "Script User",
-    "iat": current_time,
-    "exp": expiration_time
-  };
-
-  const jwt = require('jsonwebtoken');
-  return jwt.sign(payload, PRIVATE_KEY, { algorithm: 'HS256', header });
-}
-
-/**
- * Generates request headers with the JWT token.
- */
-function getHeaders() {
-  const accessToken = createJwtToken();
-  return {
-    'x-api-key': API_KEY,
-    'x-api-token': accessToken,
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  };
-}
-
-/**
- * Get date string in YYYY-MM-DD format
- */
-function getDateString(daysAgo = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() - daysAgo);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Advanced product name matching using multiple algorithms
- */
-
-// ===== RATE LIMITING AND CACHING FOR GEMINI API =====
-
-// Cache for product similarity scores to avoid redundant API calls
-const similarityCache = new Map();
-
-// Rate limiting state
-let lastGeminiCallTime = 0;
-const MIN_DELAY_BETWEEN_CALLS = 300; // Minimum 300ms between API calls (200 calls/minute max)
-const MAX_RETRIES = 3;
-
-/**
- * Sleep utility
- */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Rate-limited Gemini API call with exponential backoff retry
- */
-async function callGeminiWithRateLimit(prompt, retryCount = 0) {
-  // Ensure minimum delay between API calls
-  const now = Date.now();
-  const timeSinceLastCall = now - lastGeminiCallTime;
-  if (timeSinceLastCall < MIN_DELAY_BETWEEN_CALLS) {
-    await sleep(MIN_DELAY_BETWEEN_CALLS - timeSinceLastCall);
-  }
-  lastGeminiCallTime = Date.now();
-
-  try {
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 50,
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000
-      }
-    );
-
-    return response;
-  } catch (error) {
-    // Handle rate limit errors with exponential backoff
-    if (error.response?.status === 429 && retryCount < MAX_RETRIES) {
-      const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Max 8 seconds
-      console.log(`Rate limit hit, retrying in ${backoffDelay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-      await sleep(backoffDelay);
-      return callGeminiWithRateLimit(prompt, retryCount + 1);
-    }
-    throw error;
-  }
-}
-
-/**
- * Normalise a product name for matching.
- *   • Removes leading "X " (or "X-" , "X." etc.)
- *   • Strips quantity/price tags, parentheses, brackets, size, ₹
- *   • Lower-cases, collapses spaces, trims
+ * Normalize product name for matching
+ * Removes: leading X, quantities, parentheses, brackets, sizes, prices, punctuation
  */
 function normalizeProductName(name) {
   if (!name) return '';
@@ -4774,6 +4631,7 @@ function normalizeProductName(name) {
     .replace(/qty\s*:?\s*\d+/gi, '')
     .replace(/quantity\s*:?\s*\d+/gi, '')
     .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
+    .replace(/\d+\s*(ml|gm|gms|g|kg|mg|l|ltr|litre|piece|pcs|pack)/gi, '') // Remove units
     .replace(/₹\s*\d+/g, '')                    // Remove prices
     .replace(/[^\w\s]/g, '')                    // Remove punctuation
     .replace(/\s+/g, ' ')                       // Collapse spaces
@@ -4782,320 +4640,466 @@ function normalizeProductName(name) {
 }
 
 /**
- * Similarity between two product names using Gemini AI (0-1).
- * UPDATED: Now uses caching and rate-limited API calls with exponential backoff retry
+ * Calculate fuzzy match score using fuzzywuzzy (0-100)
+ * Returns 100 for perfect matches only
  */
-async function calculateProductSimilarity(name1, name2) {
-  const n1 = normalizeProductName(name1);
-  const n2 = normalizeProductName(name2);
-
-  if (!n1 || !n2) return 0;
-  if (n1 === n2) return 1.0;
-
-  // Check cache first (cache key is sorted to ensure "A vs B" = "B vs A")
-  const cacheKey = [n1, n2].sort().join('|');
-  if (similarityCache.has(cacheKey)) {
-    return similarityCache.get(cacheKey);
-  }
-
-  // Check if Gemini API is available
-  if (!GEMINI_API_KEY) {
-    console.warn('Gemini API key not configured, using fallback matching');
-    const score = calculateLevenshteinSimilarity(n1, n2);
-    similarityCache.set(cacheKey, score);
-    return score;
-  }
-
-  try {
-    const prompt = `Compare these two product names and return ONLY a similarity score between 0 and 1, where:
-- 1.0 = identical products
-- 0.9-0.99 = very similar (minor variations)
-- 0.75-0.89 = same product, different formatting
-- 0.5-0.74 = related but different variants
-- Below 0.5 = different products
-
-Product 1: "${n1}"
-Product 2: "${n2}"
-
-Return only the numerical score (e.g., 0.85), nothing else.`;
-
-    // Use rate-limited API call with retry logic
-    const response = await callGeminiWithRateLimit(prompt);
-
-    if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      const text = response.data.candidates[0].content.parts[0].text.trim();
-      const score = parseFloat(text);
-
-      if (isNaN(score) || score < 0 || score > 1) {
-        console.warn(`Invalid Gemini score for "${name1}" vs "${name2}": ${text}`);
-        const fallbackScore = calculateLevenshteinSimilarity(n1, n2);
-        similarityCache.set(cacheKey, fallbackScore);
-        return fallbackScore;
-      }
-
-      // Cache the result
-      similarityCache.set(cacheKey, score);
-      return score;
-    }
-
-    throw new Error('No valid response from Gemini');
-
-  } catch (error) {
-    console.error(`Gemini matching error for "${name1}" vs "${name2}":`, error.message);
-
-    // Fallback to Levenshtein distance if Gemini fails
-    const fallbackScore = calculateLevenshteinSimilarity(n1, n2);
-    similarityCache.set(cacheKey, fallbackScore);
-    return fallbackScore;
-  }
+function calculateFuzzyScore(str1, str2) {
+  const normalized1 = normalizeProductName(str1);
+  const normalized2 = normalizeProductName(str2);
+  
+  if (!normalized1 || !normalized2) return 0;
+  if (normalized1 === normalized2) return 100;
+  
+  // Use fuzzywuzzy ratio (equivalent to rapidfuzz.fuzz.ratio)
+  return fuzz.ratio(normalized1, normalized2);
 }
 
 /**
- * Levenshtein distance similarity (kept as fallback, not used in main flow)
+ * Parse date and check if within filter range
  */
-function calculateLevenshteinSimilarity(str1, str2) {
-  const track = Array(str2.length + 1).fill(null).map(() =>
-    Array(str1.length + 1).fill(null));
+function isDateWithinRange(dateStr, daysBack) {
+  if (!daysBack) return true; // No filter, accept all dates
   
-  for (let i = 0; i <= str1.length; i++) track[0][i] = i;
-  for (let j = 0; j <= str2.length; j++) track[j][0] = j;
+  const date = parseFlexibleDate(dateStr);
+  if (!date) return false;
   
-  for (let j = 1; j <= str2.length; j++) {
-    for (let i = 1; i <= str1.length; i++) {
-      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      track[j][i] = Math.min(
-        track[j][i - 1] + 1,
-        track[j - 1][i] + 1,
-        track[j - 1][i - 1] + indicator
-      );
-    }
-  }
+  const today = new Date();
+  const cutoffDate = new Date();
+  cutoffDate.setDate(today.getDate() - daysBack);
   
-  const maxLength = Math.max(str1.length, str2.length);
-  return maxLength === 0 ? 1.0 : 1.0 - (track[str2.length][str1.length] / maxLength);
+  return date >= cutoffDate && date <= today;
 }
 
 /**
- * Fetches sales data from Rista API for a specific branch and date
- * Uses /sales/page endpoint
+ * Helper function to parse dates flexibly
  */
-async function fetchSalesDataForBranch(branchCode, date, retryCount = 0) {
-  const endpoint = '/sales/page';
-  const url = `${BASE_URL}${endpoint}?branch=${encodeURIComponent(branchCode)}&day=${encodeURIComponent(date)}&limit=500`;
+function parseFlexibleDate(dateStr) {
+  if (!dateStr || dateStr.trim() === '') return null;
   
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: getHeaders()
-    });
-    
-    if (response.status === 200) {
-      const data = await response.json();
-      return data.data || [];
-    } else if (response.status === 429 && retryCount < 3) {
-      console.log(`Rate limit hit for branch ${branchCode} on ${date}, retrying in ${2 ** retryCount} seconds...`);
-      await new Promise(resolve => setTimeout(resolve, (2 ** retryCount) * 1000));
-      return fetchSalesDataForBranch(branchCode, date, retryCount + 1);
-    } else {
-      console.error(`HTTP Error ${response.status} for branch ${branchCode} on ${date}`);
-      return [];
-    }
-  } catch (error) {
-    if (retryCount < 2) {
-      console.log(`Error fetching sales data for branch ${branchCode} on ${date}, retrying: ${error.message}`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return fetchSalesDataForBranch(branchCode, date, retryCount + 1);
-    } else {
-      console.error(`Final error fetching sales data for branch ${branchCode} on ${date}: ${error.message}`);
-      return [];
-    }
+  const trimmed = dateStr.trim();
+  
+  // Try standard Date parse first
+  let date = new Date(trimmed);
+  if (!isNaN(date.getTime())) return date;
+  
+  // Try DD/MM/YYYY or DD-MM-YYYY
+  const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ddmmyyyyMatch) {
+    const [, day, month, year] = ddmmyyyyMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
   }
+  
+  // Try YYYY-MM-DD
+  const yyyymmddMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (yyyymmddMatch) {
+    const [, year, month, day] = yyyymmddMatch;
+    date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  // Try Excel serial number
+  const serialNumber = parseFloat(trimmed);
+  if (serialNumber > 0) {
+    const baseDate = new Date(1899, 11, 30);
+    date = new Date(baseDate.getTime() + serialNumber * 24 * 60 * 60 * 1000);
+    if (!isNaN(date.getTime())) return date;
+  }
+  
+  return null;
 }
 
 /**
- * Fetches total orders for all items across all RISTA branches for the last 28 days
- * Only counts orders from AOD Swiggy and AOD Zomato channels
+ * Process ProductDetails sheet - Aggregate orders by item name with date filter
  */
-async function fetchTotalOrdersFromRista() {
-  console.log('Fetching total orders from Rista API (last 28 days)...');
-  console.log(`Channels: ${ALLOWED_CHANNELS.join(', ')}\n`);
-  
-  const itemOrdersMap = {}; // Map of normalized item name -> total quantity
-  
-  // Get last 28 days
-  const dates = [];
-  for (let i = 0; i < 28; i++) {
-    dates.push(getDateString(i));
-  }
-  
-  console.log(`Date range: ${dates[27]} to ${dates[0]} (28 days)`);
-  console.log(`Branches: ${RISTA_BRANCH_CODES.length}`);
-  console.log(`Total requests: ${RISTA_BRANCH_CODES.length * dates.length}\n`);
-  
-  let totalBranchDays = RISTA_BRANCH_CODES.length * dates.length;
-  let currentRequest = 0;
-  let totalOrdersProcessed = 0;
-  let totalItemsFound = 0;
-  
-  for (const branchCode of RISTA_BRANCH_CODES) {
-    console.log(`\nProcessing branch: ${branchCode}`);
-    let branchOrders = 0;
-    
-    for (const date of dates) {
-      currentRequest++;
-      const progress = Math.round((currentRequest / totalBranchDays) * 100);
-      
-      const salesOrders = await fetchSalesDataForBranch(branchCode, date);
-      
-      // Process each order
-      let validOrders = 0;
-      salesOrders.forEach(order => {
-        // Filter by channel - only AOD Swiggy and AOD Zomato
-        if (!ALLOWED_CHANNELS.includes(order.channel)) {
-          return;
-        }
-        
-        // Only process closed orders
-        if (order.status !== 'Closed') {
-          return;
-        }
-        
-        validOrders++;
-        branchOrders++;
-        
-        // Process each item in the order
-        if (order.items && order.items.length > 0) {
-          order.items.forEach(item => {
-            const productName = item.longName || item.shortName;
-            if (!productName) return;
-            
-            const normalizedName = normalizeProductName(productName);
-            const quantity = item.quantity || 1;
-            
-            if (!itemOrdersMap[normalizedName]) {
-              itemOrdersMap[normalizedName] = {
-                name: productName,
-                totalQuantity: 0
-              };
-            }
-            
-            itemOrdersMap[normalizedName].totalQuantity += quantity;
-            totalItemsFound += quantity;
-          });
-        }
-      });
-      
-      totalOrdersProcessed += validOrders;
-      
-      // Log progress every 10 requests
-      if (currentRequest % 10 === 0) {
-        console.log(`   [${progress}%] Processed ${currentRequest}/${totalBranchDays} | Date: ${date} | Valid orders: ${validOrders}`);
-      }
-      
-      // Add delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    
-    console.log(`   Branch complete: ${branchOrders} valid orders`);
-  }
-  
-  const uniqueProducts = Object.keys(itemOrdersMap).length;
-  
-  console.log('\nData collection complete!');
-  console.log(`Summary:`);
-  console.log(`   - Unique Products: ${uniqueProducts}`);
-  console.log(`   - Total Valid Orders: ${totalOrdersProcessed}`);
-  console.log(`   - Total Items Sold: ${totalItemsFound}`);
-  console.log(`   - Date Range: ${dates[27]} to ${dates[0]}`);
-  
-  return itemOrdersMap;
-}
+function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
+  if (!rawData || rawData.length < 2) return [];
 
-/**
- * Matches Rista item names with product analysis data using Gemini AI
- */
-async function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
-  console.log('\nMatching Rista orders with product analysis data using Gemini AI...');
+  const headers = rawData[0];
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+  const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+
+  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
   
-  let exactMatches = 0;
-  let fuzzyMatches = 0;
-  let noMatches = 0;
-  
-  const matchedProducts = [];
-  
-  for (const product of products) {
-    const productNormalized = normalizeProductName(product.name);
-    
-    // Try exact match first
-    if (ristaOrdersMap[productNormalized]) {
-      const ristaOrders = ristaOrdersMap[productNormalized].totalQuantity;
-      exactMatches++;
-      matchedProducts.push({
-        ...product,
-        totalOrdersFromRista: ristaOrders,
-        matchType: 'exact'
-      });
+  if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
+    console.error('ERROR: Required columns not found in ProductDetails sheet');
+    return [];
+  }
+
+  // Use a Map to aggregate order counts by item name
+  const itemsMap = new Map();
+  let totalRowsProcessed = 0;
+  let rowsFiltered = 0;
+
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const dateStr = row[dateIndex]?.toString().trim();
+    const itemName = row[itemNameIndex]?.toString().trim();
+    const orderCount = parseInt(row[orderCountIndex]) || 0;
+
+    if (!itemName) continue;
+
+    // Apply date filter if specified
+    if (daysFilter && !isDateWithinRange(dateStr, daysFilter)) {
+      rowsFiltered++;
       continue;
     }
-    
-    // Try Gemini-powered fuzzy matching
-    let bestMatch = null;
-    let bestScore = 0;
-    let bestMatchName = '';
-    
-    for (const [ristaName, ristaData] of Object.entries(ristaOrdersMap)) {
-      const similarity = await calculateProductSimilarity(productNormalized, ristaName);
 
-      if (similarity > bestScore) {
-        bestScore = similarity;
-        bestMatch = ristaData.totalQuantity;
-        bestMatchName = ristaData.name;
-      }
+    totalRowsProcessed++;
+    const normalizedName = normalizeProductName(itemName);
 
-      // Rate limiting is now handled inside calculateProductSimilarity
+    // Aggregate counts for the same item across different dates
+    if (itemsMap.has(normalizedName)) {
+      const existing = itemsMap.get(normalizedName);
+      existing.totalOrders += orderCount;
+    } else {
+      itemsMap.set(normalizedName, {
+        itemName,
+        totalOrders: orderCount,
+        normalizedName
+      });
+    }
+  }
+
+  // Convert Map to array
+  const items = Array.from(itemsMap.values());
+  
+  console.log(`\nProductDetails Processing:`);
+  console.log(`  Total rows: ${rawData.length - 1}`);
+  console.log(`  Rows filtered by date: ${rowsFiltered}`);
+  console.log(`  Rows processed: ${totalRowsProcessed}`);
+  console.log(`  Unique items: ${items.length}`);
+  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  
+  return items;
+}
+
+/**
+ * Process Zomato orders and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processZomatoOrdersDataWithRatings(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  console.log('\nZomato Orders Headers:', headers);
+  
+  const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}`);
+  
+  if (itemsIndex === -1) {
+    console.error('ERROR: Items in order column not found in Zomato sheet');
+    return [];
+  }
+  
+  const itemCounts = new Map();
+  const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
+  
+  let totalOrders = 0;
+  let ordersWithRatings = 0;
+  
+  dataRows.forEach(row => {
+    const itemsCell = getCellValue(row, itemsIndex);
+    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
+    
+    totalOrders++;
+    
+    if (!itemsCell || !itemsCell.trim()) {
+      return;
     }
     
-    // Use 75% similarity threshold for matching
-    if (bestScore >= 0.75) {
-      fuzzyMatches++;
-      console.log(`   Gemini match (${(bestScore * 100).toFixed(1)}%): "${product.name}" -> "${bestMatchName}" -> ${bestMatch} orders`);
+    if (rating > 0) ordersWithRatings++;
+    
+    const items = parseItemsFromCell(itemsCell);
+    
+    items.forEach(item => {
+      if (item && item.trim()) {
+        const cleanItem = item.trim();
+        const normalizedItem = normalizeProductName(cleanItem);
+        
+        itemCounts.set(normalizedItem, (itemCounts.get(normalizedItem) || 0) + 1);
+        
+        if (!itemRatings.has(normalizedItem)) {
+          itemRatings.set(normalizedItem, []);
+        }
+        if (rating > 0) {
+          itemRatings.get(normalizedItem).push(rating);
+          
+          // Categorize as high or low rated
+          if (rating >= 4.0) {
+            itemHighRated.set(normalizedItem, (itemHighRated.get(normalizedItem) || 0) + 1);
+          } else if (rating < 3.0) {
+            itemLowRated.set(normalizedItem, (itemLowRated.get(normalizedItem) || 0) + 1);
+          }
+        }
+      }
+    });
+  });
+  
+  const result = [];
+  itemCounts.forEach((count, normalizedItem) => {
+    const ratings = itemRatings.get(normalizedItem) || [];
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(normalizedItem) || 0;
+    const lowRated = itemLowRated.get(normalizedItem) || 0;
+    
+    result.push({
+      normalizedName: normalizedItem,
+      orders: count,
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
+    });
+  });
+  
+  console.log(`\nZomato Processing:`);
+  console.log(`  Total orders: ${totalOrders}`);
+  console.log(`  Orders with ratings: ${ordersWithRatings}`);
+  console.log(`  Unique items: ${result.length}`);
+  
+  return result;
+}
+
+/**
+ * Process Swiggy reviews and categorize ratings into high/low rated
+ * High rated: 4 stars and above
+ * Low rated: below 3 stars
+ */
+function processSwiggyReviewDataWithRatings(rawData) {
+  if (!rawData || rawData.length <= 1) return [];
+  
+  const headers = rawData[0];
+  const dataRows = rawData.slice(1);
+  
+  console.log('\nSwiggy Review Headers:', headers);
+  
+  const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
+  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
+  
+  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
+  
+  if (itemOrderedIndex === -1) {
+    console.error('ERROR: Item Ordered column not found in Swiggy sheet');
+    return [];
+  }
+  
+  const itemCounts = new Map();
+  const itemRatings = new Map();
+  const itemHighRated = new Map();
+  const itemLowRated = new Map();
+  
+  dataRows.forEach(row => {
+    const itemCell = getCellValue(row, itemOrderedIndex);
+    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
+    
+    if (itemCell && itemCell.trim()) {
+      const items = parseItemsFromCell(itemCell);
+      
+      items.forEach(item => {
+        if (item && item.trim()) {
+          const cleanItem = item.trim();
+          const normalizedItem = normalizeProductName(cleanItem);
+          
+          itemCounts.set(normalizedItem, (itemCounts.get(normalizedItem) || 0) + 1);
+          
+          if (!itemRatings.has(normalizedItem)) {
+            itemRatings.set(normalizedItem, []);
+          }
+          if (rating > 0) {
+            itemRatings.get(normalizedItem).push(rating);
+            
+            // Categorize as high or low rated
+            if (rating >= 4.0) {
+              itemHighRated.set(normalizedItem, (itemHighRated.get(normalizedItem) || 0) + 1);
+            } else if (rating < 3.0) {
+              itemLowRated.set(normalizedItem, (itemLowRated.get(normalizedItem) || 0) + 1);
+            }
+          }
+        }
+      });
+    }
+  });
+  
+  const result = [];
+  itemCounts.forEach((count, normalizedItem) => {
+    const ratings = itemRatings.get(normalizedItem) || [];
+    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+    const highRated = itemHighRated.get(normalizedItem) || 0;
+    const lowRated = itemLowRated.get(normalizedItem) || 0;
+    
+    result.push({
+      normalizedName: normalizedItem,
+      orders: count,
+      rating: avgRating,
+      highRated: highRated,
+      lowRated: lowRated
+    });
+  });
+  
+  console.log(`\nSwiggy Processing:`);
+  console.log(`  Unique items: ${result.length}`);
+  
+  return result;
+}
+
+/**
+ * Match ProductDetails items with Zomato and Swiggy using 100% fuzzy matching
+ * Only includes items with at least one 100% match
+ */
+function matchProductsWithRatings(productDetails, zomatoItems, swiggyItems) {
+  console.log('\n' + '='.repeat(60));
+  console.log('MATCHING PRODUCTS (100% THRESHOLD ONLY)');
+  console.log('='.repeat(60));
+  
+  const matchedProducts = [];
+  const unmatchedProducts = [];
+  
+  let perfectMatches = 0;
+  let noMatches = 0;
+  
+  for (const product of productDetails) {
+    const productNormalized = product.normalizedName;
+    
+    let zomatoMatch = null;
+    let swiggyMatch = null;
+    let hasMatch = false;
+    
+    // Find 100% match in Zomato
+    for (const zItem of zomatoItems) {
+      const score = calculateFuzzyScore(product.itemName, zItem.normalizedName);
+      if (score === 100) {
+        zomatoMatch = zItem;
+        hasMatch = true;
+        break; // Take first perfect match only
+      }
+    }
+    
+    // Find 100% match in Swiggy
+    for (const sItem of swiggyItems) {
+      const score = calculateFuzzyScore(product.itemName, sItem.normalizedName);
+      if (score === 100) {
+        swiggyMatch = sItem;
+        hasMatch = true;
+        break; // Take first perfect match only
+      }
+    }
+    
+    if (hasMatch) {
+      perfectMatches++;
+      
+      // Calculate combined ratings
+      const zomatoRating = zomatoMatch ? zomatoMatch.rating : 0;
+      const swiggyRating = swiggyMatch ? swiggyMatch.rating : 0;
+      
+      const ratings = [];
+      if (zomatoRating > 0) ratings.push(zomatoRating);
+      if (swiggyRating > 0) ratings.push(swiggyRating);
+      
+      const avgRating = ratings.length > 0
+        ? ratings.reduce((a, b) => a + b, 0) / ratings.length
+        : 0;
+      
+      // Aggregate high/low rated counts
+      const highRated = (zomatoMatch?.highRated || 0) + (swiggyMatch?.highRated || 0);
+      const lowRated = (zomatoMatch?.lowRated || 0) + (swiggyMatch?.lowRated || 0);
+      
+      // Calculate percentages based on total orders from ProductDetails
+      const totalOrders = product.totalOrders;
+      const lowRatedPercentage = totalOrders > 0 ? (lowRated / totalOrders * 100) : 0;
+      const highRatedPercentage = totalOrders > 0 ? (highRated / totalOrders * 100) : 0;
+      
       matchedProducts.push({
-        ...product,
-        totalOrdersFromRista: bestMatch,
-        matchType: 'fuzzy',
-        matchScore: bestScore
+        name: product.itemName,
+        totalOrders: totalOrders,
+        zomatoMatch: zomatoMatch ? '✓' : '✗',
+        swiggyMatch: swiggyMatch ? '✓' : '✗',
+        avgRating: parseFloat(avgRating.toFixed(2)),
+        zomatoRating: parseFloat(zomatoRating.toFixed(2)),
+        swiggyRating: parseFloat(swiggyRating.toFixed(2)),
+        highRated: highRated,
+        lowRated: lowRated,
+        highRatedPercentage: parseFloat(highRatedPercentage.toFixed(2)),
+        lowRatedPercentage: parseFloat(lowRatedPercentage.toFixed(2))
       });
     } else {
-      // No match found - use 0 for Rista orders
       noMatches++;
-      if (noMatches <= 5) {
-        console.log(`   No match: "${product.name}"`);
-      }
-      matchedProducts.push({
-        ...product,
-        totalOrdersFromRista: 0,
-        matchType: 'no_match'
+      unmatchedProducts.push({
+        name: product.itemName,
+        totalOrders: product.totalOrders,
+        normalizedName: product.normalizedName
       });
     }
   }
   
-  console.log(`\nMatching Results:`);
-  console.log(`   - Exact matches: ${exactMatches}`);
-  console.log(`   - Gemini fuzzy matches: ${fuzzyMatches}`);
-  console.log(`   - No matches: ${noMatches}`);
+  // Sort matched products by total orders (descending)
+  matchedProducts.sort((a, b) => b.totalOrders - a.totalOrders);
   
-  return matchedProducts;
+  console.log(`\nMatching Results:`);
+  console.log(`  Perfect matches (100%): ${perfectMatches}`);
+  console.log(`  No matches: ${noMatches}`);
+  console.log(`  Total processed: ${productDetails.length}`);
+  
+  return { matchedProducts, unmatchedProducts };
+}
+
+/**
+ * Helper functions
+ */
+function parseItemsFromCell(cellValue) {
+  if (!cellValue) return [];
+  
+  const separators = [',', ';', '|', '\n', ' + ', ' & ', ' and '];
+  let items = [cellValue];
+  
+  separators.forEach(sep => {
+    items = items.flatMap(item => item.split(sep));
+  });
+  
+  return items
+    .map(item => item.trim())
+    .filter(item => item.length > 0)
+    .map(item => cleanItemName(item));
+}
+
+function cleanItemName(itemName) {
+  if (!itemName) return '';
+  
+  let cleaned = itemName
+    .replace(/^\d+[\sx]?\s*/i, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/qty\s*:?\s*\d+/gi, '')
+    .replace(/quantity\s*:?\s*\d+/gi, '')
+    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
+    .replace(/₹\s*\d+/g, '')
+    .trim();
+  
+  return cleaned;
+}
+
+function getCellValue(row, index) {
+  return (index >= 0 && row[index]) ? row[index].trim() : '';
 }
 
 /**
  * Main function to process product analysis data from Google Sheets
- * Uses ProductDetails sheet as primary source with simple exact matching
+ * NO RISTA API - Uses ProductDetails aggregation only
  */
-async function processProductAnalysisData(spreadsheetId) {
+async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING PRODUCTDETAILS SHEET');
+  console.log('PRODUCT ANALYSIS - NO RISTA API VERSION');
+  console.log('Using ProductDetails Sheet Aggregation + 100% Fuzzy Matching');
   console.log('═══════════════════════════════════════════════════════════\n');
-  console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
+  console.log(`Spreadsheet ID: ${spreadsheetId}`);
+  console.log(`Date Filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}\n`);
 
   try {
     if (!sheets) {
@@ -5106,7 +5110,7 @@ async function processProductAnalysisData(spreadsheetId) {
     }
 
     // Step 1: Fetch all sheet data in parallel
-    console.log('\nFetching sheet data...');
+    console.log('Fetching sheet data...');
     const [productDetailsData, zomatoOrdersData, swiggyReviewData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
@@ -5124,146 +5128,67 @@ async function processProductAnalysisData(spreadsheetId) {
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
-    // Step 2: Process ProductDetails sheet (aggregated order counts)
-    const productDetails = processProductDetailsSheet(productDetailsData.data.values);
-    console.log(`\nProcessed ${productDetails.length} products from ProductDetails sheet`);
+    // Step 2: Process ProductDetails sheet with date filter
+    const productDetails = processProductDetailsSheet(productDetailsData.data.values, daysFilter);
+    
+    if (productDetails.length === 0) {
+      console.error('ERROR: No products found in ProductDetails sheet');
+      return createEmptyProductDataStructure();
+    }
 
     // Step 3: Process rating data from Zomato and Swiggy
-    const zomatoOrders = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
-    const swiggyOrders = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
+    const zomatoItems = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
+    const swiggyItems = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
 
-    console.log(`Processed ${zomatoOrders.length} items from Zomato`);
-    console.log(`Processed ${swiggyOrders.length} items from Swiggy`);
+    // Step 4: Match products with 100% fuzzy matching
+    const { matchedProducts, unmatchedProducts } = matchProductsWithRatings(
+      productDetails,
+      zomatoItems,
+      swiggyItems
+    );
 
-    // Step 4: Create product map using ProductDetails as primary source
-    const productMap = new Map();
-
-    // Populate with ProductDetails data FIRST
-    for (const product of productDetails) {
-      const normalizedName = normalizeProductName(product.itemName);
-
-      if (!productMap.has(normalizedName)) {
-        productMap.set(normalizedName, {
-          name: product.itemName, // Use original name from ProductDetails
-          totalOrdersFromRista: product.orderCount, // This is the aggregated order count
-          zomatoOrders: 0,
-          swiggyOrders: 0,
-          highRated: 0,
-          lowRated: 0,
-          lowRatedPercentage: 0,
-          avgRating: 0,
-          zomatoRating: 0,
-          swiggyRating: 0,
-          primarySource: 'productdetails'
-        });
-      }
-    }
-
-    console.log(`\nInitialized ${productMap.size} products from ProductDetails`);
-
-    // Step 5: Match Zomato ratings with exact matching only
-    console.log('\nMatching Zomato ratings (exact match only)...');
-    let zomatoMatches = 0;
-
-    for (const item of zomatoOrders) {
-      const normalizedName = normalizeProductName(item.name);
-
-      if (productMap.has(normalizedName)) {
-        const product = productMap.get(normalizedName);
-        product.zomatoRating = item.rating;
-        product.zomatoOrders = item.orders;
-        product.highRated += item.highRated || 0;
-        product.lowRated += item.lowRated || 0;
-        zomatoMatches++;
-      }
-    }
-
-    console.log(`   Matched ${zomatoMatches} Zomato items`);
-
-    // Step 6: Match Swiggy ratings with exact matching only
-    console.log('Matching Swiggy ratings (exact match only)...');
-    let swiggyMatches = 0;
-
-    for (const item of swiggyOrders) {
-      const normalizedName = normalizeProductName(item.name);
-
-      if (productMap.has(normalizedName)) {
-        const product = productMap.get(normalizedName);
-        product.swiggyRating = item.rating;
-        product.swiggyOrders = item.orders;
-        product.highRated += item.highRated || 0;
-        product.lowRated += item.lowRated || 0;
-        swiggyMatches++;
-      }
-    }
-
-    console.log(`   Matched ${swiggyMatches} Swiggy items`);
-
-    // Step 7: Calculate final metrics
-    let products = Array.from(productMap.values());
-
-    products = products.map(product => {
-      const totalOrders = product.totalOrdersFromRista;
-
-      // Calculate average rating
-      const ratings = [];
-      if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
-      if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
-      product.avgRating = ratings.length > 0
-        ? ratings.reduce((a, b) => a + b, 0) / ratings.length
-        : 0;
-
-      // Calculate low rated percentage
-      const lowRated = product.lowRated || 0;
-      product.lowRatedPercentage = totalOrders > 0
-        ? (lowRated / totalOrders * 100)
-        : 0;
-
-      // Ensure valid numbers
-      if (isNaN(product.lowRatedPercentage)) product.lowRatedPercentage = 0;
-      product.highRated = product.highRated || 0;
-      product.lowRated = lowRated;
-
-      return product;
-    });
-
-    // Sort by total orders (descending)
-    products.sort((a, b) => b.totalOrdersFromRista - a.totalOrdersFromRista);
-
-    // Calculate summary
+    // Step 5: Calculate summary
     const summary = {
-      totalProducts: products.length,
-      totalZomatoOrders: products.reduce((sum, p) => sum + p.zomatoOrders, 0),
-      totalSwiggyOrders: products.reduce((sum, p) => sum + p.swiggyOrders, 0),
-      totalRistaOrders: products.reduce((sum, p) => sum + p.totalOrdersFromRista, 0),
-      totalHighRated: products.reduce((sum, p) => sum + (p.highRated || 0), 0),
-      totalLowRated: products.reduce((sum, p) => sum + (p.lowRated || 0), 0),
+      totalProductsInSheet: productDetails.length,
+      matchedProducts: matchedProducts.length,
+      unmatchedProducts: unmatchedProducts.length,
+      totalOrders: matchedProducts.reduce((sum, p) => sum + p.totalOrders, 0),
+      totalHighRated: matchedProducts.reduce((sum, p) => sum + p.highRated, 0),
+      totalLowRated: matchedProducts.reduce((sum, p) => sum + p.lowRated, 0),
+      avgRating: 0,
       avgLowRatedPercentage: 0,
-      productDetailsUsed: products.filter(p => p.primarySource === 'productdetails').length,
-      zomatoRatingMatches: zomatoMatches,
-      swiggyRatingMatches: swiggyMatches
+      dateFilter: daysFilter ? `Last ${daysFilter} days` : 'All dates'
     };
 
-    const totalOrdersForRate = summary.totalRistaOrders;
-    summary.avgLowRatedPercentage = totalOrdersForRate > 0
-      ? (summary.totalLowRated / totalOrdersForRate * 100)
-      : 0;
-
-    if (isNaN(summary.avgLowRatedPercentage)) summary.avgLowRatedPercentage = 0;
+    // Calculate averages
+    if (matchedProducts.length > 0) {
+      const validRatings = matchedProducts.filter(p => p.avgRating > 0);
+      summary.avgRating = validRatings.length > 0
+        ? validRatings.reduce((sum, p) => sum + p.avgRating, 0) / validRatings.length
+        : 0;
+      
+      summary.avgLowRatedPercentage = summary.totalOrders > 0
+        ? (summary.totalLowRated / summary.totalOrders * 100)
+        : 0;
+    }
 
     console.log('\n' + '═'.repeat(60));
-    console.log('PROCESSING COMPLETE - USING PRODUCTDETAILS SHEET');
+    console.log('PROCESSING COMPLETE');
     console.log('═'.repeat(60));
-    console.log(`Products: ${products.length} (${summary.productDetailsUsed} from ProductDetails)`);
-    console.log(`Total Orders: ${summary.totalRistaOrders}`);
-    console.log(`High Rated: ${summary.totalHighRated}`);
-    console.log(`Low Rated: ${summary.totalLowRated}`);
-    console.log(`Avg Low Rated %: ${(summary.avgLowRatedPercentage || 0).toFixed(2)}%`);
-    console.log(`Zomato ratings matched: ${zomatoMatches}`);
-    console.log(`Swiggy ratings matched: ${swiggyMatches}`);
+    console.log(`Total Products in Sheet: ${summary.totalProductsInSheet}`);
+    console.log(`Matched Products (100%): ${summary.matchedProducts}`);
+    console.log(`Unmatched Products: ${summary.unmatchedProducts}`);
+    console.log(`Total Orders: ${summary.totalOrders}`);
+    console.log(`High Rated: ${summary.totalHighRated} (${summary.totalOrders > 0 ? ((summary.totalHighRated / summary.totalOrders) * 100).toFixed(2) : 0}%)`);
+    console.log(`Low Rated: ${summary.totalLowRated} (${summary.avgLowRatedPercentage.toFixed(2)}%)`);
+    console.log(`Average Rating: ${summary.avgRating.toFixed(2)}`);
     console.log('═'.repeat(60) + '\n');
 
-    return { products, summary };
+    return {
+      products: matchedProducts,
+      unmatchedProducts: unmatchedProducts,
+      summary: summary
+    };
 
   } catch (error) {
     console.error('Error in processProductAnalysisData:', error.message);
@@ -5273,8 +5198,28 @@ async function processProductAnalysisData(spreadsheetId) {
 }
 
 /**
- * Generate enhanced AI insights for product analysis data
- * Analyzes product performance, ratings, and provides actionable recommendations
+ * Create empty structure for error cases
+ */
+function createEmptyProductDataStructure() {
+  return {
+    products: [],
+    unmatchedProducts: [],
+    summary: {
+      totalProductsInSheet: 0,
+      matchedProducts: 0,
+      unmatchedProducts: 0,
+      totalOrders: 0,
+      totalHighRated: 0,
+      totalLowRated: 0,
+      avgRating: 0,
+      avgLowRatedPercentage: 0,
+      dateFilter: 'None'
+    }
+  };
+}
+
+/**
+ * Generate AI insights for product analysis (keeping existing function structure)
  */
 async function generateEnhancedProductInsightsWithGemini(data, analysisType = 'comprehensive') {
   if (!GEMINI_API_KEY) {
@@ -5284,32 +5229,29 @@ async function generateEnhancedProductInsightsWithGemini(data, analysisType = 'c
   try {
     console.log(`Generating product AI insights for ${data.products.length} products`);
     
-    // Prepare data summary
     const topProducts = data.products.slice(0, 10);
-    const bottomProducts = data.products.slice(-10);
+    const problematicProducts = data.products
+      .filter(p => p.lowRatedPercentage > 5)
+      .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage)
+      .slice(0, 5);
     const highRatedProducts = data.products.filter(p => p.avgRating >= 4.0).length;
     const lowRatedProducts = data.products.filter(p => p.avgRating < 3.0 && p.avgRating > 0).length;
-    
-    // Calculate products with high low-rated percentage
-    const problematicProducts = data.products.filter(p => p.lowRatedPercentage > 5).slice(0, 5);
 
     const prompt = `You are a restaurant product analyst. Analyze this product performance data and provide actionable insights.
 
 PRODUCT PERFORMANCE SUMMARY:
-- Total Products: ${data.products.length}
-- Total Orders (Last 28 Days): ${data.summary.totalRistaOrders}
+- Total Matched Products: ${data.products.length}
+- Total Orders: ${data.summary.totalOrders}
 - High Rated Orders: ${data.summary.totalHighRated}
 - Low Rated Orders: ${data.summary.totalLowRated}
 - Average Low Rated %: ${data.summary.avgLowRatedPercentage.toFixed(2)}%
+- Date Range: ${data.summary.dateFilter}
 
 TOP 5 PERFORMERS (by orders):
-${topProducts.slice(0, 5).map(p => `- ${p.name}: ${p.totalOrdersFromRista} orders, ${p.avgRating.toFixed(1)}★, ${p.lowRatedPercentage.toFixed(1)}% low rated`).join('\n')}
-
-BOTTOM 5 PERFORMERS (by orders):
-${bottomProducts.slice(0, 5).map(p => `- ${p.name}: ${p.totalOrdersFromRista} orders, ${p.avgRating.toFixed(1)}★, ${p.lowRatedPercentage.toFixed(1)}% low rated`).join('\n')}
+${topProducts.slice(0, 5).map(p => `- ${p.name}: ${p.totalOrders} orders, ${p.avgRating.toFixed(1)}★, ${p.lowRatedPercentage.toFixed(1)}% low rated`).join('\n')}
 
 TOP 5 QUALITY ISSUES (by low-rated percentage):
-${problematicProducts.map(p => `- ${p.name}: ${p.lowRatedPercentage.toFixed(1)}% low rated (${p.lowRated} complaints from ${p.totalOrdersFromRista} orders)`).join('\n')}
+${problematicProducts.map(p => `- ${p.name}: ${p.lowRatedPercentage.toFixed(1)}% low rated (${p.lowRated} complaints from ${p.totalOrders} orders)`).join('\n')}
 
 RATING DISTRIBUTION:
 - High Rated Products (4★+): ${highRatedProducts}
@@ -5348,10 +5290,8 @@ Focus on identifying quality issues, popular items, and actionable improvements.
 
     if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
       const aiResponse = response.data.candidates[0].content.parts[0].text;
-      console.log('Product AI Response received:', aiResponse.substring(0, 200) + '...');
       
       try {
-        // Try to parse JSON from AI response
         const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const insights = JSON.parse(jsonMatch[0]);
@@ -5359,13 +5299,13 @@ Focus on identifying quality issues, popular items, and actionable improvements.
             ...insights,
             topProducts: topProducts.slice(0, 5).map(p => ({
               name: p.name,
-              orders: p.totalOrdersFromRista,
+              orders: p.totalOrders,
               rating: p.avgRating.toFixed(1),
               lowRatedPercent: p.lowRatedPercentage.toFixed(1)
             })),
             problematicProducts: problematicProducts.map(p => ({
               name: p.name,
-              orders: p.totalOrdersFromRista,
+              orders: p.totalOrders,
               lowRatedPercent: p.lowRatedPercentage.toFixed(1),
               lowRatedCount: p.lowRated
             })),
@@ -5374,64 +5314,32 @@ Focus on identifying quality issues, popular items, and actionable improvements.
           };
         }
       } catch (parseError) {
-        console.log('JSON parsing failed for product insights, using fallback');
+        console.log('JSON parsing failed, using fallback');
       }
-      
-      // Fallback: Extract insights from text format
-      return {
-        keyFindings: extractListFromText(aiResponse, 'findings') || [
-          `${data.products.length} products analyzed from last 28 days`,
-          `${highRatedProducts} products with ratings above 4 stars`,
-          `${problematicProducts.length} products need quality attention`
-        ],
-        qualityIssues: extractListFromText(aiResponse, 'quality') || 
-          problematicProducts.map(p => `${p.name} has ${p.lowRatedPercentage.toFixed(1)}% low ratings`),
-        recommendations: extractListFromText(aiResponse, 'recommendations') || [
-          'Focus on improving products with high low-rated percentages',
-          'Investigate quality issues with bottom performers',
-          'Leverage success of top-rated products'
-        ],
-        opportunities: extractListFromText(aiResponse, 'opportunities') || [
-          'Expand popular product variants',
-          'Address quality consistency issues'
-        ],
-        topProducts: topProducts.slice(0, 5).map(p => ({
-          name: p.name,
-          orders: p.totalOrdersFromRista,
-          rating: p.avgRating.toFixed(1),
-          lowRatedPercent: p.lowRatedPercentage.toFixed(1)
-        })),
-        problematicProducts: problematicProducts.map(p => ({
-          name: p.name,
-          orders: p.totalOrdersFromRista,
-          lowRatedPercent: p.lowRatedPercentage.toFixed(1),
-          lowRatedCount: p.lowRated
-        })),
-        confidence: 0.75,
-        generatedAt: new Date().toISOString()
-      };
     }
 
     throw new Error('No valid response from AI');
 
   } catch (error) {
-    console.error('Product AI insight generation error:', error.message);
+    console.error('AI insight generation error:', error.message);
     return generateProductFallbackInsights(data);
   }
 }
 
 /**
- * Fallback insights generation for product analysis
+ * Fallback insights generation
  */
 function generateProductFallbackInsights(data) {
   const topProducts = data.products.slice(0, 10);
-  const bottomProducts = data.products.slice(-10);
-  const problematicProducts = data.products.filter(p => p.lowRatedPercentage > 5).slice(0, 5);
+  const problematicProducts = data.products
+    .filter(p => p.lowRatedPercentage > 5)
+    .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage)
+    .slice(0, 5);
   const highRatedProducts = data.products.filter(p => p.avgRating >= 4.0).length;
   
   return {
     keyFindings: [
-      `${data.products.length} products analyzed with ${data.summary.totalRistaOrders} total orders`,
+      `${data.products.length} products matched with ${data.summary.totalOrders} total orders`,
       `${highRatedProducts} products have ratings above 4 stars`,
       `${problematicProducts.length} products have low-rated percentage above 5%`,
       `Average low-rated percentage: ${data.summary.avgLowRatedPercentage.toFixed(2)}%`
@@ -5449,18 +5357,17 @@ function generateProductFallbackInsights(data) {
     ],
     opportunities: [
       'Expand variants of top-performing products',
-      'Improve quality consistency across all outlets',
-      'Address specific quality issues identified in low-rated feedback'
+      'Improve quality consistency across all outlets'
     ],
     topProducts: topProducts.slice(0, 5).map(p => ({
       name: p.name,
-      orders: p.totalOrdersFromRista,
+      orders: p.totalOrders,
       rating: p.avgRating.toFixed(1),
       lowRatedPercent: p.lowRatedPercentage.toFixed(1)
     })),
     problematicProducts: problematicProducts.map(p => ({
       name: p.name,
-      orders: p.totalOrdersFromRista,
+      orders: p.totalOrders,
       lowRatedPercent: p.lowRatedPercentage.toFixed(1),
       lowRatedCount: p.lowRated
     })),
@@ -5469,565 +5376,12 @@ function generateProductFallbackInsights(data) {
     source: 'fallback-analysis'
   };
 }
-// UPDATED: normalizeProductName to better preserve original names
-
-// Helper function to capitalize words
-function capitalizeWords(str) {
-  if (!str) return '';
-  return str
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-// Create empty structure for error cases
-function createEmptyProductDataStructure() {
-  return {
-    products: [],
-    summary: {
-      totalProducts: 0,
-      totalZomatoOrders: 0,
-      totalSwiggyOrders: 0,
-      totalRistaOrders: 0,
-      totalHighRated: 0,
-      totalLowRated: 0,
-      avgLowRatedPercentage: 0,
-      exactMatches: 0,
-      fuzzyMatches: 0,
-      noMatches: 0
-    }
-  };
-}
-
-// Helper function to parse dates flexibly
-function parseFlexibleDate(dateStr) {
-  if (!dateStr || dateStr.trim() === '') return null;
-  
-  const trimmed = dateStr.trim();
-  
-  let date = new Date(trimmed);
-  if (!isNaN(date.getTime())) return date;
-  
-  const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (ddmmyyyyMatch) {
-    const [, day, month, year] = ddmmyyyyMatch;
-    date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
-  }
-  
-  const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})\-(\d{1,2})\-(\d{4})$/);
-  if (ddmmyyyyDashMatch) {
-    const [, day, month, year] = ddmmyyyyDashMatch;
-    date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
-  }
-  
-  const mmddyyyyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (mmddyyyyMatch) {
-    const [, month, day, year] = mmddyyyyMatch;
-    date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
-  }
-  
-  const yyyymmddMatch = trimmed.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-  if (yyyymmddMatch) {
-    const [, year, month, day] = yyyymmddMatch;
-    date = new Date(year, month - 1, day);
-    if (!isNaN(date.getTime())) return date;
-  }
-  
-  const serialNumber = parseFloat(trimmed);
-  if (serialNumber > 0) {
-    const baseDate = new Date(1899, 11, 30);
-    date = new Date(baseDate.getTime() + serialNumber * 24 * 60 * 60 * 1000);
-    if (!isNaN(date.getTime())) return date;
-  }
-  
-  return null;
-}
-
-/**
- * Process Zomato orders and categorize ratings into high/low rated
- * High rated: 4 stars and above
- * Low rated: below 3 stars
- */
-function processZomatoOrdersDataWithRatings(rawData) {
-  if (!rawData || rawData.length <= 1) return [];
-  
-  const headers = rawData[0];
-  const dataRows = rawData.slice(1);
-  
-  console.log('Zomato Orders Headers:', headers);
-  
-  const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
-  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  
-  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}`);
-  
-  const itemCounts = new Map();
-  const itemRatings = new Map();
-  const itemHighRated = new Map();
-  const itemLowRated = new Map();
-  
-  let totalOrders = 0;
-  let ordersWithRatings = 0;
-  
-  dataRows.forEach(row => {
-    const itemsCell = getCellValue(row, itemsIndex);
-    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
-    
-    totalOrders++;
-    
-    if (!itemsCell || !itemsCell.trim() || rating <= 0) {
-      return;
-    }
-    
-    ordersWithRatings++;
-    
-    const items = parseItemsFromCell(itemsCell);
-    
-    items.forEach(item => {
-      if (item && item.trim()) {
-        const cleanItem = item.trim().toLowerCase();
-        itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
-        
-        if (!itemRatings.has(cleanItem)) {
-          itemRatings.set(cleanItem, []);
-        }
-        itemRatings.get(cleanItem).push(rating);
-        
-        // Categorize as high or low rated
-        if (rating >= 4.0) {
-          itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
-        } else if (rating < 3.0) {
-          itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
-        }
-      }
-    });
-  });
-  
-  const result = [];
-  itemCounts.forEach((count, item) => {
-    const ratings = itemRatings.get(item) || [];
-    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-    const highRated = itemHighRated.get(item) || 0;
-    const lowRated = itemLowRated.get(item) || 0;
-    
-    result.push({
-      name: capitalizeWords(item),
-      orders: count,
-      rating: avgRating,
-      highRated: highRated,
-      lowRated: lowRated
-    });
-  });
-  
-  console.log(`Processed ${result.length} unique items from Zomato orders`);
-  console.log(`Total orders: ${totalOrders}, With ratings: ${ordersWithRatings}`);
-  
-  return result;
-}
-
-/**
- * Process Swiggy reviews and categorize ratings into high/low rated
- * High rated: 4 stars and above
- * Low rated: below 3 stars
- */
-function processSwiggyReviewDataWithRatings(rawData) {
-  if (!rawData || rawData.length <= 1) return [];
-  
-  const headers = rawData[0];
-  const dataRows = rawData.slice(1);
-  
-  console.log('Swiggy Review Headers:', headers);
-  
-  const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
-  const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  
-  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
-  
-  const itemCounts = new Map();
-  const itemRatings = new Map();
-  const itemHighRated = new Map();
-  const itemLowRated = new Map();
-  
-  dataRows.forEach(row => {
-    const itemCell = getCellValue(row, itemOrderedIndex);
-    const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
-    
-    if (itemCell && itemCell.trim()) {
-      const items = parseItemsFromCell(itemCell);
-      
-      items.forEach(item => {
-        if (item && item.trim()) {
-          const cleanItem = item.trim().toLowerCase();
-          itemCounts.set(cleanItem, (itemCounts.get(cleanItem) || 0) + 1);
-          
-          if (!itemRatings.has(cleanItem)) {
-            itemRatings.set(cleanItem, []);
-          }
-          if (rating > 0) {
-            itemRatings.get(cleanItem).push(rating);
-            
-            // Categorize as high or low rated
-            if (rating >= 4.0) {
-              itemHighRated.set(cleanItem, (itemHighRated.get(cleanItem) || 0) + 1);
-            } else if (rating < 3.0) {
-              itemLowRated.set(cleanItem, (itemLowRated.get(cleanItem) || 0) + 1);
-            }
-          }
-        }
-      });
-    }
-  });
-  
-  const result = [];
-  itemCounts.forEach((count, item) => {
-    const ratings = itemRatings.get(item) || [];
-    const avgRating = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-    const highRated = itemHighRated.get(item) || 0;
-    const lowRated = itemLowRated.get(item) || 0;
-    
-    result.push({
-      name: capitalizeWords(item),
-      orders: count,
-      rating: avgRating,
-      highRated: highRated,
-      lowRated: lowRated
-    });
-  });
-  
-  console.log(`Processed ${result.length} unique items from Swiggy reviews`);
-  return result;
-}
-
-function parseItemsFromCell(cellValue) {
-  if (!cellValue) return [];
-  
-  const separators = [',', ';', '|', '\n', ' + ', ' & ', ' and '];
-  let items = [cellValue];
-  
-  separators.forEach(sep => {
-    items = items.flatMap(item => item.split(sep));
-  });
-  
-  return items
-    .map(item => item.trim())
-    .filter(item => item.length > 0)
-    .map(item => cleanItemName(item));
-}
-
-function cleanItemName(itemName) {
-  if (!itemName) return '';
-  
-  let cleaned = itemName
-    .replace(/^\d+[\sx]?\s*/i, '')
-    .replace(/\(.*?\)/g, '')
-    .replace(/\[.*?\]/g, '')
-    .replace(/qty\s*:?\s*\d+/gi, '')
-    .replace(/quantity\s*:?\s*\d+/gi, '')
-    .replace(/size\s*:?\s*(small|medium|large|s|m|l)/gi, '')
-    .replace(/₹\s*\d+/g, '')
-    .trim();
-  
-  return cleaned;
-}
-
-function getCellValue(row, index) {
-  return (index >= 0 && row[index]) ? row[index].trim() : '';
-}
 
 module.exports = {
   processProductAnalysisData,
-  fetchTotalOrdersFromRista,
-  matchRistaOrdersWithProducts,
-  calculateProductSimilarity
+  generateEnhancedProductInsightsWithGemini,
+  DATE_FILTER_DAYS
 };
-
-// ===================================================================
-// === CSV-BASED PRODUCT MATCHING (NO RISTA API) ===
-// ===================================================================
-
-/**
- * Preprocess item name for 100% matching
- * Removes: punctuation, extra spaces, units, special chars
- */
-function preprocessItemName(name) {
-  if (!name) return '';
-
-  return name
-    .toLowerCase()
-    .trim()
-    // Remove quantity indicators
-    .replace(/\d+\s*(ml|gm|gms|g|kg|mg|l|ltr|litre|piece|pcs|pack)/gi, '')
-    .replace(/\(.*?\)/g, '') // Remove content in parentheses
-    .replace(/\[.*?\]/g, '') // Remove content in brackets
-    // Remove punctuation
-    .replace(/[.,;:!?'"]/g, '')
-    // Remove extra spaces
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Calculate similarity score between two strings (0-100)
- * Uses Levenshtein distance algorithm
- */
-function calculateSimilarityScore(str1, str2) {
-  const s1 = preprocessItemName(str1);
-  const s2 = preprocessItemName(str2);
-
-  if (s1 === s2) return 100;
-  if (!s1 || !s2) return 0;
-
-  // Levenshtein distance calculation
-  const len1 = s1.length;
-  const len2 = s2.length;
-  const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(0));
-
-  for (let i = 0; i <= len1; i++) matrix[0][i] = i;
-  for (let j = 0; j <= len2; j++) matrix[j][0] = j;
-
-  for (let j = 1; j <= len2; j++) {
-    for (let i = 1; i <= len1; i++) {
-      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-      matrix[j][i] = Math.min(
-        matrix[j][i - 1] + 1,     // deletion
-        matrix[j - 1][i] + 1,     // insertion
-        matrix[j - 1][i - 1] + cost // substitution
-      );
-    }
-  }
-
-  const distance = matrix[len2][len1];
-  const maxLen = Math.max(len1, len2);
-  const similarity = maxLen === 0 ? 100 : Math.round((1 - distance / maxLen) * 100);
-
-  return similarity;
-}
-
-/**
- * Process ProductDetails sheet - Extract item names and aggregate order counts across all dates
- */
-function processProductDetailsSheet(rawData) {
-  if (!rawData || rawData.length < 2) return [];
-
-  const headers = rawData[0];
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-  const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-  const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
-
-  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
-
-  // Use a Map to aggregate order counts by item name
-  const itemsMap = new Map();
-
-  for (let i = 1; i < rawData.length; i++) {
-    const row = rawData[i];
-    const itemName = row[itemNameIndex]?.toString().trim();
-    const orderCount = parseInt(row[orderCountIndex]) || 0;
-
-    if (itemName) {
-      const normalizedName = preprocessItemName(itemName);
-
-      // Aggregate counts for the same item across different dates
-      if (itemsMap.has(normalizedName)) {
-        const existing = itemsMap.get(normalizedName);
-        existing.orderCount += orderCount;
-      } else {
-        itemsMap.set(normalizedName, {
-          itemName,
-          orderCount,
-          normalizedName
-        });
-      }
-    }
-  }
-
-  // Convert Map to array
-  const items = Array.from(itemsMap.values());
-  console.log(`Processed ${items.length} unique items from ProductDetails (aggregated from ${rawData.length - 1} rows)`);
-  return items;
-}
-
-/**
- * Process Zomato Orders sheet - Extract item names from "Items in order" column
- */
-function processZomatoItemNames(rawData) {
-  if (!rawData || rawData.length < 2) return [];
-
-  const headers = rawData[0];
-  const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
-
-  console.log(`Zomato - Items in order column: ${itemsIndex}`);
-
-  const itemsSet = new Set();
-  for (let i = 1; i < rawData.length; i++) {
-    const row = rawData[i];
-    const itemsCell = row[itemsIndex]?.toString().trim();
-
-    if (itemsCell) {
-      // Split by common delimiters
-      const items = itemsCell.split(/[,;|+&]/).map(item => item.trim()).filter(item => item);
-      items.forEach(item => itemsSet.add(item));
-    }
-  }
-
-  const uniqueItems = Array.from(itemsSet).map(item => ({
-    originalName: item,
-    normalizedName: preprocessItemName(item)
-  }));
-
-  console.log(`Processed ${uniqueItems.length} unique items from Zomato`);
-  return uniqueItems;
-}
-
-/**
- * Process Swiggy Review sheet - Extract item names from "Item Ordered" column
- */
-function processSwiggyItemNames(rawData) {
-  if (!rawData || rawData.length < 2) return [];
-
-  const headers = rawData[0];
-  const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
-
-  console.log(`Swiggy - Item Ordered column: ${itemOrderedIndex}`);
-
-  const itemsSet = new Set();
-  for (let i = 1; i < rawData.length; i++) {
-    const row = rawData[i];
-    const itemName = row[itemOrderedIndex]?.toString().trim();
-
-    if (itemName) {
-      itemsSet.add(itemName);
-    }
-  }
-
-  const uniqueItems = Array.from(itemsSet).map(item => ({
-    originalName: item,
-    normalizedName: preprocessItemName(item)
-  }));
-
-  console.log(`Processed ${uniqueItems.length} unique items from Swiggy`);
-  return uniqueItems;
-}
-
-/**
- * Match items across three datasets - ONLY keep 100% matches
- */
-function matchItemsAcrossSheets(productDetails, zomatoItems, swiggyItems) {
-  console.log('\nMatching items (100% matches only)...');
-
-  const results = [];
-
-  for (const product of productDetails) {
-    const productNormalized = product.normalizedName;
-
-    // Find 100% match in Zomato
-    let zomatoMatch = null;
-    let zomatoScore = 0;
-    for (const zItem of zomatoItems) {
-      const score = calculateSimilarityScore(product.itemName, zItem.originalName);
-      if (score === 100) {
-        zomatoMatch = zItem.originalName;
-        zomatoScore = 100;
-        break;
-      }
-    }
-
-    // Find 100% match in Swiggy
-    let swiggyMatch = null;
-    let swiggyScore = 0;
-    for (const sItem of swiggyItems) {
-      const score = calculateSimilarityScore(product.itemName, sItem.originalName);
-      if (score === 100) {
-        swiggyMatch = sItem.originalName;
-        swiggyScore = 100;
-        break;
-      }
-    }
-
-    // Only include if at least one platform has a 100% match
-    if (zomatoScore === 100 || swiggyScore === 100) {
-      results.push({
-        productDetails_item: product.itemName,
-        order_count: product.orderCount,
-        swiggy_match: swiggyMatch || '',
-        swiggy_score: swiggyScore,
-        zomato_match: zomatoMatch || '',
-        zomato_score: zomatoScore
-      });
-    }
-  }
-
-  console.log(`Found ${results.length} items with 100% matches`);
-  return results;
-}
-
-/**
- * Main function - Process product matching from Google Sheets (NO RISTA API)
- */
-async function processProductMatchingFromSheets(spreadsheetId) {
-  console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT MATCHING - SHEET-BASED (NO RISTA API)');
-  console.log('═══════════════════════════════════════════════════════════\n');
-
-  try {
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google Sheets');
-      }
-    }
-
-    // Fetch all three sheets in parallel
-    console.log('Fetching sheets...');
-    const [productDetailsData, zomatoData, swiggyData] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'ProductDetails!A:Z'
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'zomato_orders!A:Z'
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'Copy of swiggy_review!A:Z'
-      })
-    ]);
-
-    // Process each sheet
-    const productDetails = processProductDetailsSheet(productDetailsData.data.values);
-    const zomatoItems = processZomatoItemNames(zomatoData.data.values);
-    const swiggyItems = processSwiggyItemNames(swiggyData.data.values);
-
-    // Match items (100% only)
-    const matchedResults = matchItemsAcrossSheets(productDetails, zomatoItems, swiggyItems);
-
-    console.log('\n✓ Product matching complete!');
-    console.log(`  Total ProductDetails items: ${productDetails.length}`);
-    console.log(`  Total Zomato items: ${zomatoItems.length}`);
-    console.log(`  Total Swiggy items: ${swiggyItems.length}`);
-    console.log(`  Perfect matches (100%): ${matchedResults.length}\n`);
-
-    return {
-      success: true,
-      data: matchedResults,
-      metadata: {
-        totalProductDetails: productDetails.length,
-        totalZomatoItems: zomatoItems.length,
-        totalSwiggyItems: swiggyItems.length,
-        perfectMatches: matchedResults.length
-      }
-    };
-
-  } catch (error) {
-    console.error('Error processing product matching:', error.message);
-    throw error;
-  }
-}
 
 // === EMPLOYEE DASHBOARD SPECIFIC FUNCTIONS ===
 
