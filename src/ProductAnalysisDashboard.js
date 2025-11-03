@@ -18,45 +18,22 @@ const ProductAnalysisDashboard = () => {
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showMatchingDetails, setShowMatchingDetails] = useState(false);
 
-  // Fetch product data using fetch API - NOW USING SHEET-BASED MATCHING
+  // Fetch product data using fetch API - NOW USING PRODUCT ANALYSIS DATA
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Use new sheet-based matching endpoint (NO RISTA API)
+      // Use product analysis endpoint with ProductDetails sheet
       const response = await fetch(`${API_URL}/api/product-matching-sheets`);
       const result = await response.json();
 
       if (result.success) {
-        // Transform the matched data into the format expected by charts
-        const transformedData = {
-          products: result.data.map(item => ({
-            name: item.productDetails_item,
-            totalOrdersFromRista: item.order_count,
-            zomatoOrders: item.zomato_score === 100 ? item.order_count : 0,
-            swiggyOrders: item.swiggy_score === 100 ? item.order_count : 0,
-            zomatoMatch: item.zomato_match,
-            zomatoScore: item.zomato_score,
-            swiggyMatch: item.swiggy_match,
-            swiggyScore: item.swiggy_score,
-            highRated: 0,
-            lowRated: 0,
-            lowRatedPercentage: 0,
-            avgRating: 0
-          })),
-          summary: {
-            totalProducts: result.metadata.totalProductDetails,
-            totalZomatoItems: result.metadata.totalZomatoItems,
-            totalSwiggyItems: result.metadata.totalSwiggyItems,
-            perfectMatches: result.metadata.perfectMatches,
-            totalOrdersFromRista: result.data.reduce((sum, item) => sum + item.order_count, 0),
-            totalZomatoOrders: result.data.filter(item => item.zomato_score === 100).length,
-            totalSwiggyOrders: result.data.filter(item => item.swiggy_score === 100).length
-          }
-        };
-
-        setData(transformedData);
+        // The backend now returns data in the correct format
+        setData({
+          products: result.data,
+          summary: result.metadata
+        });
       } else {
         throw new Error(result.error || 'Failed to fetch data');
       }
@@ -226,7 +203,7 @@ const ProductAnalysisDashboard = () => {
 
   // Prepare chart data - HIGH RATED ANALYSIS (with percentages)
   const highRatedData = filteredProducts.map(product => {
-    const totalOrders = product.totalOrdersFromRista || 0;
+    const totalOrders = product.totalOrders || 0;
     const highRated = product.highRated || 0;
     const highRatedPercentage = totalOrders > 0 ? (highRated / totalOrders) * 100 : 0;
 
@@ -240,7 +217,7 @@ const ProductAnalysisDashboard = () => {
   }).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => {
-    const totalOrders = product.totalOrdersFromRista || 0;
+    const totalOrders = product.totalOrders || 0;
     const lowRated = product.lowRated || 0;
     const lowRatedPercentage = (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0;
 
@@ -261,7 +238,7 @@ const ProductAnalysisDashboard = () => {
 
   const performanceScatterData = filteredProducts.map(product => ({
     name: product.name,
-    orders: product.totalOrdersFromRista || 0,
+    orders: product.totalOrders || 0,
     rating: product.avgRating || 0,
     lowRated: product.lowRated || 0,
     lowRatedPercentage: (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0
@@ -319,7 +296,7 @@ const ProductAnalysisDashboard = () => {
             letterSpacing: '1px',
             margin: '10px 0 0 0'
           }}>
-            SHEET-BASED MATCHING • 100% PERFECT MATCHES • {data.summary?.perfectMatches || 0} MATCHED • {data.summary?.totalProducts || 0} TOTAL PRODUCTS
+            SHEET-BASED MATCHING • {data.summary?.matchedProducts || 0} MATCHED • {data.summary?.totalProducts || 0} TOTAL PRODUCTS
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -408,14 +385,14 @@ const ProductAnalysisDashboard = () => {
           backdropFilter: 'blur(10px)',
           padding: '25px'
         }}>
-          <h3 style={{ 
+          <h3 style={{
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             color: '#f59e0b',
             margin: '0 0 20px 0',
             textTransform: 'uppercase',
             letterSpacing: '1px'
           }}>
-            RISTA API MATCHING STATISTICS
+            PRODUCT MATCHING STATISTICS
           </h3>
           <div style={{
             display: 'grid',
@@ -430,10 +407,10 @@ const ProductAnalysisDashboard = () => {
               textAlign: 'center'
             }}>
               <div style={{ fontSize: '2rem', color: '#22c55e', fontWeight: '700' }}>
-                {data.summary.exactMatches || 0}
+                {data.summary.matchedProducts || 0}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
-                EXACT MATCHES
+                MATCHED PRODUCTS
               </div>
             </div>
             <div style={{
@@ -444,10 +421,10 @@ const ProductAnalysisDashboard = () => {
               textAlign: 'center'
             }}>
               <div style={{ fontSize: '2rem', color: '#f59e0b', fontWeight: '700' }}>
-                {data.summary.fuzzyMatches || 0}
+                {data.summary.unmatchedProducts || 0}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
-                FUZZY MATCHES
+                UNMATCHED PRODUCTS
               </div>
             </div>
             <div style={{
@@ -458,10 +435,10 @@ const ProductAnalysisDashboard = () => {
               textAlign: 'center'
             }}>
               <div style={{ fontSize: '2rem', color: '#ef4444', fontWeight: '700' }}>
-                {data.summary.noMatches || 0}
+                {data.summary.totalProducts || 0}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
-                NO MATCHES
+                TOTAL PRODUCTS
               </div>
             </div>
             <div style={{
@@ -472,10 +449,10 @@ const ProductAnalysisDashboard = () => {
               textAlign: 'center'
             }}>
               <div style={{ fontSize: '2rem', color: '#3b82f6', fontWeight: '700' }}>
-                {data.summary.totalOrdersFromRista || 0}
+                {data.summary.totalOrders || 0}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '5px' }}>
-                TOTAL ORDERS (RISTA)
+                TOTAL ORDERS
               </div>
             </div>
           </div>
@@ -666,29 +643,29 @@ const ProductAnalysisDashboard = () => {
         paddingTop: (showAIPanel || showMatchingDetails) ? '0' : '30px'
       }}>
         {[
-          { 
-            title: 'TOTAL PRODUCTS', 
-            value: data.summary?.totalProducts || 0,
+          {
+            title: 'MATCHED PRODUCTS',
+            value: data.summary?.matchedProducts || 0,
             color: '#8b5cf6',
-            subtitle: 'Unique items tracked'
+            subtitle: 'Successfully matched items'
           },
-          { 
-            title: 'TOTAL ORDERS (RISTA)', 
-            value: data.summary?.totalRistaOrders || data.summary?.totalOrdersFromRista || 0,
+          {
+            title: 'TOTAL ORDERS',
+            value: data.summary?.totalOrders || 0,
             color: '#3b82f6',
-            subtitle: 'All orders from inventory'
+            subtitle: 'From ProductDetails sheet'
           },
-          { 
-            title: 'TOTAL LOW RATED', 
-            value: data.summary?.totalLowRated || 0,
-            color: '#ef4444',
+          {
+            title: 'HIGH RATED',
+            value: data.products?.reduce((sum, p) => sum + (p.highRated || 0), 0) || 0,
+            color: '#22c55e',
             subtitle: 'Across all platforms'
           },
-          { 
-            title: 'AVG LOW RATED %', 
-            value: `${((data.summary?.avgLowRatedPercentage != null && !isNaN(data.summary?.avgLowRatedPercentage)) ? data.summary.avgLowRatedPercentage : 0).toFixed(2)}%`,
-            color: '#f59e0b',
-            subtitle: 'Based on Rista orders'
+          {
+            title: 'LOW RATED',
+            value: data.products?.reduce((sum, p) => sum + (p.lowRated || 0), 0) || 0,
+            color: '#ef4444',
+            subtitle: 'Across all platforms'
           }
         ].map((metric, i) => (
           <div key={i} style={{
@@ -908,11 +885,13 @@ const ProductAnalysisDashboard = () => {
                   {[
                     'PRODUCT NAME',
                     'ORDER COUNT',
-                    'SWIGGY MATCH',
-                    'SWIGGY SCORE',
                     'ZOMATO MATCH',
-                    'ZOMATO SCORE',
-                    'MATCH STATUS'
+                    'ZOMATO RATING',
+                    'SWIGGY MATCH',
+                    'SWIGGY RATING',
+                    'AVG RATING',
+                    'HIGH RATED',
+                    'LOW RATED'
                   ].map((header) => (
                     <th key={header} style={{ 
                       padding: '18px', 
@@ -931,14 +910,12 @@ const ProductAnalysisDashboard = () => {
               </thead>
               <tbody>
                 {filteredProducts
-                  .sort((a, b) => (b.totalOrdersFromRista || 0) - (a.totalOrdersFromRista || 0))
+                  .sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0))
                   .map((product, i) => {
-                    const orderCount = product.totalOrdersFromRista || 0;
-                    const swiggyMatch = product.swiggyMatch || '-';
-                    const swiggyScore = product.swiggyScore || 0;
+                    const orderCount = product.totalOrders || 0;
                     const zomatoMatch = product.zomatoMatch || '-';
-                    const zomatoScore = product.zomatoScore || 0;
-                    const hasBothMatches = swiggyScore === 100 && zomatoScore === 100;
+                    const swiggyMatch = product.swiggyMatch || '-';
+                    const hasBothMatches = zomatoMatch === '✓' && swiggyMatch === '✓';
 
                     return (
                       <tr
@@ -976,69 +953,58 @@ const ProductAnalysisDashboard = () => {
                         </td>
                         <td style={{
                           padding: '18px',
-                          color: swiggyScore === 100 ? '#22c55e' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          maxWidth: '200px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
-                        }}>
-                          {swiggyMatch}
-                        </td>
-                        <td style={{
-                          padding: '18px',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontWeight: '700'
-                        }}>
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '0.8rem',
-                            background: swiggyScore === 100 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                            color: swiggyScore === 100 ? '#22c55e' : '#ef4444',
-                            border: `1px solid ${swiggyScore === 100 ? '#22c55e40' : '#ef444440'}`
-                          }}>
-                            {swiggyScore === 100 ? '100%' : '0%'}
-                          </span>
-                        </td>
-                        <td style={{
-                          padding: '18px',
-                          color: zomatoScore === 100 ? '#22c55e' : '#94a3b8',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          maxWidth: '200px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
+                          fontSize: '1.2rem'
                         }}>
                           {zomatoMatch}
                         </td>
                         <td style={{
                           padding: '18px',
+                          color: (product.zomatoRating || 0) > 0 ? '#22c55e' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '700'
                         }}>
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: '0.8rem',
-                            background: zomatoScore === 100 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                            color: zomatoScore === 100 ? '#22c55e' : '#ef4444',
-                            border: `1px solid ${zomatoScore === 100 ? '#22c55e40' : '#ef444440'}`
-                          }}>
-                            {zomatoScore === 100 ? '100%' : '0%'}
-                          </span>
+                          {(product.zomatoRating || 0) > 0 ? `${product.zomatoRating.toFixed(1)}★` : '-'}
                         </td>
-                        <td style={{ padding: '18px' }}>
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontSize: '0.7rem',
-                            fontWeight: '600',
-                            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                            background: hasBothMatches ? 'rgba(34, 197, 94, 0.2)' : (swiggyScore === 100 || zomatoScore === 100) ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                            color: hasBothMatches ? '#22c55e' : (swiggyScore === 100 || zomatoScore === 100) ? '#f59e0b' : '#ef4444',
-                            border: `1px solid ${hasBothMatches ? '#22c55e40' : (swiggyScore === 100 || zomatoScore === 100) ? '#f59e0b40' : '#ef444440'}`
-                          }}>
-                            {hasBothMatches ? 'BOTH PLATFORMS' : (swiggyScore === 100 || zomatoScore === 100) ? 'PARTIAL MATCH' : 'NO MATCH'}
-                          </span>
+                        <td style={{
+                          padding: '18px',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontSize: '1.2rem'
+                        }}>
+                          {swiggyMatch}
+                        </td>
+                        <td style={{
+                          padding: '18px',
+                          color: (product.swiggyRating || 0) > 0 ? '#22c55e' : '#94a3b8',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700'
+                        }}>
+                          {(product.swiggyRating || 0) > 0 ? `${product.swiggyRating.toFixed(1)}★` : '-'}
+                        </td>
+                        <td style={{
+                          padding: '18px',
+                          color: (product.avgRating || 0) > 0 ? '#3b82f6' : '#94a3b8',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700',
+                          fontSize: '1.1rem'
+                        }}>
+                          {(product.avgRating || 0) > 0 ? `${product.avgRating.toFixed(1)}★` : '-'}
+                        </td>
+                        <td style={{
+                          padding: '18px',
+                          color: '#22c55e',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700'
+                        }}>
+                          {product.highRated || 0}
+                        </td>
+                        <td style={{
+                          padding: '18px',
+                          color: '#ef4444',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700'
+                        }}>
+                          {product.lowRated || 0}
                         </td>
                       </tr>
                     );
