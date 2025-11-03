@@ -204,11 +204,7 @@ const ProductAnalysisDashboard = () => {
     name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
     fullName: product.name,
     highRated: product.highRated || 0,
-    zomatoOrders: product.zomatoOrders || 0,
-    swiggyOrders: product.swiggyOrders || 0,
-    // Calculate high rated per platform (assuming proportional distribution)
-    zomatoHighRated: Math.round((product.highRated || 0) * ((product.zomatoOrders || 0) / ((product.zomatoOrders || 0) + (product.swiggyOrders || 0) || 1))),
-    swiggyHighRated: Math.round((product.highRated || 0) * ((product.swiggyOrders || 0) / ((product.zomatoOrders || 0) + (product.swiggyOrders || 0) || 1)))
+    totalOrders: product.totalOrdersFromRista || 0
   })).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => ({
@@ -703,7 +699,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* High Rated Chart - SEPARATE FOR ZOMATO AND SWIGGY */}
+        {/* High Rated Chart - OVERALL */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -714,29 +710,29 @@ const ProductAnalysisDashboard = () => {
             padding: '25px',
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
           }}>
-            <h3 style={{ 
+            <h3 style={{
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               margin: 0,
               color: '#f8fafc',
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY HIGH RATED (ZOMATO & SWIGGY)
+              TOP 10 PRODUCTS BY HIGH RATED (OVERALL)
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
               <BarChart data={highRatedData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={80} 
-                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
                 />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -748,14 +744,13 @@ const ProductAnalysisDashboard = () => {
                     return item ? item.fullName : label;
                   }}
                   formatter={(value, name, props) => {
-                    if (name === 'zomatoHighRated') return [value, 'Zomato High Rated'];
-                    if (name === 'swiggyHighRated') return [value, 'Swiggy High Rated'];
+                    if (name === 'highRated') return [value, 'High Rated'];
+                    if (name === 'totalOrders') return [value, 'Total Orders'];
                     return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="zomatoHighRated" fill="#dc2626" name="Zomato High Rated" />
-                <Bar dataKey="swiggyHighRated" fill="#f97316" name="Swiggy High Rated" />
+                <Bar dataKey="highRated" fill="#22c55e" name="High Rated" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -922,15 +917,12 @@ const ProductAnalysisDashboard = () => {
                         }}>
                           {totalRistaOrders}
                         </td>
-                        <td style={{ 
+                        <td style={{
                           padding: '18px',
                           color: '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                         }}>
                           {totalRatedOrders}
-                          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                            Z:{product.zomatoOrders || 0} S:{product.swiggyOrders || 0}
-                          </div>
                         </td>
                         <td style={{ 
                           padding: '18px',
