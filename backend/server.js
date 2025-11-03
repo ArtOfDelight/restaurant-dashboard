@@ -6002,12 +6002,24 @@ app.get('/api/product-matching-sheets', async (req, res) => {
   try {
     console.log('=== Product Matching API Call Started (Sheet-based) ===');
 
-    const result = await processProductMatchingFromSheets(DASHBOARD_SPREADSHEET_ID);
+    const result = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID);
 
     console.log('=== Product Matching Complete ===');
-    console.log(`Found ${result.data.length} perfect matches (100% score)`);
+    console.log(`Found ${result.products.length} matched products`);
 
-    res.json(result);
+    // Transform the result to match expected format
+    const response = {
+      success: true,
+      data: result.products,
+      metadata: {
+        totalProducts: result.summary.totalProductsInSheet,
+        matchedProducts: result.summary.matchedProducts,
+        unmatchedProducts: result.summary.unmatchedProducts,
+        totalOrders: result.summary.totalOrders
+      }
+    };
+
+    res.json(response);
 
   } catch (error) {
     console.error('=== Product Matching Error ===');
