@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ScatterChart, Scatter
+  ResponsiveContainer, ScatterChart, Scatter, ComposedChart
 } from 'recharts';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
@@ -199,21 +199,34 @@ const ProductAnalysisDashboard = () => {
     ? data.products 
     : data.products.filter(product => product.platform === selectedPlatform);
 
-  // Prepare chart data - HIGH RATED ANALYSIS
-  const highRatedData = filteredProducts.map(product => ({
-    name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
-    fullName: product.name,
-    highRated: product.highRated || 0,
-    totalOrders: product.totalOrdersFromRista || 0
-  })).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
+  // Prepare chart data - HIGH RATED ANALYSIS (with percentages)
+  const highRatedData = filteredProducts.map(product => {
+    const totalOrders = product.totalOrdersFromRista || 0;
+    const highRated = product.highRated || 0;
+    const highRatedPercentage = totalOrders > 0 ? (highRated / totalOrders) * 100 : 0;
 
-  const complaintAnalysisData = filteredProducts.map(product => ({
-    name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
-    fullName: product.name,
-    lowRated: product.lowRated || 0,
-    lowRatedPercentage: (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0,
-    totalOrders: product.totalOrdersFromRista || 0
-  })).filter(product => product.lowRated > 0)
+    return {
+      name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
+      fullName: product.name,
+      highRated: highRated,
+      totalOrders: totalOrders,
+      highRatedPercentage: highRatedPercentage
+    };
+  }).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
+
+  const complaintAnalysisData = filteredProducts.map(product => {
+    const totalOrders = product.totalOrdersFromRista || 0;
+    const lowRated = product.lowRated || 0;
+    const lowRatedPercentage = (product.lowRatedPercentage != null && !isNaN(product.lowRatedPercentage)) ? product.lowRatedPercentage : 0;
+
+    return {
+      name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
+      fullName: product.name,
+      lowRated: lowRated,
+      lowRatedPercentage: lowRatedPercentage,
+      totalOrders: totalOrders
+    };
+  }).filter(product => product.lowRated > 0)
     .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)).slice(0, 10);
 
   const platformDistribution = [
@@ -699,7 +712,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* High Rated Chart - OVERALL */}
+        {/* High Rated Chart - COMBINED BAR & LINE */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -717,12 +730,12 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY HIGH RATED (OVERALL)
+              TOP 10 PRODUCTS - ORDERS & HIGH RATED %
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={highRatedData}>
+              <ComposedChart data={highRatedData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
                 <XAxis
                   dataKey="name"
@@ -731,7 +744,18 @@ const ProductAnalysisDashboard = () => {
                   height={80}
                   tick={{ fontSize: 11, fill: '#94a3b8' }}
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  label={{ value: 'Orders', angle: -90, position: 'insideLeft', fill: '#94a3b8' }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  label={{ value: 'High Rated %', angle: 90, position: 'insideRight', fill: '#94a3b8' }}
+                  domain={[0, 100]}
+                />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
@@ -744,19 +768,21 @@ const ProductAnalysisDashboard = () => {
                     return item ? item.fullName : label;
                   }}
                   formatter={(value, name, props) => {
-                    if (name === 'highRated') return [value, 'High Rated'];
                     if (name === 'totalOrders') return [value, 'Total Orders'];
+                    if (name === 'highRated') return [value, 'High Rated Count'];
+                    if (name === 'highRatedPercentage') return [`${value.toFixed(2)}%`, 'High Rated %'];
                     return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="highRated" fill="#22c55e" name="High Rated" />
-              </BarChart>
+                <Bar yAxisId="left" dataKey="totalOrders" fill="#3b82f6" name="Total Orders" />
+                <Line yAxisId="right" type="monotone" dataKey="highRatedPercentage" stroke="#22c55e" strokeWidth={3} name="High Rated %" dot={{ fill: '#22c55e', r: 5 }} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Low Rated Analysis Chart */}
+        {/* Low Rated Analysis Chart - COMBINED BAR & LINE */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -767,29 +793,40 @@ const ProductAnalysisDashboard = () => {
             padding: '25px',
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
           }}>
-            <h3 style={{ 
+            <h3 style={{
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               margin: 0,
               color: '#f8fafc',
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS BY LOW RATED PERCENTAGE
+              TOP 10 PRODUCTS - ORDERS & LOW RATED %
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={complaintAnalysisData}>
+              <ComposedChart data={complaintAnalysisData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
-                  height={80} 
-                  tick={{ fontSize: 11, fill: '#94a3b8' }} 
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
                 />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} label={{ value: 'Low Rated %', angle: -90, position: 'insideLeft', fill: '#94a3b8' }} />
-                <Tooltip 
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  label={{ value: 'Orders', angle: -90, position: 'insideLeft', fill: '#94a3b8' }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  label={{ value: 'Low Rated %', angle: 90, position: 'insideRight', fill: '#94a3b8' }}
+                  domain={[0, 'auto']}
+                />
+                <Tooltip
                   contentStyle={{
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -801,14 +838,16 @@ const ProductAnalysisDashboard = () => {
                     return item ? item.fullName : label;
                   }}
                   formatter={(value, name, props) => {
-                    if (name === 'lowRatedPercentage') return [`${value.toFixed(2)}%`, 'Low Rated %'];
                     if (name === 'totalOrders') return [value, 'Total Orders'];
+                    if (name === 'lowRated') return [value, 'Low Rated Count'];
+                    if (name === 'lowRatedPercentage') return [`${value.toFixed(2)}%`, 'Low Rated %'];
                     return [value, name];
                   }}
                 />
                 <Legend />
-                <Bar dataKey="lowRatedPercentage" fill="#ef4444" name="Low Rated %" />
-              </BarChart>
+                <Bar yAxisId="left" dataKey="totalOrders" fill="#3b82f6" name="Total Orders" />
+                <Line yAxisId="right" type="monotone" dataKey="lowRatedPercentage" stroke="#ef4444" strokeWidth={3} name="Low Rated %" dot={{ fill: '#ef4444', r: 5 }} />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
