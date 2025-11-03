@@ -1688,19 +1688,17 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }
 }
-// Process signal handlers
+// Process signal handlers - ONLY shutdown on explicit termination signals
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For nodemon
 
+// Log errors but DON'T shutdown - let the server keep running
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  gracefulShutdown('uncaughtException');
+  console.error('⚠️ Uncaught Exception (server continues running):', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  gracefulShutdown('unhandledRejection');
+  console.error('⚠️ Unhandled Rejection (server continues running):', reason);
 });
 
 // Initialize services on startup
