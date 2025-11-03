@@ -4608,12 +4608,51 @@ function generateSwiggyFallbackInsights(data, period) {
 }
 
 // === ENHANCED PRODUCT ANALYSIS - NO RISTA API VERSION ===
-// Uses ProductDetails sheet aggregation + 100% fuzzy matching with rapidfuzz
-
-const { fuzz } = require('fuzzywuzzy'); // Using fuzzywuzzy as rapidfuzz equivalent for Node.js
+// Uses ProductDetails sheet aggregation + 100% fuzzy matching
 
 // Configuration
 const DATE_FILTER_DAYS = 28; // Set to null to use all dates, or specify number of days (e.g., 28, 90)
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(str1, str2) {
+  const len1 = str1.length;
+  const len2 = str2.length;
+  const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(0));
+
+  for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+  for (let j = 0; j <= len2; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= len2; j++) {
+    for (let i = 1; i <= len1; i++) {
+      const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,     // deletion
+        matrix[j - 1][i] + 1,     // insertion
+        matrix[j - 1][i - 1] + cost // substitution
+      );
+    }
+  }
+
+  return matrix[len2][len1];
+}
+
+/**
+ * Calculate fuzzy matching ratio (0-100) similar to rapidfuzz.fuzz.ratio
+ */
+function fuzzyRatio(str1, str2) {
+  if (!str1 || !str2) return 0;
+  if (str1 === str2) return 100;
+
+  const distance = levenshteinDistance(str1, str2);
+  const maxLen = Math.max(str1.length, str2.length);
+  
+  if (maxLen === 0) return 100;
+  
+  const similarity = (1 - distance / maxLen) * 100;
+  return Math.round(similarity);
+}
 
 /**
  * Normalize product name for matching
@@ -4640,7 +4679,7 @@ function normalizeProductName(name) {
 }
 
 /**
- * Calculate fuzzy match score using fuzzywuzzy (0-100)
+ * Calculate fuzzy match score using Levenshtein-based ratio (0-100)
  * Returns 100 for perfect matches only
  */
 function calculateFuzzyScore(str1, str2) {
@@ -4650,8 +4689,8 @@ function calculateFuzzyScore(str1, str2) {
   if (!normalized1 || !normalized2) return 0;
   if (normalized1 === normalized2) return 100;
   
-  // Use fuzzywuzzy ratio (equivalent to rapidfuzz.fuzz.ratio)
-  return fuzz.ratio(normalized1, normalized2);
+  // Use our custom fuzzyRatio function (equivalent to rapidfuzz.fuzz.ratio)
+  return fuzzyRatio(normalized1, normalized2);
 }
 
 /**
