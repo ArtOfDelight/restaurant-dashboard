@@ -4818,60 +4818,76 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
  * Process Zomato orders and categorize ratings into high/low rated
  * High rated: 4 stars and above
  * Low rated: below 3 stars
+ * DEDUPLICATES based on Order ID to avoid counting same order multiple times
  */
 function processZomatoOrdersDataWithRatings(rawData) {
   if (!rawData || rawData.length <= 1) return [];
-  
+
   const headers = rawData[0];
   const dataRows = rawData.slice(1);
-  
+
   console.log('\nZomato Orders Headers:', headers);
-  
+
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  
-  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}`);
-  
+  const orderIdIndex = headers.findIndex(h => h && (h.toLowerCase().includes('order id') || h.toLowerCase().includes('order no')));
+
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Order ID column: ${orderIdIndex}`);
+
   if (itemsIndex === -1) {
     console.error('ERROR: Items in order column not found in Zomato sheet');
     return [];
   }
-  
+
   const itemCounts = new Map();
   const itemRatings = new Map();
   const itemHighRated = new Map();
   const itemLowRated = new Map();
-  
+  const processedOrderIds = new Set(); // Track processed Order IDs
+
   let totalOrders = 0;
   let ordersWithRatings = 0;
-  
+  let duplicateOrders = 0;
+
   dataRows.forEach(row => {
     const itemsCell = getCellValue(row, itemsIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
-    
+    const orderId = orderIdIndex !== -1 ? getCellValue(row, orderIdIndex) : null;
+
+    // Skip if this Order ID has already been processed
+    if (orderId && processedOrderIds.has(orderId)) {
+      duplicateOrders++;
+      return;
+    }
+
+    // Mark this Order ID as processed
+    if (orderId) {
+      processedOrderIds.add(orderId);
+    }
+
     totalOrders++;
-    
+
     if (!itemsCell || !itemsCell.trim()) {
       return;
     }
-    
+
     if (rating > 0) ordersWithRatings++;
-    
+
     const items = parseItemsFromCell(itemsCell);
-    
+
     items.forEach(item => {
       if (item && item.trim()) {
         const cleanItem = item.trim();
         const normalizedItem = normalizeProductName(cleanItem);
-        
+
         itemCounts.set(normalizedItem, (itemCounts.get(normalizedItem) || 0) + 1);
-        
+
         if (!itemRatings.has(normalizedItem)) {
           itemRatings.set(normalizedItem, []);
         }
         if (rating > 0) {
           itemRatings.get(normalizedItem).push(rating);
-          
+
           // Categorize as high or low rated
           if (rating >= 4.0) {
             itemHighRated.set(normalizedItem, (itemHighRated.get(normalizedItem) || 0) + 1);
@@ -4900,10 +4916,11 @@ function processZomatoOrdersDataWithRatings(rawData) {
   });
   
   console.log(`\nZomato Processing:`);
-  console.log(`  Total orders: ${totalOrders}`);
+  console.log(`  Total orders processed: ${totalOrders}`);
+  console.log(`  Duplicate orders skipped: ${duplicateOrders}`);
   console.log(`  Orders with ratings: ${ordersWithRatings}`);
   console.log(`  Unique items: ${result.length}`);
-  
+
   return result;
 }
 
