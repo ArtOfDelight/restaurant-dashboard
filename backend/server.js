@@ -4691,6 +4691,71 @@ function getDateString(daysAgo = 0) {
 /**
  * Advanced product name matching using multiple algorithms
  */
+
+// ===== RATE LIMITING AND CACHING FOR GEMINI API =====
+
+// Cache for product similarity scores to avoid redundant API calls
+const similarityCache = new Map();
+
+// Rate limiting state
+let lastGeminiCallTime = 0;
+const MIN_DELAY_BETWEEN_CALLS = 300; // Minimum 300ms between API calls (200 calls/minute max)
+const MAX_RETRIES = 3;
+
+/**
+ * Sleep utility
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Rate-limited Gemini API call with exponential backoff retry
+ */
+async function callGeminiWithRateLimit(prompt, retryCount = 0) {
+  // Ensure minimum delay between API calls
+  const now = Date.now();
+  const timeSinceLastCall = now - lastGeminiCallTime;
+  if (timeSinceLastCall < MIN_DELAY_BETWEEN_CALLS) {
+    await sleep(MIN_DELAY_BETWEEN_CALLS - timeSinceLastCall);
+  }
+  lastGeminiCallTime = Date.now();
+
+  try {
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 50,
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000
+      }
+    );
+
+    return response;
+  } catch (error) {
+    // Handle rate limit errors with exponential backoff
+    if (error.response?.status === 429 && retryCount < MAX_RETRIES) {
+      const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Max 8 seconds
+      console.log(`Rate limit hit, retrying in ${backoffDelay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      await sleep(backoffDelay);
+      return callGeminiWithRateLimit(prompt, retryCount + 1);
+    }
+    throw error;
+  }
+}
+
 /**
  * Normalise a product name for matching.
  *   • Removes leading "X " (or "X-" , "X." etc.)
@@ -4718,10 +4783,7 @@ function normalizeProductName(name) {
 
 /**
  * Similarity between two product names using Gemini AI (0-1).
- */
-/**
- * Similarity between two product names using Gemini AI (0-1).
- * FIXED: Now uses the initialized Gemini API via axios instead of local geminiModel
+ * UPDATED: Now uses caching and rate-limited API calls with exponential backoff retry
  */
 async function calculateProductSimilarity(name1, name2) {
   const n1 = normalizeProductName(name1);
@@ -4730,10 +4792,18 @@ async function calculateProductSimilarity(name1, name2) {
   if (!n1 || !n2) return 0;
   if (n1 === n2) return 1.0;
 
+  // Check cache first (cache key is sorted to ensure "A vs B" = "B vs A")
+  const cacheKey = [n1, n2].sort().join('|');
+  if (similarityCache.has(cacheKey)) {
+    return similarityCache.get(cacheKey);
+  }
+
   // Check if Gemini API is available
   if (!GEMINI_API_KEY) {
     console.warn('Gemini API key not configured, using fallback matching');
-    return calculateLevenshteinSimilarity(n1, n2);
+    const score = calculateLevenshteinSimilarity(n1, n2);
+    similarityCache.set(cacheKey, score);
+    return score;
   }
 
   try {
@@ -4749,47 +4819,34 @@ Product 2: "${n2}"
 
 Return only the numerical score (e.g., 0.85), nothing else.`;
 
-    // USE THE SAME GEMINI API CALL AS OTHER ENDPOINTS
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 50,  // Short response, just a number
-        }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 10000  // 10 second timeout for faster matching
-      }
-    );
+    // Use rate-limited API call with retry logic
+    const response = await callGeminiWithRateLimit(prompt);
 
     if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
       const text = response.data.candidates[0].content.parts[0].text.trim();
       const score = parseFloat(text);
-      
+
       if (isNaN(score) || score < 0 || score > 1) {
         console.warn(`Invalid Gemini score for "${name1}" vs "${name2}": ${text}`);
-        return 0;
+        const fallbackScore = calculateLevenshteinSimilarity(n1, n2);
+        similarityCache.set(cacheKey, fallbackScore);
+        return fallbackScore;
       }
-      
+
+      // Cache the result
+      similarityCache.set(cacheKey, score);
       return score;
     }
-    
+
     throw new Error('No valid response from Gemini');
-    
+
   } catch (error) {
     console.error(`Gemini matching error for "${name1}" vs "${name2}":`, error.message);
-    
+
     // Fallback to Levenshtein distance if Gemini fails
-    return calculateLevenshteinSimilarity(n1, n2);
+    const fallbackScore = calculateLevenshteinSimilarity(n1, n2);
+    similarityCache.set(cacheKey, fallbackScore);
+    return fallbackScore;
   }
 }
 
@@ -4988,15 +5045,14 @@ async function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
     
     for (const [ristaName, ristaData] of Object.entries(ristaOrdersMap)) {
       const similarity = await calculateProductSimilarity(productNormalized, ristaName);
-      
+
       if (similarity > bestScore) {
         bestScore = similarity;
         bestMatch = ristaData.totalQuantity;
         bestMatchName = ristaData.name;
       }
-      
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Rate limiting is now handled inside calculateProductSimilarity
     }
     
     // Use 75% similarity threshold for matching
@@ -5129,7 +5185,7 @@ async function processProductAnalysisData(spreadsheetId) {
           bestScore = similarity;
           bestMatch = mapKey;
         }
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Rate limiting is now handled inside calculateProductSimilarity
       }
       
       if (bestMatch) {
@@ -5166,7 +5222,7 @@ async function processProductAnalysisData(spreadsheetId) {
           bestScore = similarity;
           bestMatch = mapKey;
         }
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Rate limiting is now handled inside calculateProductSimilarity
       }
       
       if (bestMatch) {
