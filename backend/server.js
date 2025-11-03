@@ -5089,14 +5089,14 @@ async function matchRistaOrdersWithProducts(products, ristaOrdersMap) {
 
 /**
  * Main function to process product analysis data from Google Sheets
- * NOW INTEGRATES WITH RISTA API FOR LAST 28 DAYS + LOW RATED METRICS + GEMINI MATCHING
+ * Uses ProductDetails sheet as primary source with simple exact matching
  */
 async function processProductAnalysisData(spreadsheetId) {
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING RISTA NAMES + GEMINI');
+  console.log('PROCESSING PRODUCT ANALYSIS DATA - USING PRODUCTDETAILS SHEET');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}\n`);
-  
+
   try {
     if (!sheets) {
       const initialized = await initializeGoogleServices();
@@ -5105,163 +5105,125 @@ async function processProductAnalysisData(spreadsheetId) {
       }
     }
 
-    // Step 1: Fetch Rista orders (last 28 days) - THIS WILL BE OUR PRIMARY SOURCE
-    console.log('\n' + '═'.repeat(60));
-    const ristaOrdersMap = await fetchTotalOrdersFromRista();
-    console.log('═'.repeat(60));
-    
-    // Step 2: Create product map using Rista names as primary
-    const productMap = new Map();
-    
-    // Populate with Rista data FIRST (using original Rista item names)
-    for (const [ristaName, ristaData] of Object.entries(ristaOrdersMap)) {
-      const normalizedName = normalizeProductName(ristaName);
-      
-      if (!productMap.has(normalizedName)) {
-        productMap.set(normalizedName, {
-          name: ristaData.name, // ← USE ORIGINAL RISTA NAME (not normalized)
-          zomatoOrders: 0,
-          swiggyOrders: 0,
-          totalOrdersFromRista: ristaData.totalQuantity,
-          highRated: 0,
-          lowRated: 0,
-          lowRatedPercentage: 0,
-          avgRating: 0,
-          zomatoRating: 0,
-          swiggyRating: 0,
-          primarySource: 'rista' // Track that this came from Rista
-        });
-      }
-    }
+    // Step 1: Fetch all sheet data in parallel
+    console.log('\nFetching sheet data...');
+    const [productDetailsData, zomatoOrdersData, swiggyReviewData] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'ProductDetails!A:Z'
+      }).catch(e => ({ data: { values: [] }, error: e.message })),
 
-    console.log(`\nInitialized ${productMap.size} products from Rista data`);
-
-    // Step 3: Fetch sheet data for ratings only
-    console.log('\nFetching Zomato/Swiggy data for ratings...');
-    const [zomatoOrdersData, swiggyReviewData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: 'zomato_orders!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message })),
-      
+
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: 'Copy of swiggy_review!A:Z'
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
+    // Step 2: Process ProductDetails sheet (aggregated order counts)
+    const productDetails = processProductDetailsSheet(productDetailsData.data.values);
+    console.log(`\nProcessed ${productDetails.length} products from ProductDetails sheet`);
+
+    // Step 3: Process rating data from Zomato and Swiggy
     const zomatoOrders = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
     const swiggyOrders = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
 
-    console.log(`   - Zomato data: ${zomatoOrders.length} items`);
-    console.log(`   - Swiggy data: ${swiggyOrders.length} items`);
+    console.log(`Processed ${zomatoOrders.length} items from Zomato`);
+    console.log(`Processed ${swiggyOrders.length} items from Swiggy`);
 
-    // Step 4: Match Zomato/Swiggy ratings to existing Rista products using Gemini
-    console.log('\nMatching ratings to Rista products with Gemini AI...');
+    // Step 4: Create product map using ProductDetails as primary source
+    const productMap = new Map();
+
+    // Populate with ProductDetails data FIRST
+    for (const product of productDetails) {
+      const normalizedName = normalizeProductName(product.itemName);
+
+      if (!productMap.has(normalizedName)) {
+        productMap.set(normalizedName, {
+          name: product.itemName, // Use original name from ProductDetails
+          totalOrdersFromRista: product.orderCount, // This is the aggregated order count
+          zomatoOrders: 0,
+          swiggyOrders: 0,
+          highRated: 0,
+          lowRated: 0,
+          lowRatedPercentage: 0,
+          avgRating: 0,
+          zomatoRating: 0,
+          swiggyRating: 0,
+          primarySource: 'productdetails'
+        });
+      }
+    }
+
+    console.log(`\nInitialized ${productMap.size} products from ProductDetails`);
+
+    // Step 5: Match Zomato ratings with exact matching only
+    console.log('\nMatching Zomato ratings (exact match only)...');
     let zomatoMatches = 0;
-    let swiggyMatches = 0;
 
-    // Match Zomato ratings
     for (const item of zomatoOrders) {
       const normalizedName = normalizeProductName(item.name);
-      
-      // Try exact match first
+
       if (productMap.has(normalizedName)) {
         const product = productMap.get(normalizedName);
         product.zomatoRating = item.rating;
+        product.zomatoOrders = item.orders;
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         zomatoMatches++;
-        continue;
-      }
-      
-      // Try Gemini-powered fuzzy match
-      let bestMatch = null;
-      let bestScore = 0;
-      
-      for (const [mapKey, product] of productMap.entries()) {
-        const similarity = await calculateProductSimilarity(normalizedName, mapKey);
-        if (similarity > bestScore && similarity >= 0.75) {
-          bestScore = similarity;
-          bestMatch = mapKey;
-        }
-        // Rate limiting is now handled inside calculateProductSimilarity
-      }
-      
-      if (bestMatch) {
-        const product = productMap.get(bestMatch);
-        product.zomatoRating = item.rating;
-        product.highRated += item.highRated || 0;
-        product.lowRated += item.lowRated || 0;
-        zomatoMatches++;
-        console.log(`   Gemini match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
       }
     }
 
-    // Match Swiggy ratings
+    console.log(`   Matched ${zomatoMatches} Zomato items`);
+
+    // Step 6: Match Swiggy ratings with exact matching only
+    console.log('Matching Swiggy ratings (exact match only)...');
+    let swiggyMatches = 0;
+
     for (const item of swiggyOrders) {
       const normalizedName = normalizeProductName(item.name);
-      
-      // Try exact match first
+
       if (productMap.has(normalizedName)) {
         const product = productMap.get(normalizedName);
         product.swiggyRating = item.rating;
+        product.swiggyOrders = item.orders;
         product.highRated += item.highRated || 0;
         product.lowRated += item.lowRated || 0;
         swiggyMatches++;
-        continue;
-      }
-      
-      // Try Gemini-powered fuzzy match
-      let bestMatch = null;
-      let bestScore = 0;
-      
-      for (const [mapKey, product] of productMap.entries()) {
-        const similarity = await calculateProductSimilarity(normalizedName, mapKey);
-        if (similarity > bestScore && similarity >= 0.75) {
-          bestScore = similarity;
-          bestMatch = mapKey;
-        }
-        // Rate limiting is now handled inside calculateProductSimilarity
-      }
-      
-      if (bestMatch) {
-        const product = productMap.get(bestMatch);
-        product.swiggyRating = item.rating;
-        product.highRated += item.highRated || 0;
-        product.lowRated += item.lowRated || 0;
-        swiggyMatches++;
-        console.log(`   Gemini match: "${item.name}" → "${product.name}" (${(bestScore * 100).toFixed(1)}%)`);
       }
     }
 
-    console.log(`\nRating matches: Zomato ${zomatoMatches}, Swiggy ${swiggyMatches}`);
+    console.log(`   Matched ${swiggyMatches} Swiggy items`);
 
-    // Step 5: Calculate final metrics
+    // Step 7: Calculate final metrics
     let products = Array.from(productMap.values());
-    
+
     products = products.map(product => {
       const totalOrders = product.totalOrdersFromRista;
-      
+
       // Calculate average rating
       const ratings = [];
       if (product.zomatoRating > 0) ratings.push(product.zomatoRating);
       if (product.swiggyRating > 0) ratings.push(product.swiggyRating);
-      product.avgRating = ratings.length > 0 
-        ? ratings.reduce((a, b) => a + b, 0) / ratings.length 
+      product.avgRating = ratings.length > 0
+        ? ratings.reduce((a, b) => a + b, 0) / ratings.length
         : 0;
-      
+
       // Calculate low rated percentage
       const lowRated = product.lowRated || 0;
-      product.lowRatedPercentage = totalOrders > 0 
-        ? (lowRated / totalOrders * 100) 
+      product.lowRatedPercentage = totalOrders > 0
+        ? (lowRated / totalOrders * 100)
         : 0;
-      
+
       // Ensure valid numbers
       if (isNaN(product.lowRatedPercentage)) product.lowRatedPercentage = 0;
       product.highRated = product.highRated || 0;
       product.lowRated = lowRated;
-      
+
       return product;
     });
 
@@ -5277,23 +5239,23 @@ async function processProductAnalysisData(spreadsheetId) {
       totalHighRated: products.reduce((sum, p) => sum + (p.highRated || 0), 0),
       totalLowRated: products.reduce((sum, p) => sum + (p.lowRated || 0), 0),
       avgLowRatedPercentage: 0,
-      ristaProductsUsed: products.filter(p => p.primarySource === 'rista').length,
+      productDetailsUsed: products.filter(p => p.primarySource === 'productdetails').length,
       zomatoRatingMatches: zomatoMatches,
       swiggyRatingMatches: swiggyMatches
     };
 
     const totalOrdersForRate = summary.totalRistaOrders;
-    summary.avgLowRatedPercentage = totalOrdersForRate > 0 
-      ? (summary.totalLowRated / totalOrdersForRate * 100) 
+    summary.avgLowRatedPercentage = totalOrdersForRate > 0
+      ? (summary.totalLowRated / totalOrdersForRate * 100)
       : 0;
-    
+
     if (isNaN(summary.avgLowRatedPercentage)) summary.avgLowRatedPercentage = 0;
 
     console.log('\n' + '═'.repeat(60));
-    console.log('PROCESSING COMPLETE - USING RISTA NAMES + GEMINI MATCHING');
+    console.log('PROCESSING COMPLETE - USING PRODUCTDETAILS SHEET');
     console.log('═'.repeat(60));
-    console.log(`Products: ${products.length} (${summary.ristaProductsUsed} from Rista)`);
-    console.log(`Orders (Rista): ${summary.totalRistaOrders}`);
+    console.log(`Products: ${products.length} (${summary.productDetailsUsed} from ProductDetails)`);
+    console.log(`Total Orders: ${summary.totalRistaOrders}`);
     console.log(`High Rated: ${summary.totalHighRated}`);
     console.log(`Low Rated: ${summary.totalLowRated}`);
     console.log(`Avg Low Rated %: ${(summary.avgLowRatedPercentage || 0).toFixed(2)}%`);
@@ -5846,7 +5808,7 @@ function calculateSimilarityScore(str1, str2) {
 }
 
 /**
- * Process ProductDetails sheet - Extract item names and order counts
+ * Process ProductDetails sheet - Extract item names and aggregate order counts across all dates
  */
 function processProductDetailsSheet(rawData) {
   if (!rawData || rawData.length < 2) return [];
@@ -5858,22 +5820,34 @@ function processProductDetailsSheet(rawData) {
 
   console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
 
-  const items = [];
+  // Use a Map to aggregate order counts by item name
+  const itemsMap = new Map();
+
   for (let i = 1; i < rawData.length; i++) {
     const row = rawData[i];
     const itemName = row[itemNameIndex]?.toString().trim();
     const orderCount = parseInt(row[orderCountIndex]) || 0;
 
     if (itemName) {
-      items.push({
-        itemName,
-        orderCount,
-        normalizedName: preprocessItemName(itemName)
-      });
+      const normalizedName = preprocessItemName(itemName);
+
+      // Aggregate counts for the same item across different dates
+      if (itemsMap.has(normalizedName)) {
+        const existing = itemsMap.get(normalizedName);
+        existing.orderCount += orderCount;
+      } else {
+        itemsMap.set(normalizedName, {
+          itemName,
+          orderCount,
+          normalizedName
+        });
+      }
     }
   }
 
-  console.log(`Processed ${items.length} items from ProductDetails`);
+  // Convert Map to array
+  const items = Array.from(itemsMap.values());
+  console.log(`Processed ${items.length} unique items from ProductDetails (aggregated from ${rawData.length - 1} rows)`);
   return items;
 }
 
