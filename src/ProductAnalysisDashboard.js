@@ -889,13 +889,13 @@ const ProductAnalysisDashboard = () => {
                   {[
                     'PRODUCT NAME',
                     'ORDER COUNT',
-                    'ZOMATO MATCH',
                     'ZOMATO RATING',
-                    'SWIGGY MATCH',
                     'SWIGGY RATING',
                     'AVG RATING',
                     'HIGH RATED',
-                    'LOW RATED'
+                    'HIGH RATED %',
+                    'LOW RATED',
+                    'LOW RATED %'
                   ].map((header) => (
                     <th key={header} style={{ 
                       padding: '18px', 
@@ -957,25 +957,11 @@ const ProductAnalysisDashboard = () => {
                         </td>
                         <td style={{
                           padding: '18px',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontSize: '1.2rem'
-                        }}>
-                          {zomatoMatch}
-                        </td>
-                        <td style={{
-                          padding: '18px',
                           color: (product.zomatoRating || 0) > 0 ? '#22c55e' : '#94a3b8',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '700'
                         }}>
                           {(product.zomatoRating || 0) > 0 ? `${product.zomatoRating.toFixed(1)}★` : '-'}
-                        </td>
-                        <td style={{
-                          padding: '18px',
-                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                          fontSize: '1.2rem'
-                        }}>
-                          {swiggyMatch}
                         </td>
                         <td style={{
                           padding: '18px',
@@ -1004,11 +990,27 @@ const ProductAnalysisDashboard = () => {
                         </td>
                         <td style={{
                           padding: '18px',
+                          color: '#22c55e',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700'
+                        }}>
+                          {(product.highRatedPercentage || 0).toFixed(2)}%
+                        </td>
+                        <td style={{
+                          padding: '18px',
                           color: '#ef4444',
                           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
                           fontWeight: '700'
                         }}>
                           {product.lowRated || 0}
+                        </td>
+                        <td style={{
+                          padding: '18px',
+                          color: '#ef4444',
+                          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                          fontWeight: '700'
+                        }}>
+                          {(product.lowRatedPercentage || 0).toFixed(2)}%
                         </td>
                       </tr>
                     );
