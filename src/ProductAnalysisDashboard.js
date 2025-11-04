@@ -18,7 +18,6 @@ const ProductAnalysisDashboard = () => {
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showMatchingDetails, setShowMatchingDetails] = useState(false);
   const [minOrderThreshold, setMinOrderThreshold] = useState(10); // Default threshold
-  const [dateRange, setDateRange] = useState('all'); // all, 7days, 30days, 90days
 
   // Fetch product data using fetch API - NOW USING PRODUCT ANALYSIS DATA
   const fetchData = async () => {
@@ -364,28 +363,6 @@ const ProductAnalysisDashboard = () => {
               }}
             />
           </div>
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value)}
-            style={{
-              padding: '12px 18px',
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '12px',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              color: '#f8fafc',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <option value="all" style={{ background: '#1e293b', color: '#f8fafc' }}>ALL TIME</option>
-            <option value="7days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 7 DAYS</option>
-            <option value="30days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 30 DAYS</option>
-            <option value="90days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 90 DAYS</option>
-          </select>
           <button
             onClick={() => setShowMatchingDetails(!showMatchingDetails)}
             style={{
