@@ -202,19 +202,23 @@ const ProductAnalysisDashboard = () => {
     : data.products.filter(product => product.platform === selectedPlatform);
 
   // Prepare chart data - HIGH RATED ANALYSIS (with percentages)
-  const highRatedData = filteredProducts.map(product => {
-    const totalOrders = product.totalOrders || 0;
-    const highRated = product.highRated || 0;
-    const highRatedPercentage = totalOrders > 0 ? (highRated / totalOrders) * 100 : 0;
+  const highRatedData = filteredProducts
+    .map(product => {
+      const totalOrders = product.totalOrders || 0;
+      const highRated = product.highRated || 0;
+      const highRatedPercentage = totalOrders > 0 ? (highRated / totalOrders) * 100 : 0;
 
-    return {
-      name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
-      fullName: product.name,
-      highRated: highRated,
-      totalOrders: totalOrders,
-      highRatedPercentage: highRatedPercentage
-    };
-  }).sort((a, b) => b.highRated - a.highRated).slice(0, 10);
+      return {
+        name: product.name.length > 15 ? product.name.substring(0, 15) + '...' : product.name,
+        fullName: product.name,
+        highRated: highRated,
+        totalOrders: totalOrders,
+        highRatedPercentage: highRatedPercentage
+      };
+    })
+    .filter(product => product.highRated > 0) // Only show products with high ratings
+    .sort((a, b) => b.highRated - a.highRated) // Sort by high rated count (descending)
+    .slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => {
     const totalOrders = product.totalOrders || 0;
