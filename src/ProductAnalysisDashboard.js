@@ -201,7 +201,7 @@ const ProductAnalysisDashboard = () => {
     ? data.products 
     : data.products.filter(product => product.platform === selectedPlatform);
 
-  // Prepare chart data - HIGH RATED ANALYSIS (with percentages)
+  // Prepare chart data - HIGH RATED ANALYSIS (with percentages) - DESCENDING ORDER
   const highRatedData = filteredProducts
     .map(product => {
       const totalOrders = product.totalOrders || 0;
@@ -217,7 +217,7 @@ const ProductAnalysisDashboard = () => {
       };
     })
     .filter(product => product.highRated > 0) // Only show products with high ratings
-    .sort((a, b) => b.highRated - a.highRated) // Sort by high rated count (descending)
+    .sort((a, b) => b.highRatedPercentage - a.highRatedPercentage) // Sort by high rated percentage (descending)
     .slice(0, 10);
 
   const complaintAnalysisData = filteredProducts.map(product => {
@@ -718,7 +718,7 @@ const ProductAnalysisDashboard = () => {
         padding: '30px',
         paddingTop: '0'
       }}>
-        {/* High Rated Chart - COMBINED BAR & LINE */}
+        {/* High Rated Chart - COMBINED BAR & LINE - DESCENDING ORDER */}
         <div style={{
           background: 'rgba(255, 255, 255, 0.05)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -736,7 +736,7 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS - ORDERS & HIGH RATED %
+              TOP 10 PRODUCTS - ORDERS & HIGH RATED % (DESCENDING)
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
