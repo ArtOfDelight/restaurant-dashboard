@@ -17,6 +17,8 @@ const ProductAnalysisDashboard = () => {
   const [loadingAI, setLoadingAI] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showMatchingDetails, setShowMatchingDetails] = useState(false);
+  const [minOrderThreshold, setMinOrderThreshold] = useState(10); // Default threshold
+  const [dateRange, setDateRange] = useState('all'); // all, 7days, 30days, 90days
 
   // Fetch product data using fetch API - NOW USING PRODUCT ANALYSIS DATA
   const fetchData = async () => {
@@ -196,10 +198,19 @@ const ProductAnalysisDashboard = () => {
 
   if (!data) return null;
 
-  // Filter data based on selected platform
-  const filteredProducts = selectedPlatform === 'All' 
-    ? data.products 
-    : data.products.filter(product => product.platform === selectedPlatform);
+  // Filter data based on selected platform and minimum order threshold
+  const filteredProducts = data.products
+    .filter(product => {
+      // Apply platform filter
+      if (selectedPlatform !== 'All' && product.platform !== selectedPlatform) {
+        return false;
+      }
+      // Apply minimum order threshold
+      if ((product.totalOrders || 0) < minOrderThreshold) {
+        return false;
+      }
+      return true;
+    });
 
   // Prepare chart data - HIGH RATED ANALYSIS (with percentages) - DESCENDING ORDER
   const highRatedData = filteredProducts
@@ -218,7 +229,7 @@ const ProductAnalysisDashboard = () => {
     })
     .filter(product => product.highRated > 0) // Only show products with high ratings
     .sort((a, b) => b.highRatedPercentage - a.highRatedPercentage) // Sort by high rated percentage (descending)
-    .slice(0, 10);
+    .slice(0, 20); // Top 20 products
 
   const complaintAnalysisData = filteredProducts.map(product => {
     const totalOrders = product.totalOrders || 0;
@@ -233,7 +244,7 @@ const ProductAnalysisDashboard = () => {
       totalOrders: totalOrders
     };
   }).filter(product => product.lowRated > 0)
-    .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)).slice(0, 10);
+    .sort((a, b) => (b.lowRatedPercentage || 0) - (a.lowRatedPercentage || 0)).slice(0, 20); // Top 20 products
 
   const platformDistribution = [
     { name: 'Zomato Orders (Rated)', value: data.summary?.totalZomatoOrders || 0, color: '#dc2626' },
@@ -300,7 +311,7 @@ const ProductAnalysisDashboard = () => {
             letterSpacing: '1px',
             margin: '10px 0 0 0'
           }}>
-            SHEET-BASED MATCHING • {data.summary?.matchedProducts || 0} MATCHED • {data.summary?.totalProducts || 0} TOTAL PRODUCTS
+            SHEET-BASED MATCHING • {filteredProducts.length} DISPLAYED (MIN {minOrderThreshold} ORDERS) • {data.summary?.totalProducts || 0} TOTAL PRODUCTS
           </p>
         </div>
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -324,6 +335,56 @@ const ProductAnalysisDashboard = () => {
             <option value="All" style={{ background: '#1e293b', color: '#f8fafc' }}>ALL PLATFORMS</option>
             <option value="Zomato" style={{ background: '#1e293b', color: '#f8fafc' }}>ZOMATO ONLY</option>
             <option value="Swiggy" style={{ background: '#1e293b', color: '#f8fafc' }}>SWIGGY ONLY</option>
+          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <label style={{
+              color: '#94a3b8',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontSize: '0.85rem',
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}>
+              MIN ORDERS:
+            </label>
+            <input
+              type="number"
+              value={minOrderThreshold}
+              onChange={(e) => setMinOrderThreshold(Number(e.target.value))}
+              min="0"
+              style={{
+                padding: '12px 18px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                fontSize: '0.9rem',
+                color: '#f8fafc',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                width: '100px',
+                backdropFilter: 'blur(10px)'
+              }}
+            />
+          </div>
+          <select
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            style={{
+              padding: '12px 18px',
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '12px',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              color: '#f8fafc',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <option value="all" style={{ background: '#1e293b', color: '#f8fafc' }}>ALL TIME</option>
+            <option value="7days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 7 DAYS</option>
+            <option value="30days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 30 DAYS</option>
+            <option value="90days" style={{ background: '#1e293b', color: '#f8fafc' }}>LAST 90 DAYS</option>
           </select>
           <button
             onClick={() => setShowMatchingDetails(!showMatchingDetails)}
@@ -736,11 +797,11 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS - ORDERS & HIGH RATED % (DESCENDING)
+              TOP 20 PRODUCTS - ORDERS & HIGH RATED % (DESCENDING)
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
-            <ResponsiveContainer width="100%" height={350}>
+            <ResponsiveContainer width="100%" height={500}>
               <ComposedChart data={highRatedData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
                 <XAxis
@@ -806,11 +867,11 @@ const ProductAnalysisDashboard = () => {
               textTransform: 'uppercase',
               letterSpacing: '1px'
             }}>
-              TOP 10 PRODUCTS - ORDERS & LOW RATED %
+              TOP 20 PRODUCTS - ORDERS & LOW RATED %
             </h3>
           </div>
           <div style={{ padding: '25px' }}>
-            <ResponsiveContainer width="100%" height={350}>
+            <ResponsiveContainer width="100%" height={500}>
               <ComposedChart data={complaintAnalysisData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
                 <XAxis
