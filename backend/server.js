@@ -6226,13 +6226,13 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
 - Average Low Rated Percentage: ${productData.summary.avgLowRatedPercentage.toFixed(2)}%
 
 **Top 20 Products by Sales:**
-${topProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
+${topProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
 
 **Top 10 High-Rated Products (4.0+):**
-${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}`).join('\n')}
+${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}`).join('\n')}
 
 **Top 10 Problematic Products (>5% low ratings):**
-${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Low Rated: ${p.lowRatedPercentage.toFixed(1)}%, Total Orders: ${p.totalOrders}`).join('\n') : 'No products with >5% low ratings'}
+${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Low Rated: ${p.lowRatedPercentage.toFixed(1)}%, Total Orders: ${p.totalOrders}`).join('\n') : 'No products with >5% low ratings'}
 
 ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` : ''}
 
@@ -6274,7 +6274,7 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
     if (lowerMessage.includes('best') || lowerMessage.includes('top')) {
       structuredData = {
         topProducts: topProducts.slice(0, 5).map(p => ({
-          name: p.productName,
+          name: p.name,
           orders: p.totalOrders,
           rating: p.avgRating,
           lowRatedPercentage: p.lowRatedPercentage
@@ -6283,7 +6283,7 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
     } else if (lowerMessage.includes('worst') || lowerMessage.includes('low rating') || lowerMessage.includes('problem')) {
       structuredData = {
         problematicProducts: lowRatedProducts.slice(0, 5).map(p => ({
-          name: p.productName,
+          name: p.name,
           orders: p.totalOrders,
           rating: p.avgRating,
           lowRatedPercentage: p.lowRatedPercentage
