@@ -1125,7 +1125,7 @@ const ProductAnalysisDashboard = () => {
         onClick={() => setShowChatbot(!showChatbot)}
         style={{
           position: 'fixed',
-          bottom: '30px',
+          top: '30px',
           right: '30px',
           width: '60px',
           height: '60px',
@@ -1159,7 +1159,7 @@ const ProductAnalysisDashboard = () => {
       {showChatbot && (
         <div style={{
           position: 'fixed',
-          bottom: '100px',
+          top: '100px',
           right: '30px',
           width: '400px',
           height: '600px',
