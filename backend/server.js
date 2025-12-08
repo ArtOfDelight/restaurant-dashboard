@@ -6148,41 +6148,6 @@ app.get('/api/debug-product-analysis', async (req, res) => {
 // === PRODUCT ANALYTICS CHATBOT ENDPOINT ===
 
 // POST: Product Analytics Chatbot - Conversational AI for product insights
-app.post('/api/product-chat', async (req, res) => {
-  try {
-    const { message, conversationHistory = [] } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid request: message is required'
-      });
-    }
-
-    console.log(`Product Chatbot Query: "${message}"`);
-
-    // Fetch latest product data
-    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID);
-
-    // Generate AI response using Gemini
-    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory);
-
-    res.json({
-      success: true,
-      response: chatResponse.message,
-      data: chatResponse.structuredData || null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('Error in product chatbot:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
 // Helper function to generate chatbot responses using Gemini AI
 async function generateChatbotResponse(userMessage, productData, conversationHistory = []) {
   if (!GEMINI_API_KEY) {
@@ -6248,8 +6213,9 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 
 **Response:**`;
 
-    // Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+    // --- FIX APPLIED HERE ---
+    // Changed model from 'gemini-2.5-flash-latest' to 'gemini-1.5-flash'
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const response = await axios.post(geminiUrl, {
       contents: [{
@@ -6295,7 +6261,12 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
     };
 
   } catch (error) {
-    console.error('Error calling Gemini API for chatbot:', error.message);
+    // Log the full error response from axios if available for better debugging
+    if (error.response) {
+       console.error('Gemini API Error:', error.response.status, error.response.data);
+    } else {
+       console.error('Error calling Gemini API for chatbot:', error.message);
+    }
 
     // Fallback response
     return {
