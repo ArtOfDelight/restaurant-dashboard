@@ -19,6 +19,12 @@ const ProductAnalysisDashboard = () => {
   const [showMatchingDetails, setShowMatchingDetails] = useState(false);
   const [minOrderThreshold, setMinOrderThreshold] = useState(10); // Default threshold
 
+  // Chatbot states
+  const [showChatbot, setShowChatbot] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [loadingChat, setLoadingChat] = useState(false);
+
   // Fetch product data using fetch API - NOW USING PRODUCT ANALYSIS DATA
   const fetchData = async () => {
     try {
@@ -77,10 +83,10 @@ const ProductAnalysisDashboard = () => {
   // Analyze specific product
   const analyzeProduct = async (productName) => {
     if (!data || !productName) return;
-    
+
     try {
       setLoadingAI(true);
-      
+
       const response = await fetch(`${API_URL}/api/analyze-product`, {
         method: 'POST',
         headers: {
@@ -91,7 +97,7 @@ const ProductAnalysisDashboard = () => {
           data: data
         })
       });
-      
+
       const result = await response.json();
       if (result.success) {
         setAiInsights({
@@ -106,6 +112,61 @@ const ProductAnalysisDashboard = () => {
     } finally {
       setLoadingAI(false);
     }
+  };
+
+  // Send message to chatbot
+  const sendChatMessage = async (message) => {
+    if (!message.trim()) return;
+
+    // Add user message to chat
+    const userMessage = { role: 'user', content: message };
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setLoadingChat(true);
+
+    try {
+      // Prepare conversation history (last 10 messages for context)
+      const conversationHistory = chatMessages.slice(-10);
+
+      const response = await fetch(`${API_URL}/api/product-chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message,
+          conversationHistory: conversationHistory
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Add AI response to chat
+        const aiMessage = {
+          role: 'assistant',
+          content: result.response,
+          data: result.data
+        };
+        setChatMessages(prev => [...prev, aiMessage]);
+      } else {
+        throw new Error(result.error || 'Failed to get response');
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage = {
+        role: 'assistant',
+        content: `Sorry, I encountered an error: ${error.message}. Please try again.`
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoadingChat(false);
+    }
+  };
+
+  // Handle quick question buttons
+  const handleQuickQuestion = (question) => {
+    sendChatMessage(question);
   };
 
   useEffect(() => {
@@ -1058,6 +1119,340 @@ const ProductAnalysisDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Floating Chatbot Button */}
+      <button
+        onClick={() => setShowChatbot(!showChatbot)}
+        style={{
+          position: 'fixed',
+          bottom: '30px',
+          right: '30px',
+          width: '60px',
+          height: '60px',
+          borderRadius: '50%',
+          background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+          border: 'none',
+          color: 'white',
+          fontSize: '1.5rem',
+          cursor: 'pointer',
+          boxShadow: '0 4px 20px rgba(139, 92, 246, 0.5)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.3s ease',
+          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.1)';
+          e.currentTarget.style.boxShadow = '0 6px 25px rgba(139, 92, 246, 0.7)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.boxShadow = '0 4px 20px rgba(139, 92, 246, 0.5)';
+        }}
+      >
+        {showChatbot ? '✕' : '💬'}
+      </button>
+
+      {/* Chatbot Panel */}
+      {showChatbot && (
+        <div style={{
+          position: 'fixed',
+          bottom: '100px',
+          right: '30px',
+          width: '400px',
+          height: '600px',
+          background: 'rgba(30, 41, 59, 0.98)',
+          border: '1px solid rgba(139, 92, 246, 0.5)',
+          borderRadius: '20px',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+          zIndex: 999,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          animation: 'slideIn 0.3s ease-out'
+        }}>
+          {/* Chat Header */}
+          <div style={{
+            padding: '20px',
+            background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div>
+              <h3 style={{
+                margin: 0,
+                color: 'white',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                fontSize: '1.1rem',
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
+              }}>
+                AI Product Assistant
+              </h3>
+              <p style={{
+                margin: '5px 0 0 0',
+                color: 'rgba(255, 255, 255, 0.8)',
+                fontSize: '0.75rem',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+              }}>
+                Ask me about your products
+              </p>
+            </div>
+            <button
+              onClick={() => setChatMessages([])}
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: 'none',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+              }}
+            >
+              CLEAR
+            </button>
+          </div>
+
+          {/* Quick Questions */}
+          {chatMessages.length === 0 && (
+            <div style={{
+              padding: '15px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'rgba(255, 255, 255, 0.02)'
+            }}>
+              <p style={{
+                margin: '0 0 10px 0',
+                color: '#94a3b8',
+                fontSize: '0.8rem',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
+              }}>
+                Quick Questions:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {[
+                  'What are the best selling products?',
+                  'Show me products with low ratings',
+                  'Which items have the most orders?',
+                  'What products need attention?'
+                ].map((question, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleQuickQuestion(question)}
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.2)',
+                      border: '1px solid rgba(139, 92, 246, 0.4)',
+                      color: '#f8fafc',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      textAlign: 'left',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(139, 92, 246, 0.3)';
+                      e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.6)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(139, 92, 246, 0.2)';
+                      e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.4)';
+                    }}
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Chat Messages */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '15px'
+          }}>
+            {chatMessages.map((msg, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: 'flex',
+                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                }}
+              >
+                <div style={{
+                  maxWidth: '80%',
+                  padding: '12px 16px',
+                  borderRadius: '15px',
+                  background: msg.role === 'user'
+                    ? 'linear-gradient(135deg, #8b5cf6, #3b82f6)'
+                    : 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '0.85rem',
+                  lineHeight: '1.5',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {msg.content}
+
+                  {/* Display structured data if available */}
+                  {msg.data && msg.data.topProducts && (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '10px',
+                      background: 'rgba(0, 0, 0, 0.2)',
+                      borderRadius: '8px'
+                    }}>
+                      <p style={{
+                        margin: '0 0 8px 0',
+                        fontSize: '0.75rem',
+                        color: '#8b5cf6',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px'
+                      }}>
+                        Top Products:
+                      </p>
+                      {msg.data.topProducts.map((p, i) => (
+                        <div key={i} style={{
+                          fontSize: '0.75rem',
+                          marginBottom: '5px',
+                          color: '#94a3b8'
+                        }}>
+                          {i + 1}. {p.name} - {p.orders} orders, ★{p.rating.toFixed(1)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.data && msg.data.problematicProducts && (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '10px',
+                      background: 'rgba(0, 0, 0, 0.2)',
+                      borderRadius: '8px'
+                    }}>
+                      <p style={{
+                        margin: '0 0 8px 0',
+                        fontSize: '0.75rem',
+                        color: '#ef4444',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px'
+                      }}>
+                        Problematic Products:
+                      </p>
+                      {msg.data.problematicProducts.map((p, i) => (
+                        <div key={i} style={{
+                          fontSize: '0.75rem',
+                          marginBottom: '5px',
+                          color: '#94a3b8'
+                        }}>
+                          {i + 1}. {p.name} - {p.lowRatedPercentage.toFixed(1)}% low rated
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {loadingChat && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-start'
+              }}>
+                <div style={{
+                  padding: '12px 16px',
+                  borderRadius: '15px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  color: '#94a3b8',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '0.85rem'
+                }}>
+                  Thinking...
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Chat Input */}
+          <div style={{
+            padding: '15px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            background: 'rgba(255, 255, 255, 0.02)'
+          }}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !loadingChat) {
+                    sendChatMessage(chatInput);
+                  }
+                }}
+                placeholder="Ask about products..."
+                disabled={loadingChat}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '12px',
+                  color: 'white',
+                  fontSize: '0.85rem',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  outline: 'none'
+                }}
+              />
+              <button
+                onClick={() => sendChatMessage(chatInput)}
+                disabled={loadingChat || !chatInput.trim()}
+                style={{
+                  padding: '12px 20px',
+                  background: loadingChat || !chatInput.trim()
+                    ? 'rgba(139, 92, 246, 0.3)'
+                    : 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+                  border: 'none',
+                  borderRadius: '12px',
+                  color: 'white',
+                  cursor: loadingChat || !chatInput.trim() ? 'not-allowed' : 'pointer',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                  fontSize: '0.85rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+              >
+                {loadingChat ? '...' : 'SEND'}
+              </button>
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes slideIn {
+              from {
+                opacity: 0;
+                transform: translateY(20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+          `}</style>
+        </div>
+      )}
     </div>
   );
 };

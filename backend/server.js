@@ -6145,6 +6145,170 @@ app.get('/api/debug-product-analysis', async (req, res) => {
   }
 });
 
+// === PRODUCT ANALYTICS CHATBOT ENDPOINT ===
+
+// POST: Product Analytics Chatbot - Conversational AI for product insights
+app.post('/api/product-chat', async (req, res) => {
+  try {
+    const { message, conversationHistory = [] } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request: message is required'
+      });
+    }
+
+    console.log(`Product Chatbot Query: "${message}"`);
+
+    // Fetch latest product data
+    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID);
+
+    // Generate AI response using Gemini
+    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory);
+
+    res.json({
+      success: true,
+      response: chatResponse.message,
+      data: chatResponse.structuredData || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in product chatbot:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Helper function to generate chatbot responses using Gemini AI
+async function generateChatbotResponse(userMessage, productData, conversationHistory = []) {
+  if (!GEMINI_API_KEY) {
+    return {
+      message: "AI service is not configured. Please contact the administrator.",
+      structuredData: null
+    };
+  }
+
+  try {
+    // Prepare conversation context
+    const conversationContext = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n');
+
+    // Prepare product data summary for context
+    const topProducts = productData.products
+      .sort((a, b) => b.totalOrders - a.totalOrders)
+      .slice(0, 20);
+
+    const lowRatedProducts = productData.products
+      .filter(p => p.lowRatedPercentage > 5)
+      .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage)
+      .slice(0, 10);
+
+    const highRatedProducts = productData.products
+      .filter(p => p.avgRating >= 4.0)
+      .sort((a, b) => b.totalOrders - a.totalOrders)
+      .slice(0, 10);
+
+    // Create the prompt for Gemini
+    const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
+
+**Current Product Data Summary:**
+- Total Products: ${productData.summary.totalProductsInSheet}
+- Total Orders: ${productData.summary.totalOrders}
+- Average Rating: ${productData.summary.avgRating.toFixed(2)}
+- High Rated Orders: ${productData.summary.totalHighRated}
+- Low Rated Orders: ${productData.summary.totalLowRated}
+- Average Low Rated Percentage: ${productData.summary.avgLowRatedPercentage.toFixed(2)}%
+
+**Top 20 Products by Sales:**
+${topProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
+
+**Top 10 High-Rated Products (4.0+):**
+${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}`).join('\n')}
+
+**Top 10 Problematic Products (>5% low ratings):**
+${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${p.productName} - Low Rated: ${p.lowRatedPercentage.toFixed(1)}%, Total Orders: ${p.totalOrders}`).join('\n') : 'No products with >5% low ratings'}
+
+${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` : ''}
+
+**User Question:** ${userMessage}
+
+**Instructions:**
+- Answer the user's question based on the product data above
+- Be conversational and helpful
+- Use specific numbers and product names when relevant
+- If asked about "best" items, consider both sales volume and ratings
+- Format your response clearly with bullet points or numbered lists when appropriate
+- If the question requires specific product details not in the summary, mention the top relevant products
+- Keep responses concise but informative
+
+**Response:**`;
+
+    // Call Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const response = await axios.post(geminiUrl, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1024,
+      }
+    });
+
+    const aiMessage = response.data.candidates[0].content.parts[0].text;
+
+    // Extract structured data if the query is about specific products
+    let structuredData = null;
+    const lowerMessage = userMessage.toLowerCase();
+
+    if (lowerMessage.includes('best') || lowerMessage.includes('top')) {
+      structuredData = {
+        topProducts: topProducts.slice(0, 5).map(p => ({
+          name: p.productName,
+          orders: p.totalOrders,
+          rating: p.avgRating,
+          lowRatedPercentage: p.lowRatedPercentage
+        }))
+      };
+    } else if (lowerMessage.includes('worst') || lowerMessage.includes('low rating') || lowerMessage.includes('problem')) {
+      structuredData = {
+        problematicProducts: lowRatedProducts.slice(0, 5).map(p => ({
+          name: p.productName,
+          orders: p.totalOrders,
+          rating: p.avgRating,
+          lowRatedPercentage: p.lowRatedPercentage
+        }))
+      };
+    }
+
+    return {
+      message: aiMessage,
+      structuredData: structuredData
+    };
+
+  } catch (error) {
+    console.error('Error calling Gemini API for chatbot:', error.message);
+
+    // Fallback response
+    return {
+      message: `I encountered an error processing your question. Here's what I can tell you:\n\n` +
+               `Total Products: ${productData.summary.totalProductsInSheet}\n` +
+               `Total Orders: ${productData.summary.totalOrders}\n` +
+               `Average Rating: ${productData.summary.avgRating.toFixed(2)}\n\n` +
+               `Please try rephrasing your question or ask about specific metrics.`,
+      structuredData: null
+    };
+  }
+}
+
 // === TICKET MANAGEMENT ENDPOINTS ===
 
 // Helper function to calculate days pending
@@ -9118,9 +9282,10 @@ app.get('/', (req, res) => {
       product: {
         data: '/api/product-analysis-data',
         insights: '/api/product-generate-insights (POST)',
+        chatbot: '/api/product-chat (POST)',
         productAnalysis: '/api/analyze-product (POST)',
         debug: '/api/debug-product-analysis',
-        description: 'Product performance analysis across Zomato and Swiggy with AI insights'
+        description: 'Product performance analysis across Zomato and Swiggy with AI insights and conversational chatbot'
       },
       highRated: {
         data: '/api/high-rated-data-gemini?period=[7 Days|28 Day]',
