@@ -6148,6 +6148,42 @@ app.get('/api/debug-product-analysis', async (req, res) => {
 // === PRODUCT ANALYTICS CHATBOT ENDPOINT ===
 
 // POST: Product Analytics Chatbot - Conversational AI for product insights
+app.post('/api/product-chat', async (req, res) => {
+  try {
+    const { message, conversationHistory = [] } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request: message is required'
+      });
+    }
+
+    console.log(`Product Chatbot Query: "${message}"`);
+
+    // Fetch latest product data
+    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID);
+
+    // Generate AI response using Gemini
+    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory);
+
+    res.json({
+      success: true,
+      response: chatResponse.message,
+      data: chatResponse.structuredData || null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in product chatbot:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Helper function to generate chatbot responses using Gemini AI
 // Helper function to generate chatbot responses using Gemini AI
 async function generateChatbotResponse(userMessage, productData, conversationHistory = []) {
   if (!GEMINI_API_KEY) {
@@ -6279,7 +6315,6 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
     };
   }
 }
-
 // === TICKET MANAGEMENT ENDPOINTS ===
 
 // Helper function to calculate days pending
