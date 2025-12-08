@@ -6249,9 +6249,8 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 
 **Response:**`;
 
-    // --- FIX APPLIED HERE ---
-    // Changed model from 'gemini-2.5-flash-latest' to 'gemini-1.5-flash'
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // Call Gemini API - using same model as other working endpoints
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
 
     const response = await axios.post(geminiUrl, {
       contents: [{
