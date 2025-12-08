@@ -6240,11 +6240,12 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 
 **Instructions:**
 - Answer the user's question based on the product data above
+- IMPORTANT: Always use the EXACT product names provided in the data above, never use placeholders like "Product 1", "Product 2", etc.
 - Be conversational and helpful
-- Use specific numbers and product names when relevant
+- Use specific numbers and actual product names when relevant
 - If asked about "best" items, consider both sales volume and ratings
 - Format your response clearly with bullet points or numbered lists when appropriate
-- If the question requires specific product details not in the summary, mention the top relevant products
+- If the question requires specific product details not in the summary, mention the top relevant products by their actual names
 - Keep responses concise but informative
 
 **Response:**`;
