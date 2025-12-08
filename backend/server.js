@@ -6150,7 +6150,7 @@ app.get('/api/debug-product-analysis', async (req, res) => {
 // POST: Product Analytics Chatbot - Conversational AI for product insights
 app.post('/api/product-chat', async (req, res) => {
   try {
-    const { message, conversationHistory = [] } = req.body;
+    const { message, conversationHistory = [], dateFilter } = req.body;
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({
@@ -6161,16 +6161,29 @@ app.post('/api/product-chat', async (req, res) => {
 
     console.log(`Product Chatbot Query: "${message}"`);
 
-    // Fetch latest product data
-    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID);
+    // Detect date filter from message or use provided filter
+    let daysFilter = dateFilter || null;
+    const lowerMessage = message.toLowerCase();
+
+    // Auto-detect common time periods
+    if (lowerMessage.includes('today') || lowerMessage.includes('last 24 hours')) daysFilter = 1;
+    else if (lowerMessage.includes('last 3 days')) daysFilter = 3;
+    else if (lowerMessage.includes('last week') || lowerMessage.includes('last 7 days')) daysFilter = 7;
+    else if (lowerMessage.includes('last 2 weeks') || lowerMessage.includes('last 14 days')) daysFilter = 14;
+    else if (lowerMessage.includes('last month') || lowerMessage.includes('last 30 days')) daysFilter = 30;
+
+    // Fetch product data with date filter
+    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, daysFilter);
 
     // Generate AI response using Gemini
-    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory);
+    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory, daysFilter);
 
     res.json({
       success: true,
       response: chatResponse.message,
       data: chatResponse.structuredData || null,
+      dateFilter: daysFilter,
+      dateRangeInfo: daysFilter ? `Last ${daysFilter} days` : 'All dates',
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -6185,7 +6198,7 @@ app.post('/api/product-chat', async (req, res) => {
 
 // Helper function to generate chatbot responses using Gemini AI
 // Helper function to generate chatbot responses using Gemini AI
-async function generateChatbotResponse(userMessage, productData, conversationHistory = []) {
+async function generateChatbotResponse(userMessage, productData, conversationHistory = [], daysFilter = null) {
   if (!GEMINI_API_KEY) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
@@ -6194,6 +6207,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
   }
 
   try {
+    const dateRangeInfo = daysFilter
+      ? `Data filtered for the last ${daysFilter} days`
+      : 'Data includes all available dates';
     // Prepare conversation context
     const conversationContext = conversationHistory
       .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
@@ -6217,6 +6233,8 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Create the prompt for Gemini
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
+**Date Range:** ${dateRangeInfo}
+
 **Current Product Data Summary:**
 - Total Products: ${productData.summary.totalProductsInSheet}
 - Total Orders: ${productData.summary.totalOrders}
@@ -6239,8 +6257,9 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 **User Question:** ${userMessage}
 
 **Instructions:**
-- Answer the user's question based on the product data above
+- Answer the user's question based on the product data above for the specified date range
 - IMPORTANT: Always use the EXACT product names provided in the data above, never use placeholders like "Product 1", "Product 2", etc.
+- Always mention the date range context in your response (e.g., "In the last 7 days...")
 - Be conversational and helpful
 - Use specific numbers and actual product names when relevant
 - If asked about "best" items, consider both sales volume and ratings
