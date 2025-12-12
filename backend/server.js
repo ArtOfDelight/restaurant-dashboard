@@ -4853,6 +4853,25 @@ function parseDateQuery(message) {
     };
   }
 
+  // Check for "last week vs the week before that/last" pattern
+  if (/last\s+week\s+(?:vs|versus|compared to|and)\s+(?:the\s+)?week\s+before\s+(?:that|last)/i.test(lowerMessage)) {
+    return {
+      type: 'comparison',
+      period1: {
+        startDate: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000),
+        endDate: new Date(today),
+        days: 7,
+        label: 'Last week'
+      },
+      period2: {
+        startDate: new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000),
+        endDate: new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000),
+        days: 7,
+        label: 'Week before last'
+      }
+    };
+  }
+
   // Check for this week vs last week
   if (/this\s+week\s+(?:vs|versus|compared to|and)\s+last\s+week/i.test(lowerMessage)) {
     const dayOfWeek = today.getDay();
