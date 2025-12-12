@@ -4820,7 +4820,7 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
  * Low rated: below 3 stars
  * DEDUPLICATES based on Order ID to avoid counting same order multiple times
  */
-function processZomatoOrdersDataWithRatings(rawData) {
+function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
   if (!rawData || rawData.length <= 1) return [];
 
   const headers = rawData[0];
@@ -4831,8 +4831,9 @@ function processZomatoOrdersDataWithRatings(rawData) {
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
   const orderIdIndex = headers.findIndex(h => h && (h.toLowerCase().includes('order id') || h.toLowerCase().includes('order no')));
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
 
-  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Order ID column: ${orderIdIndex}`);
+  console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Order ID column: ${orderIdIndex}, Date column: ${dateIndex}`);
 
   if (itemsIndex === -1) {
     console.error('ERROR: Items in order column not found in Zomato sheet');
@@ -4848,11 +4849,19 @@ function processZomatoOrdersDataWithRatings(rawData) {
   let totalOrders = 0;
   let ordersWithRatings = 0;
   let duplicateOrders = 0;
+  let rowsFilteredByDate = 0;
 
   dataRows.forEach(row => {
     const itemsCell = getCellValue(row, itemsIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
     const orderId = orderIdIndex !== -1 ? getCellValue(row, orderIdIndex) : null;
+    const dateStr = dateIndex !== -1 ? getCellValue(row, dateIndex) : null;
+
+    // Apply date filter if specified
+    if (daysFilter && dateStr && !isDateWithinRange(dateStr, daysFilter)) {
+      rowsFilteredByDate++;
+      return;
+    }
 
     // Skip if this Order ID has already been processed
     if (orderId && processedOrderIds.has(orderId)) {
@@ -4918,8 +4927,10 @@ function processZomatoOrdersDataWithRatings(rawData) {
   console.log(`\nZomato Processing:`);
   console.log(`  Total orders processed: ${totalOrders}`);
   console.log(`  Duplicate orders skipped: ${duplicateOrders}`);
+  console.log(`  Rows filtered by date: ${rowsFilteredByDate}`);
   console.log(`  Orders with ratings: ${ordersWithRatings}`);
   console.log(`  Unique items: ${result.length}`);
+  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
 
   return result;
 }
@@ -4929,18 +4940,19 @@ function processZomatoOrdersDataWithRatings(rawData) {
  * High rated: 4 stars and above
  * Low rated: below 3 stars
  */
-function processSwiggyReviewDataWithRatings(rawData) {
+function processSwiggyReviewDataWithRatings(rawData, daysFilter = null) {
   if (!rawData || rawData.length <= 1) return [];
-  
+
   const headers = rawData[0];
   const dataRows = rawData.slice(1);
-  
+
   console.log('\nSwiggy Review Headers:', headers);
-  
+
   const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  
-  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}`);
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+
+  console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}, Date column: ${dateIndex}`);
   
   if (itemOrderedIndex === -1) {
     console.error('ERROR: Item Ordered column not found in Swiggy sheet');
@@ -4951,10 +4963,18 @@ function processSwiggyReviewDataWithRatings(rawData) {
   const itemRatings = new Map();
   const itemHighRated = new Map();
   const itemLowRated = new Map();
-  
+  let rowsFilteredByDate = 0;
+
   dataRows.forEach(row => {
     const itemCell = getCellValue(row, itemOrderedIndex);
     const rating = parseFloat(getCellValue(row, ratingIndex)) || 0;
+    const dateStr = dateIndex !== -1 ? getCellValue(row, dateIndex) : null;
+
+    // Apply date filter if specified
+    if (daysFilter && dateStr && !isDateWithinRange(dateStr, daysFilter)) {
+      rowsFilteredByDate++;
+      return;
+    }
     
     if (itemCell && itemCell.trim()) {
       const items = parseItemsFromCell(itemCell);
@@ -5001,7 +5021,9 @@ function processSwiggyReviewDataWithRatings(rawData) {
   });
   
   console.log(`\nSwiggy Processing:`);
+  console.log(`  Rows filtered by date: ${rowsFilteredByDate}`);
   console.log(`  Unique items: ${result.length}`);
+  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
   
   return result;
 }
@@ -5190,9 +5212,9 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       return createEmptyProductDataStructure();
     }
 
-    // Step 3: Process rating data from Zomato and Swiggy
-    const zomatoItems = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values);
-    const swiggyItems = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values);
+    // Step 3: Process rating data from Zomato and Swiggy with date filter
+    const zomatoItems = processZomatoOrdersDataWithRatings(zomatoOrdersData.data.values, daysFilter);
+    const swiggyItems = processSwiggyReviewDataWithRatings(swiggyReviewData.data.values, daysFilter);
 
     // Step 4: Match products with 100% fuzzy matching
     const { matchedProducts, unmatchedProducts } = matchProductsWithRatings(
