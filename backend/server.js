@@ -5066,7 +5066,7 @@ function processZomatoOrdersDataWithRatings(rawData, filterOrRange = null) {
   const itemsIndex = headers.findIndex(h => h && h.toLowerCase().includes('items in order'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
   const orderIdIndex = headers.findIndex(h => h && (h.toLowerCase().includes('order id') || h.toLowerCase().includes('order no')));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const dateIndex = headers.findIndex(h => h && (h.toLowerCase().includes('date') || h.toLowerCase().includes('placed at') || h.toLowerCase().includes('timestamp')));
 
   console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Order ID column: ${orderIdIndex}, Date column: ${dateIndex}`);
 
@@ -5203,7 +5203,7 @@ function processSwiggyReviewDataWithRatings(rawData, filterOrRange = null) {
 
   const itemOrderedIndex = headers.findIndex(h => h && h.toLowerCase().includes('item ordered'));
   const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('rating'));
-  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const dateIndex = headers.findIndex(h => h && (h.toLowerCase().includes('date') || h.toLowerCase().includes('timestamp')));
 
   console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}, Date column: ${dateIndex}`);
 
