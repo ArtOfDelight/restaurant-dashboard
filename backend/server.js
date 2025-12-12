@@ -4874,10 +4874,18 @@ function parseDateQuery(message) {
     };
   }
 
-  // Check for specific date mentions
-  const dateMatch = lowerMessage.match(/(?:on|for)\s+([a-z]+\s+\d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)?\s+[a-z]+)/i);
+  // Check for specific date mentions with various patterns
+  // Pattern 1: With prepositions - "on December 10", "for Dec 10", "about Dec 10"
+  let dateMatch = lowerMessage.match(/(?:on|for|about)\s+([a-z]+\s+\d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)?\s+[a-z]+)/i);
+
+  // Pattern 2: Without prepositions - just the date itself "10th dec", "December 10"
+  if (!dateMatch) {
+    dateMatch = lowerMessage.match(/\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)|(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+\d{1,2}(?:st|nd|rd|th)?)\b/i);
+  }
+
   if (dateMatch) {
-    const specificDate = parseNaturalDate(dateMatch[1]);
+    const dateStr = dateMatch[1];
+    const specificDate = parseNaturalDate(dateStr);
     if (specificDate) {
       const nextDay = new Date(specificDate);
       nextDay.setDate(nextDay.getDate() + 1);
