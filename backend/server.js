@@ -4749,9 +4749,220 @@ function parseFlexibleDate(dateStr) {
 }
 
 /**
- * Process ProductDetails sheet - Aggregate orders by item name with date filter
+ * Advanced date parsing for natural language queries
+ * Supports: "December 10", "Dec 10", "10 Dec 2024", "10th December", etc.
  */
-function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
+function parseNaturalDate(dateStr) {
+  if (!dateStr) return null;
+
+  const str = dateStr.toLowerCase().trim();
+  const currentYear = new Date().getFullYear();
+
+  // Month names mapping
+  const months = {
+    jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2,
+    apr: 3, april: 3, may: 4, jun: 5, june: 5,
+    jul: 6, july: 6, aug: 7, august: 7, sep: 8, september: 8,
+    oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
+  };
+
+  // Pattern: "December 10", "Dec 10", "10 December", "10 Dec"
+  const monthDayPattern = /(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)|((jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?)/i;
+
+  const match = str.match(monthDayPattern);
+  if (match) {
+    let day, monthName;
+    if (match[1]) {
+      // Pattern: "10 December"
+      day = parseInt(match[1]);
+      monthName = match[2].toLowerCase();
+    } else {
+      // Pattern: "December 10"
+      monthName = match[4].toLowerCase();
+      day = parseInt(match[5]);
+    }
+
+    const month = months[monthName];
+    if (month !== undefined && day >= 1 && day <= 31) {
+      return new Date(currentYear, month, day);
+    }
+  }
+
+  // Try the flexible date parser as fallback
+  return parseFlexibleDate(dateStr);
+}
+
+/**
+ * Parse date query from natural language
+ * Returns: { type, startDate, endDate, compareTo }
+ */
+function parseDateQuery(message) {
+  const lowerMessage = message.toLowerCase();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Check for comparison queries first
+  const comparisonPatterns = [
+    /last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(?:previous|the)\s+(\d+)\s+days?/i,
+    /last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(\d+)\s+days?\s+before/i,
+    /this\s+week\s+(?:vs|versus|compared to|and)\s+last\s+week/i,
+    /this\s+month\s+(?:vs|versus|compared to|and)\s+last\s+month/i,
+  ];
+
+  // Check for "last 7 days vs previous 7 days" pattern
+  const lastVsPrevious = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(?:previous|the)\s+(\d+)\s+days?/i);
+  if (lastVsPrevious) {
+    const days1 = parseInt(lastVsPrevious[1]);
+    const days2 = parseInt(lastVsPrevious[2] || lastVsPrevious[1]);
+
+    return {
+      type: 'comparison',
+      period1: {
+        startDate: new Date(today.getTime() - days1 * 24 * 60 * 60 * 1000),
+        endDate: new Date(today),
+        days: days1,
+        label: `Last ${days1} days`
+      },
+      period2: {
+        startDate: new Date(today.getTime() - (days1 + days2) * 24 * 60 * 60 * 1000),
+        endDate: new Date(today.getTime() - days1 * 24 * 60 * 60 * 1000),
+        days: days2,
+        label: `Previous ${days2} days`
+      }
+    };
+  }
+
+  // Check for "7 days before that" pattern
+  const beforeThat = lowerMessage.match(/(\d+)\s+days?\s+before\s+(?:that|it)/i);
+  if (beforeThat) {
+    const days = parseInt(beforeThat[1]);
+    return {
+      type: 'comparison',
+      period1: {
+        startDate: new Date(today.getTime() - days * 24 * 60 * 60 * 1000),
+        endDate: new Date(today),
+        days: days,
+        label: `Last ${days} days`
+      },
+      period2: {
+        startDate: new Date(today.getTime() - days * 2 * 24 * 60 * 60 * 1000),
+        endDate: new Date(today.getTime() - days * 24 * 60 * 60 * 1000),
+        days: days,
+        label: `Previous ${days} days`
+      }
+    };
+  }
+
+  // Check for this week vs last week
+  if (/this\s+week\s+(?:vs|versus|compared to|and)\s+last\s+week/i.test(lowerMessage)) {
+    const dayOfWeek = today.getDay();
+    const thisWeekStart = new Date(today.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
+    const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    return {
+      type: 'comparison',
+      period1: {
+        startDate: thisWeekStart,
+        endDate: new Date(today),
+        label: 'This week'
+      },
+      period2: {
+        startDate: lastWeekStart,
+        endDate: new Date(thisWeekStart),
+        label: 'Last week'
+      }
+    };
+  }
+
+  // Check for specific date mentions
+  const dateMatch = lowerMessage.match(/(?:on|for)\s+([a-z]+\s+\d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)?\s+[a-z]+)/i);
+  if (dateMatch) {
+    const specificDate = parseNaturalDate(dateMatch[1]);
+    if (specificDate) {
+      const nextDay = new Date(specificDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      return {
+        type: 'specific',
+        startDate: specificDate,
+        endDate: nextDay,
+        label: specificDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      };
+    }
+  }
+
+  // Check for simple relative dates (existing functionality)
+  if (lowerMessage.includes('today') || lowerMessage.includes('last 24 hours')) {
+    return {
+      type: 'relative',
+      days: 1,
+      startDate: new Date(today.getTime() - 24 * 60 * 60 * 1000),
+      endDate: new Date(today),
+      label: 'Today'
+    };
+  }
+
+  if (lowerMessage.includes('yesterday')) {
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const dayBefore = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000);
+    return {
+      type: 'specific',
+      startDate: dayBefore,
+      endDate: yesterday,
+      label: 'Yesterday'
+    };
+  }
+
+  const relativeDays = [
+    { pattern: /last\s+(\d+)\s+days?/i, extractor: (m) => parseInt(m[1]) },
+    { pattern: /last\s+week|last\s+7\s+days/i, extractor: () => 7 },
+    { pattern: /last\s+2\s+weeks|last\s+14\s+days/i, extractor: () => 14 },
+    { pattern: /last\s+month|last\s+30\s+days/i, extractor: () => 30 },
+  ];
+
+  for (const { pattern, extractor } of relativeDays) {
+    const match = lowerMessage.match(pattern);
+    if (match) {
+      const days = extractor(match);
+      return {
+        type: 'relative',
+        days: days,
+        startDate: new Date(today.getTime() - days * 24 * 60 * 60 * 1000),
+        endDate: new Date(today),
+        label: `Last ${days} days`
+      };
+    }
+  }
+
+  // No specific date filter
+  return null;
+}
+
+/**
+ * Check if a date falls within a date range
+ */
+function isDateInRange(dateStr, startDate, endDate) {
+  const date = parseFlexibleDate(dateStr);
+  if (!date) return false;
+
+  // Set times to compare dates only
+  const checkDate = new Date(date);
+  checkDate.setHours(0, 0, 0, 0);
+
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+
+  return checkDate >= start && checkDate < end;
+}
+
+/**
+ * Process ProductDetails sheet - Aggregate orders by item name with date filter
+ * @param {Array} rawData - The raw sheet data
+ * @param {Number|Object} filterOrRange - Either daysFilter (number) or dateRange {startDate, endDate}
+ */
+function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
   if (!rawData || rawData.length < 2) return [];
 
   const headers = rawData[0];
@@ -4760,11 +4971,16 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
   const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
 
   console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
-  
+
   if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
     console.error('ERROR: Required columns not found in ProductDetails sheet');
     return [];
   }
+
+  // Determine filter type
+  const isRangeFilter = filterOrRange && typeof filterOrRange === 'object' && filterOrRange.startDate;
+  const daysFilter = !isRangeFilter ? filterOrRange : null;
+  const dateRange = isRangeFilter ? filterOrRange : null;
 
   // Use a Map to aggregate order counts by item name
   const itemsMap = new Map();
@@ -4780,7 +4996,14 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
     if (!itemName) continue;
 
     // Apply date filter if specified
-    if (daysFilter && !isDateWithinRange(dateStr, daysFilter)) {
+    let includeRow = true;
+    if (dateRange) {
+      includeRow = isDateInRange(dateStr, dateRange.startDate, dateRange.endDate);
+    } else if (daysFilter) {
+      includeRow = isDateWithinRange(dateStr, daysFilter);
+    }
+
+    if (!includeRow) {
       rowsFiltered++;
       continue;
     }
@@ -4809,7 +5032,11 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
   console.log(`  Rows filtered by date: ${rowsFiltered}`);
   console.log(`  Rows processed: ${totalRowsProcessed}`);
   console.log(`  Unique items: ${items.length}`);
-  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  if (dateRange) {
+    console.log(`  Date range: ${dateRange.startDate.toLocaleDateString()} to ${dateRange.endDate.toLocaleDateString()}`);
+  } else {
+    console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  }
   
   return items;
 }
@@ -4820,7 +5047,7 @@ function processProductDetailsSheet(rawData, daysFilter = DATE_FILTER_DAYS) {
  * Low rated: below 3 stars
  * DEDUPLICATES based on Order ID to avoid counting same order multiple times
  */
-function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
+function processZomatoOrdersDataWithRatings(rawData, filterOrRange = null) {
   if (!rawData || rawData.length <= 1) return [];
 
   const headers = rawData[0];
@@ -4834,6 +5061,11 @@ function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
   const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
 
   console.log(`Zomato Orders - Items column: ${itemsIndex}, Rating column: ${ratingIndex}, Order ID column: ${orderIdIndex}, Date column: ${dateIndex}`);
+
+  // Determine filter type
+  const isRangeFilter = filterOrRange && typeof filterOrRange === 'object' && filterOrRange.startDate;
+  const daysFilter = !isRangeFilter ? filterOrRange : null;
+  const dateRange = isRangeFilter ? filterOrRange : null;
 
   if (itemsIndex === -1) {
     console.error('ERROR: Items in order column not found in Zomato sheet');
@@ -4858,7 +5090,16 @@ function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
     const dateStr = dateIndex !== -1 ? getCellValue(row, dateIndex) : null;
 
     // Apply date filter if specified
-    if (daysFilter && dateStr && !isDateWithinRange(dateStr, daysFilter)) {
+    let includeRow = true;
+    if (dateStr) {
+      if (dateRange) {
+        includeRow = isDateInRange(dateStr, dateRange.startDate, dateRange.endDate);
+      } else if (daysFilter) {
+        includeRow = isDateWithinRange(dateStr, daysFilter);
+      }
+    }
+
+    if (!includeRow) {
       rowsFilteredByDate++;
       return;
     }
@@ -4930,7 +5171,11 @@ function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
   console.log(`  Rows filtered by date: ${rowsFilteredByDate}`);
   console.log(`  Orders with ratings: ${ordersWithRatings}`);
   console.log(`  Unique items: ${result.length}`);
-  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  if (dateRange) {
+    console.log(`  Date range: ${dateRange.startDate.toLocaleDateString()} to ${dateRange.endDate.toLocaleDateString()}`);
+  } else {
+    console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  }
 
   return result;
 }
@@ -4940,7 +5185,7 @@ function processZomatoOrdersDataWithRatings(rawData, daysFilter = null) {
  * High rated: 4 stars and above
  * Low rated: below 3 stars
  */
-function processSwiggyReviewDataWithRatings(rawData, daysFilter = null) {
+function processSwiggyReviewDataWithRatings(rawData, filterOrRange = null) {
   if (!rawData || rawData.length <= 1) return [];
 
   const headers = rawData[0];
@@ -4953,6 +5198,11 @@ function processSwiggyReviewDataWithRatings(rawData, daysFilter = null) {
   const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
 
   console.log(`Swiggy Review - Item column: ${itemOrderedIndex}, Rating column: ${ratingIndex}, Date column: ${dateIndex}`);
+
+  // Determine filter type
+  const isRangeFilter = filterOrRange && typeof filterOrRange === 'object' && filterOrRange.startDate;
+  const daysFilter = !isRangeFilter ? filterOrRange : null;
+  const dateRange = isRangeFilter ? filterOrRange : null;
   
   if (itemOrderedIndex === -1) {
     console.error('ERROR: Item Ordered column not found in Swiggy sheet');
@@ -4971,11 +5221,20 @@ function processSwiggyReviewDataWithRatings(rawData, daysFilter = null) {
     const dateStr = dateIndex !== -1 ? getCellValue(row, dateIndex) : null;
 
     // Apply date filter if specified
-    if (daysFilter && dateStr && !isDateWithinRange(dateStr, daysFilter)) {
+    let includeRow = true;
+    if (dateStr) {
+      if (dateRange) {
+        includeRow = isDateInRange(dateStr, dateRange.startDate, dateRange.endDate);
+      } else if (daysFilter) {
+        includeRow = isDateWithinRange(dateStr, daysFilter);
+      }
+    }
+
+    if (!includeRow) {
       rowsFilteredByDate++;
       return;
     }
-    
+
     if (itemCell && itemCell.trim()) {
       const items = parseItemsFromCell(itemCell);
       
@@ -5023,7 +5282,11 @@ function processSwiggyReviewDataWithRatings(rawData, daysFilter = null) {
   console.log(`\nSwiggy Processing:`);
   console.log(`  Rows filtered by date: ${rowsFilteredByDate}`);
   console.log(`  Unique items: ${result.length}`);
-  console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  if (dateRange) {
+    console.log(`  Date range: ${dateRange.startDate.toLocaleDateString()} to ${dateRange.endDate.toLocaleDateString()}`);
+  } else {
+    console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  }
   
   return result;
 }
@@ -6183,31 +6446,71 @@ app.post('/api/product-chat', async (req, res) => {
 
     console.log(`Product Chatbot Query: "${message}"`);
 
-    // Detect date filter from message or use provided filter
-    let daysFilter = dateFilter || null;
-    const lowerMessage = message.toLowerCase();
+    // Parse date query from message
+    const dateQuery = parseDateQuery(message);
+    console.log(`Parsed date query:`, JSON.stringify(dateQuery, null, 2));
 
-    // Auto-detect common time periods
-    if (lowerMessage.includes('today') || lowerMessage.includes('last 24 hours')) daysFilter = 1;
-    else if (lowerMessage.includes('last 3 days')) daysFilter = 3;
-    else if (lowerMessage.includes('last week') || lowerMessage.includes('last 7 days')) daysFilter = 7;
-    else if (lowerMessage.includes('last 2 weeks') || lowerMessage.includes('last 14 days')) daysFilter = 14;
-    else if (lowerMessage.includes('last month') || lowerMessage.includes('last 30 days')) daysFilter = 30;
+    // Handle comparison queries
+    if (dateQuery && dateQuery.type === 'comparison') {
+      // Fetch data for both periods
+      const [productData1, productData2] = await Promise.all([
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1),
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2)
+      ]);
 
-    // Fetch product data with date filter
-    const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, daysFilter);
+      // Generate AI response with comparison
+      const chatResponse = await generateComparisonChatbotResponse(
+        message,
+        productData1,
+        productData2,
+        dateQuery,
+        conversationHistory
+      );
 
-    // Generate AI response using Gemini
-    const chatResponse = await generateChatbotResponse(message, productData, conversationHistory, daysFilter);
+      res.json({
+        success: true,
+        response: chatResponse.message,
+        data: chatResponse.structuredData || null,
+        comparisonData: {
+          period1: {
+            label: dateQuery.period1.label,
+            summary: productData1.summary
+          },
+          period2: {
+            label: dateQuery.period2.label,
+            summary: productData2.summary
+          }
+        },
+        dateRangeInfo: `Comparing: ${dateQuery.period1.label} vs ${dateQuery.period2.label}`,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      // Single period query
+      const filterOrRange = dateQuery && dateQuery.type === 'specific'
+        ? { startDate: dateQuery.startDate, endDate: dateQuery.endDate }
+        : dateQuery?.days || dateFilter || null;
 
-    res.json({
-      success: true,
-      response: chatResponse.message,
-      data: chatResponse.structuredData || null,
-      dateFilter: daysFilter,
-      dateRangeInfo: daysFilter ? `Last ${daysFilter} days` : 'All dates',
-      timestamp: new Date().toISOString(),
-    });
+      const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, filterOrRange);
+
+      const dateRangeInfo = dateQuery
+        ? dateQuery.label
+        : (dateFilter ? `Last ${dateFilter} days` : 'All dates');
+
+      const chatResponse = await generateChatbotResponse(
+        message,
+        productData,
+        conversationHistory,
+        dateRangeInfo
+      );
+
+      res.json({
+        success: true,
+        response: chatResponse.message,
+        data: chatResponse.structuredData || null,
+        dateRangeInfo: dateRangeInfo,
+        timestamp: new Date().toISOString(),
+      });
+    }
   } catch (error) {
     console.error('Error in product chatbot:', error.message);
     res.status(500).json({
@@ -6219,8 +6522,7 @@ app.post('/api/product-chat', async (req, res) => {
 });
 
 // Helper function to generate chatbot responses using Gemini AI
-// Helper function to generate chatbot responses using Gemini AI
-async function generateChatbotResponse(userMessage, productData, conversationHistory = [], daysFilter = null) {
+async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates') {
   if (!GEMINI_API_KEY) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
@@ -6229,9 +6531,6 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
   }
 
   try {
-    const dateRangeInfo = daysFilter
-      ? `Data filtered for the last ${daysFilter} days`
-      : 'Data includes all available dates';
     // Prepare conversation context
     const conversationContext = conversationHistory
       .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
@@ -6356,6 +6655,169 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
     };
   }
 }
+
+// Helper function to generate comparison chatbot responses
+async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = []) {
+  if (!GEMINI_API_KEY) {
+    return {
+      message: "AI service is not configured. Please contact the administrator.",
+      structuredData: null
+    };
+  }
+
+  try {
+    // Prepare conversation context
+    const conversationContext = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n');
+
+    // Calculate changes between periods
+    const orderChange = productData1.summary.totalOrders - productData2.summary.totalOrders;
+    const orderChangePercent = productData2.summary.totalOrders > 0
+      ? ((orderChange / productData2.summary.totalOrders) * 100).toFixed(1)
+      : 0;
+
+    const ratingChange = productData1.summary.avgRating - productData2.summary.avgRating;
+
+    // Find products that appear in both periods for comparison
+    const product1Map = new Map(productData1.products.map(p => [p.name, p]));
+    const product2Map = new Map(productData2.products.map(p => [p.name, p]));
+
+    const comparableProducts = [];
+    productData1.products.forEach(p1 => {
+      const p2 = product2Map.get(p1.name);
+      if (p2) {
+        const orderDiff = p1.totalOrders - p2.totalOrders;
+        const orderDiffPercent = p2.totalOrders > 0 ? ((orderDiff / p2.totalOrders) * 100).toFixed(1) : 0;
+        comparableProducts.push({
+          name: p1.name,
+          period1Orders: p1.totalOrders,
+          period2Orders: p2.totalOrders,
+          orderChange: orderDiff,
+          orderChangePercent: orderDiffPercent,
+          period1Rating: p1.avgRating,
+          period2Rating: p2.avgRating,
+          ratingChange: (p1.avgRating - p2.avgRating).toFixed(2)
+        });
+      }
+    });
+
+    // Sort by absolute order change
+    comparableProducts.sort((a, b) => Math.abs(b.orderChange) - Math.abs(a.orderChange));
+
+    const topGainers = comparableProducts.filter(p => p.orderChange > 0).slice(0, 10);
+    const topDecliners = comparableProducts.filter(p => p.orderChange < 0).slice(0, 10);
+
+    // Create the prompt for Gemini
+    const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze and compare product sales data from Swiggy and Zomato platforms across different time periods.
+
+**Comparison:** ${dateQuery.period1.label} vs ${dateQuery.period2.label}
+
+**Period 1 (${dateQuery.period1.label}):**
+- Total Products: ${productData1.summary.totalProductsInSheet}
+- Total Orders: ${productData1.summary.totalOrders}
+- Average Rating: ${productData1.summary.avgRating.toFixed(2)}
+- Low Rated Orders: ${productData1.summary.totalLowRated} (${productData1.summary.avgLowRatedPercentage.toFixed(2)}%)
+
+**Period 2 (${dateQuery.period2.label}):**
+- Total Products: ${productData2.summary.totalProductsInSheet}
+- Total Orders: ${productData2.summary.totalOrders}
+- Average Rating: ${productData2.summary.avgRating.toFixed(2)}
+- Low Rated Orders: ${productData2.summary.totalLowRated} (${productData2.summary.avgLowRatedPercentage.toFixed(2)}%)
+
+**Overall Change:**
+- Orders: ${orderChange >= 0 ? '+' : ''}${orderChange} (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%)
+- Average Rating: ${ratingChange >= 0 ? '+' : ''}${ratingChange.toFixed(2)}
+
+**Top 10 Products with Increased Sales:**
+${topGainers.length > 0 ? topGainers.map((p, idx) => `${idx + 1}. ${p.name}
+   ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
+   ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
+   Change: +${p.orderChange} orders (+${p.orderChangePercent}%)`).join('\n') : 'No products with increased sales'}
+
+**Top 10 Products with Decreased Sales:**
+${topDecliners.length > 0 ? topDecliners.map((p, idx) => `${idx + 1}. ${p.name}
+   ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
+   ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
+   Change: ${p.orderChange} orders (${p.orderChangePercent}%)`).join('\n') : 'No products with decreased sales'}
+
+${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` : ''}
+
+**User Question:** ${userMessage}
+
+**Instructions:**
+- Provide a comparative analysis based on the data above
+- ALWAYS use EXACT product names from the data, never use placeholders
+- Highlight key trends, changes, and insights between the two periods
+- Explain what's performing better or worse and potential reasons
+- Use specific numbers and percentages to support your analysis
+- Format your response clearly with bullet points or sections
+- Be conversational and actionable
+
+**Response:**`;
+
+    // Call Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+    const response = await axios.post(geminiUrl, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }],
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1536,
+      }
+    });
+
+    const aiMessage = response.data.candidates[0].content.parts[0].text;
+
+    // Create structured comparison data
+    const structuredData = {
+      comparison: {
+        period1: {
+          label: dateQuery.period1.label,
+          totalOrders: productData1.summary.totalOrders,
+          avgRating: productData1.summary.avgRating
+        },
+        period2: {
+          label: dateQuery.period2.label,
+          totalOrders: productData2.summary.totalOrders,
+          avgRating: productData2.summary.avgRating
+        },
+        changes: {
+          orderChange: orderChange,
+          orderChangePercent: parseFloat(orderChangePercent),
+          ratingChange: parseFloat(ratingChange.toFixed(2))
+        }
+      },
+      topGainers: topGainers.slice(0, 5),
+      topDecliners: topDecliners.slice(0, 5)
+    };
+
+    return {
+      message: aiMessage,
+      structuredData: structuredData
+    };
+
+  } catch (error) {
+    if (error.response) {
+      console.error('Gemini API Error:', error.response.status, error.response.data);
+    } else {
+      console.error('Error calling Gemini API for comparison:', error.message);
+    }
+
+    return {
+      message: `I encountered an error processing your comparison question. Here's a basic summary:\n\n` +
+               `${dateQuery.period1.label}: ${productData1.summary.totalOrders} orders, Avg Rating: ${productData1.summary.avgRating.toFixed(2)}\n` +
+               `${dateQuery.period2.label}: ${productData2.summary.totalOrders} orders, Avg Rating: ${productData2.summary.avgRating.toFixed(2)}\n\n` +
+               `Please try rephrasing your question.`,
+      structuredData: null
+    };
+  }
+}
+
 // === TICKET MANAGEMENT ENDPOINTS ===
 
 // Helper function to calculate days pending
