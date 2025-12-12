@@ -6581,9 +6581,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Create the prompt for Gemini
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
-**Date Range:** ${dateRangeInfo}
+Date Range: ${dateRangeInfo}
 
-**Current Product Data Summary:**
+Current Product Data Summary:
 - Total Products: ${productData.summary.totalProductsInSheet}
 - Total Orders: ${productData.summary.totalOrders}
 - Average Rating: ${productData.summary.avgRating.toFixed(2)}
@@ -6591,20 +6591,20 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
 - Low Rated Orders: ${productData.summary.totalLowRated}
 - Average Low Rated Percentage: ${productData.summary.avgLowRatedPercentage.toFixed(2)}%
 
-**Top 20 Products by Sales:**
+Top 20 Products by Sales:
 ${topProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
 
-**Top 10 High-Rated Products (4.0+):**
+Top 10 High-Rated Products (4.0+):
 ${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}`).join('\n')}
 
-**Top 10 Problematic Products (>5% low ratings):**
+Top 10 Problematic Products (>5% low ratings):
 ${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Low Rated: ${p.lowRatedPercentage.toFixed(1)}%, Total Orders: ${p.totalOrders}`).join('\n') : 'No products with >5% low ratings'}
 
-${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` : ''}
+${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
-**User Question:** ${userMessage}
+User Question: ${userMessage}
 
-**Instructions:**
+Instructions:
 - Answer the user's question based on the product data above for the specified date range
 - IMPORTANT: Always use the EXACT product names provided in the data above, never use placeholders like "Product 1", "Product 2", etc.
 - Always mention the date range context in your response (e.g., "In the last 7 days...")
@@ -6614,8 +6614,10 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 - Format your response clearly with bullet points or numbered lists when appropriate
 - If the question requires specific product details not in the summary, mention the top relevant products by their actual names
 - Keep responses concise but informative
+- DO NOT use markdown formatting like ** or __ in your response - use plain text only
+- The response will be displayed in a chat interface that does not support markdown
 
-**Response:**`;
+Response:`;
 
     // Call Gemini API - using valid model from available list
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -6738,41 +6740,41 @@ async function generateComparisonChatbotResponse(userMessage, productData1, prod
     // Create the prompt for Gemini
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze and compare product sales data from Swiggy and Zomato platforms across different time periods.
 
-**Comparison:** ${dateQuery.period1.label} vs ${dateQuery.period2.label}
+Comparison: ${dateQuery.period1.label} vs ${dateQuery.period2.label}
 
-**Period 1 (${dateQuery.period1.label}):**
+Period 1 (${dateQuery.period1.label}):
 - Total Products: ${productData1.summary.totalProductsInSheet}
 - Total Orders: ${productData1.summary.totalOrders}
 - Average Rating: ${productData1.summary.avgRating.toFixed(2)}
 - Low Rated Orders: ${productData1.summary.totalLowRated} (${productData1.summary.avgLowRatedPercentage.toFixed(2)}%)
 
-**Period 2 (${dateQuery.period2.label}):**
+Period 2 (${dateQuery.period2.label}):
 - Total Products: ${productData2.summary.totalProductsInSheet}
 - Total Orders: ${productData2.summary.totalOrders}
 - Average Rating: ${productData2.summary.avgRating.toFixed(2)}
 - Low Rated Orders: ${productData2.summary.totalLowRated} (${productData2.summary.avgLowRatedPercentage.toFixed(2)}%)
 
-**Overall Change:**
+Overall Change:
 - Orders: ${orderChange >= 0 ? '+' : ''}${orderChange} (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%)
 - Average Rating: ${ratingChange >= 0 ? '+' : ''}${ratingChange.toFixed(2)}
 
-**Top 10 Products with Increased Sales:**
+Top 10 Products with Increased Sales:
 ${topGainers.length > 0 ? topGainers.map((p, idx) => `${idx + 1}. ${p.name}
    ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
    ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
    Change: +${p.orderChange} orders (+${p.orderChangePercent}%)`).join('\n') : 'No products with increased sales'}
 
-**Top 10 Products with Decreased Sales:**
+Top 10 Products with Decreased Sales:
 ${topDecliners.length > 0 ? topDecliners.map((p, idx) => `${idx + 1}. ${p.name}
    ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
    ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
    Change: ${p.orderChange} orders (${p.orderChangePercent}%)`).join('\n') : 'No products with decreased sales'}
 
-${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` : ''}
+${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
-**User Question:** ${userMessage}
+User Question: ${userMessage}
 
-**Instructions:**
+Instructions:
 - Provide a comparative analysis based on the data above
 - ALWAYS use EXACT product names from the data, never use placeholders
 - Highlight key trends, changes, and insights between the two periods
@@ -6780,8 +6782,10 @@ ${conversationContext ? `**Previous Conversation:**\n${conversationContext}\n` :
 - Use specific numbers and percentages to support your analysis
 - Format your response clearly with bullet points or sections
 - Be conversational and actionable
+- DO NOT use markdown formatting like ** or __ in your response - use plain text only
+- The response will be displayed in a chat interface that does not support markdown
 
-**Response:**`;
+Response:`;
 
     // Call Gemini API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
