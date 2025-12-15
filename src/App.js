@@ -277,7 +277,7 @@ function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const isStandalone = urlParams.get('view') === 'checklist';
   
-  const [currentView, setCurrentView] = useState(isStandalone ? 'checklist' : 'checklist');
+  const [currentView, setCurrentView] = useState(isStandalone ? 'checklist' : 'product');
   const [isNavigating, setIsNavigating] = useState(false);
 
   // Navigation configuration - 9 dashboards
