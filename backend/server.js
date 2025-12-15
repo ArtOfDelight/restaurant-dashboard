@@ -4845,7 +4845,29 @@ function parseDateQuery(message) {
     };
   }
 
-  // Check for "7 days before that" pattern
+  // Check for "last X days and Y days before that" pattern
+  const lastAndBefore = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:and|vs|versus|compared to)\s+(\d+)\s+days?\s+before\s+(?:that|it)/i);
+  if (lastAndBefore) {
+    const days1 = parseInt(lastAndBefore[1]);
+    const days2 = parseInt(lastAndBefore[2]);
+    return {
+      type: 'comparison',
+      period1: {
+        startDate: new Date(today.getTime() - days1 * 24 * 60 * 60 * 1000),
+        endDate: new Date(today),
+        days: days1,
+        label: `Last ${days1} days`
+      },
+      period2: {
+        startDate: new Date(today.getTime() - (days1 + days2) * 24 * 60 * 60 * 1000),
+        endDate: new Date(today.getTime() - days1 * 24 * 60 * 60 * 1000),
+        days: days2,
+        label: `${days2} days before that`
+      }
+    };
+  }
+
+  // Check for "7 days before that" pattern (when "last X days" is mentioned earlier in conversation)
   const beforeThat = lowerMessage.match(/(\d+)\s+days?\s+before\s+(?:that|it)/i);
   if (beforeThat) {
     const days = parseInt(beforeThat[1]);
