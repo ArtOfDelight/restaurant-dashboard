@@ -4806,6 +4806,53 @@ function parseNaturalDate(dateStr) {
 }
 
 /**
+ * Parse branch and channel filters from natural language
+ * Examples: "CK Arekere", "Bellandur", "swiggy", "zomato", "dine in"
+ * Returns: { branch, channel }
+ */
+function parseFilters(message) {
+  const lowerMessage = message.toLowerCase();
+  let branch = null;
+  let channel = null;
+
+  // Parse channel filters
+  if (lowerMessage.includes('swiggy')) {
+    channel = 'Swiggy';
+  } else if (lowerMessage.includes('zomato')) {
+    channel = 'Zomato';
+  } else if (lowerMessage.includes('dine in') || lowerMessage.includes('dine-in') || lowerMessage.includes('dinein')) {
+    channel = 'Dine In';
+  }
+
+  // Parse branch filters - look for common branch name patterns
+  const branchPatterns = [
+    /\b(ck\s+arekere|arekere)\b/i,
+    /\b(ck\s+bellandur|bellandur)\b/i,
+    /\b(ck\s+[a-z]+)\b/i  // Generic CK branch pattern
+  ];
+
+  for (const pattern of branchPatterns) {
+    const match = message.match(pattern);
+    if (match) {
+      // Normalize branch name (e.g., "arekere" -> "CK Arekere", "bellandur" -> "CK Bellandur")
+      let branchName = match[1].trim();
+      if (!branchName.toLowerCase().startsWith('ck ')) {
+        branchName = 'CK ' + branchName.charAt(0).toUpperCase() + branchName.slice(1);
+      } else {
+        // Capitalize properly
+        const parts = branchName.split(' ');
+        branchName = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+      }
+      branch = branchName;
+      break;
+    }
+  }
+
+  console.log(`Parsed filters - Branch: ${branch || 'None'}, Channel: ${channel || 'None'}`);
+  return { branch, channel };
+}
+
+/**
  * Parse date query from natural language
  * Returns: { type, startDate, endDate, compareTo }
  */
@@ -5024,15 +5071,17 @@ function isDateInRange(dateStr, startDate, endDate) {
  * @param {Array} rawData - The raw sheet data
  * @param {Number|Object} filterOrRange - Either daysFilter (number) or dateRange {startDate, endDate}
  */
-function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
+function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, additionalFilters = {}) {
   if (!rawData || rawData.length < 2) return [];
 
   const headers = rawData[0];
   const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
   const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
   const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+  const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+  const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
 
-  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}`);
+  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}`);
 
   if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
     console.error('ERROR: Required columns not found in ProductDetails sheet');
@@ -5044,6 +5093,9 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
   const daysFilter = !isRangeFilter ? filterOrRange : null;
   const dateRange = isRangeFilter ? filterOrRange : null;
 
+  // Extract additional filters
+  const { branch, channel } = additionalFilters;
+
   // Use a Map to aggregate order counts by item name
   const itemsMap = new Map();
   let totalRowsProcessed = 0;
@@ -5054,6 +5106,8 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
     const dateStr = row[dateIndex]?.toString().trim();
     const itemName = row[itemNameIndex]?.toString().trim();
     const orderCount = parseInt(row[orderCountIndex]) || 0;
+    const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+    const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
 
     if (!itemName) continue;
 
@@ -5066,6 +5120,18 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
     }
 
     if (!includeRow) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply branch filter if specified
+    if (branch && branchName.toLowerCase() !== branch.toLowerCase()) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply channel filter if specified
+    if (channel && channelName.toLowerCase() !== channel.toLowerCase()) {
       rowsFiltered++;
       continue;
     }
@@ -5091,7 +5157,7 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
   
   console.log(`\nProductDetails Processing:`);
   console.log(`  Total rows: ${rawData.length - 1}`);
-  console.log(`  Rows filtered by date: ${rowsFiltered}`);
+  console.log(`  Rows filtered: ${rowsFiltered}`);
   console.log(`  Rows processed: ${totalRowsProcessed}`);
   console.log(`  Unique items: ${items.length}`);
   if (dateRange) {
@@ -5099,7 +5165,13 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS) {
   } else {
     console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
   }
-  
+  if (branch) {
+    console.log(`  Branch filter: ${branch}`);
+  }
+  if (channel) {
+    console.log(`  Channel filter: ${channel}`);
+  }
+
   return items;
 }
 
@@ -5494,13 +5566,16 @@ function getCellValue(row, index) {
  * Main function to process product analysis data from Google Sheets
  * NO RISTA API - Uses ProductDetails aggregation only
  */
-async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS) {
+async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS, additionalFilters = {}) {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('PRODUCT ANALYSIS - NO RISTA API VERSION');
   console.log('Using ProductDetails Sheet Aggregation + 100% Fuzzy Matching');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}`);
-  console.log(`Date Filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}\n`);
+  console.log(`Date Filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  if (additionalFilters.branch) console.log(`Branch Filter: ${additionalFilters.branch}`);
+  if (additionalFilters.channel) console.log(`Channel Filter: ${additionalFilters.channel}`);
+  console.log('');
 
   try {
     if (!sheets) {
@@ -5529,8 +5604,8 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
-    // Step 2: Process ProductDetails sheet with date filter
-    const productDetails = processProductDetailsSheet(productDetailsData.data.values, daysFilter);
+    // Step 2: Process ProductDetails sheet with date filter and additional filters
+    const productDetails = processProductDetailsSheet(productDetailsData.data.values, daysFilter, additionalFilters);
     
     if (productDetails.length === 0) {
       console.error('ERROR: No products found in ProductDetails sheet');
@@ -6512,12 +6587,15 @@ app.post('/api/product-chat', async (req, res) => {
     const dateQuery = parseDateQuery(message);
     console.log(`Parsed date query:`, JSON.stringify(dateQuery, null, 2));
 
+    // Parse branch and channel filters from message
+    const filters = parseFilters(message);
+
     // Handle comparison queries
     if (dateQuery && dateQuery.type === 'comparison') {
-      // Fetch data for both periods
+      // Fetch data for both periods with filters
       const [productData1, productData2] = await Promise.all([
-        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1),
-        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2)
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, filters),
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, filters)
       ]);
 
       // Generate AI response with comparison
@@ -6552,7 +6630,7 @@ app.post('/api/product-chat', async (req, res) => {
         ? { startDate: dateQuery.startDate, endDate: dateQuery.endDate }
         : dateQuery?.days || dateFilter || null;
 
-      const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, filterOrRange);
+      const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, filterOrRange, filters);
 
       const dateRangeInfo = dateQuery
         ? dateQuery.label
