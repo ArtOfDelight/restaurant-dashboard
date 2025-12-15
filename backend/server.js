@@ -101,6 +101,17 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ROSTER_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
 const ROSTER_TAB = 'Roster';
 
+// Gemini API Key Management - Multiple keys for failover
+const GEMINI_API_KEYS = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY1,
+  process.env.GEMINI_API_KEY2,
+  process.env.GEMINI_API_KEY3,
+  process.env.GEMINI_API_KEY4
+].filter(key => key && key.trim()); // Remove undefined/empty keys
+
+let currentKeyIndex = 0;
+
 // Telegram Bot setup with conflict resolution
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ENABLE_TELEGRAM_BOT = process.env.ENABLE_TELEGRAM_BOT !== 'false'; // Default to true unless explicitly disabled
@@ -119,8 +130,10 @@ let isShuttingDown = false;
 if (!DASHBOARD_SPREADSHEET_ID || !DASHBOARD_SHEET_NAME) {
   console.error('Missing environment variables: SPREADSHEET_ID and SHEET_NAME are required for dashboard endpoints');
 }
-if (!GEMINI_API_KEY) {
-  console.error('Missing environment variable: GEMINI_API_KEY is required for Gemini API integration');
+if (GEMINI_API_KEYS.length === 0) {
+  console.error('Missing environment variable: At least one GEMINI_API_KEY is required for Gemini API integration');
+} else {
+  console.log(`✅ Loaded ${GEMINI_API_KEYS.length} Gemini API key(s) for failover`);
 }
 
 // Initialize Google Sheets and Broadcast tab
@@ -6548,9 +6561,118 @@ app.post('/api/product-chat', async (req, res) => {
   }
 });
 
+// === GEMINI API KEY ROTATION HELPERS ===
+
+// Get current active Gemini API key
+function getCurrentGeminiKey() {
+  if (GEMINI_API_KEYS.length === 0) {
+    throw new Error('No Gemini API keys available');
+  }
+  return GEMINI_API_KEYS[currentKeyIndex];
+}
+
+// Rotate to next available API key
+function rotateGeminiKey() {
+  if (GEMINI_API_KEYS.length <= 1) {
+    console.warn('⚠️  Only one API key available, cannot rotate');
+    return false;
+  }
+
+  const oldIndex = currentKeyIndex;
+  currentKeyIndex = (currentKeyIndex + 1) % GEMINI_API_KEYS.length;
+
+  console.log(`🔄 Rotated Gemini API key: Key ${oldIndex + 1} → Key ${currentKeyIndex + 1}`);
+  return true;
+}
+
+// Check if error is a rate limit error
+function isRateLimitError(error) {
+  if (!error) return false;
+
+  // Check HTTP status code
+  if (error.response && error.response.status === 429) {
+    return true;
+  }
+
+  // Check error message for rate limit indicators
+  const errorMessage = error.message || '';
+  const errorData = JSON.stringify(error.response?.data || '');
+
+  const rateLimitIndicators = [
+    'rate limit',
+    'quota exceeded',
+    'too many requests',
+    'resource_exhausted',
+    '429'
+  ];
+
+  return rateLimitIndicators.some(indicator =>
+    errorMessage.toLowerCase().includes(indicator) ||
+    errorData.toLowerCase().includes(indicator)
+  );
+}
+
+// Make Gemini API call with automatic failover
+async function callGeminiWithFailover(url, data, maxRetries = null) {
+  // Default maxRetries to number of available keys
+  if (maxRetries === null) {
+    maxRetries = GEMINI_API_KEYS.length;
+  }
+
+  let lastError = null;
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    try {
+      const currentKey = getCurrentGeminiKey();
+      const urlWithKey = url.includes('?') ? url : `${url}?key=${currentKey}`;
+      const finalUrl = url.includes('key=') ? url.replace(/key=[^&]*/, `key=${currentKey}`) : urlWithKey;
+
+      console.log(`🔑 Attempting Gemini API call with key ${currentKeyIndex + 1}/${GEMINI_API_KEYS.length} (attempt ${attempts + 1}/${maxRetries})`);
+
+      const response = await axios.post(finalUrl, data);
+
+      // Success! Return the response
+      if (attempts > 0) {
+        console.log(`✅ Gemini API call succeeded after ${attempts + 1} attempt(s)`);
+      }
+      return response;
+
+    } catch (error) {
+      lastError = error;
+      attempts++;
+
+      // Check if this is a rate limit error
+      if (isRateLimitError(error)) {
+        console.log(`⚠️  Rate limit hit on key ${currentKeyIndex + 1}. Error: ${error.message}`);
+
+        // Try to rotate to next key
+        if (attempts < maxRetries) {
+          const rotated = rotateGeminiKey();
+          if (rotated) {
+            console.log(`🔄 Retrying with next API key...`);
+            continue; // Retry with new key
+          } else {
+            console.error('❌ No more API keys available for rotation');
+            break;
+          }
+        }
+      } else {
+        // Not a rate limit error, don't retry
+        console.error(`❌ Gemini API call failed with non-rate-limit error: ${error.message}`);
+        throw error;
+      }
+    }
+  }
+
+  // All retries exhausted
+  console.error(`❌ All ${maxRetries} Gemini API key(s) exhausted`);
+  throw lastError || new Error('All API keys exhausted');
+}
+
 // Helper function to generate chatbot responses using Gemini AI
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates') {
-  if (!GEMINI_API_KEY) {
+  if (GEMINI_API_KEYS.length === 0) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
       structuredData: null
@@ -6619,10 +6741,10 @@ Instructions:
 
 Response:`;
 
-    // Call Gemini API - using valid model from available list
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // Call Gemini API with automatic failover
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
 
-    const response = await axios.post(geminiUrl, {
+    const response = await callGeminiWithFailover(geminiUrl, {
       contents: [{
         parts: [{ text: prompt }]
       }],
@@ -6687,7 +6809,7 @@ Response:`;
 
 // Helper function to generate comparison chatbot responses
 async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = []) {
-  if (!GEMINI_API_KEY) {
+  if (GEMINI_API_KEYS.length === 0) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
       structuredData: null
@@ -6787,10 +6909,10 @@ Instructions:
 
 Response:`;
 
-    // Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // Call Gemini API with automatic failover
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
 
-    const response = await axios.post(geminiUrl, {
+    const response = await callGeminiWithFailover(geminiUrl, {
       contents: [{
         parts: [{ text: prompt }]
       }],
