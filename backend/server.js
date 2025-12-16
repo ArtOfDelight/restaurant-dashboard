@@ -6607,7 +6607,8 @@ app.post('/api/product-chat', async (req, res) => {
         productData1,
         productData2,
         dateQuery,
-        conversationHistory
+        conversationHistory,
+        filters
       );
 
       res.json({
@@ -6643,7 +6644,8 @@ app.post('/api/product-chat', async (req, res) => {
         message,
         productData,
         conversationHistory,
-        dateRangeInfo
+        dateRangeInfo,
+        filters
       );
 
       res.json({
@@ -6774,7 +6776,7 @@ async function callGeminiWithFailover(url, data, maxRetries = null) {
 }
 
 // Helper function to generate chatbot responses using Gemini AI
-async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates') {
+async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
@@ -6803,11 +6805,18 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       .sort((a, b) => b.totalOrders - a.totalOrders)
       .slice(0, 10);
 
+    // Build filter description
+    const filterParts = [];
+    if (filters.branch) filterParts.push(`Outlet: ${filters.branch}`);
+    if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
+    const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
+
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
 === CONTEXT ===
 Date Range: ${dateRangeInfo}
+Filters: ${filterInfo}
 
 Product Data Summary:
 - Total Products: ${productData.summary.totalProductsInSheet}
@@ -6927,12 +6936,13 @@ Identify which products from the data above are most relevant to answer this que
 - If filtered data applies, reference the filter in your response
 
 STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
-- Start with the date range context (and outlet/channel if filtered)
-- Use actual product names (never say "Product 1" or "your products" without naming them)
+- IMPORTANT: The data you see is ALREADY FILTERED by the filters shown above
+- Start your response by acknowledging the specific outlet/channel/date if filtered
+- Use actual product names from the filtered data (never say "Product 1" or generic references)
 - Include specific numbers (orders, ratings, percentages)
 - If identifying problems, explain WHY they're problems with numbers
 - If showing successes, explain what makes them successful
-- Acknowledge any filters applied (outlet, channel, date range)
+- NEVER say "I don't have outlet-specific data" - the data IS outlet-specific if an outlet filter is shown
 - Keep it conversational but data-driven
 - Use plain text only (no markdown like ** or __)
 - Format with line breaks and bullets for readability
@@ -7008,7 +7018,7 @@ Response:`;
 }
 
 // Helper function to generate comparison chatbot responses
-async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = []) {
+async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = [], filters = {}) {
   if (GEMINI_API_KEYS.length === 0) {
     return {
       message: "AI service is not configured. Please contact the administrator.",
@@ -7059,11 +7069,18 @@ async function generateComparisonChatbotResponse(userMessage, productData1, prod
     const topGainers = comparableProducts.filter(p => p.orderChange > 0).slice(0, 10);
     const topDecliners = comparableProducts.filter(p => p.orderChange < 0).slice(0, 10);
 
+    // Build filter description
+    const filterParts = [];
+    if (filters.branch) filterParts.push(`Outlet: ${filters.branch}`);
+    if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
+    const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
+
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze and compare product sales data from Swiggy and Zomato platforms across different time periods.
 
 === COMPARISON CONTEXT ===
 Comparing: ${dateQuery.period1.label} vs ${dateQuery.period2.label}
+Filters: ${filterInfo}
 
 Period 1 (${dateQuery.period1.label}):
 - Total Products: ${productData1.summary.totalProductsInSheet}
