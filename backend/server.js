@@ -4819,6 +4819,104 @@ function parseNaturalDate(dateStr) {
 }
 
 /**
+ * Outlet name mapping - handles all variations
+ * Maps user queries and sheet data to canonical names
+ */
+const OUTLET_MAPPINGS = [
+  {
+    names: ['sahakarnagar', 'sahakara nagar', 'sahkar nagar'],
+    normalized: 'Sahakarnagar',
+    sheetNames: ['CK Sahakarnagar', 'Sahakarnagar', 'CK Sahakara Nagar']
+  },
+  {
+    names: ['residency road', 'residency', 'rr'],
+    normalized: 'Residency Road',
+    sheetNames: ['Residency Road', 'RR']
+  },
+  {
+    names: ['whitefield', 'white field'],
+    normalized: 'Whitefield',
+    sheetNames: ['CK Whitefield', 'Whitefield', 'CK White Field']
+  },
+  {
+    names: ['koramangala', 'koramangla'],
+    normalized: 'Koramangala',
+    sheetNames: ['Koramangala', 'CK Koramangala']
+  },
+  {
+    names: ['kalyan nagar', 'kalyannagar', 'kalyan'],
+    normalized: 'Kalyan Nagar',
+    sheetNames: ['CK Kalyan Nagar', 'Kalyan Nagar', 'CK Kalyannagar']
+  },
+  {
+    names: ['bellandur'],
+    normalized: 'Bellandur',
+    sheetNames: ['CK Bellandur', 'Bellandur']
+  },
+  {
+    names: ['indiranagar', 'indira nagar'],
+    normalized: 'Indiranagar',
+    sheetNames: ['CK Indiranagar', 'Indiranagar', 'CK Indira Nagar']
+  },
+  {
+    names: ['arekere'],
+    normalized: 'Arekere',
+    sheetNames: ['CK Arekere', 'Arekere']
+  },
+  {
+    names: ['jayanagar', 'jaya nagar'],
+    normalized: 'Jayanagar',
+    sheetNames: ['CK Jayanagar', 'Jayanagar', 'CK Jaya Nagar']
+  },
+  {
+    names: ['hsr layout', 'hsr', 'hsrlayout'],
+    normalized: 'HSR Layout',
+    sheetNames: ['CK HSR Layout', 'HSR Layout', 'CK HSR', 'HSR']
+  },
+  {
+    names: ['rajajinagar', 'raja ji nagar', 'rajaji nagar'],
+    normalized: 'Rajajinagar',
+    sheetNames: ['CK Rajajinagar', 'Rajajinagar', 'CK Raja Ji Nagar']
+  },
+  {
+    names: ['central', 'ho', 'aod central', 'head office', 'ho aod'],
+    normalized: 'Art Of Delight Central',
+    sheetNames: ['Art Of Delight Central', 'HO AOD', 'Central', 'Head Office', 'HO']
+  }
+];
+
+/**
+ * Check if two branch names match (handles all variations)
+ */
+function branchesMatch(branch1, branch2) {
+  if (!branch1 || !branch2) return false;
+
+  const b1Lower = branch1.toLowerCase().trim();
+  const b2Lower = branch2.toLowerCase().trim();
+
+  // Exact match
+  if (b1Lower === b2Lower) return true;
+
+  // Find outlet mapping for both branches
+  const outlet1 = OUTLET_MAPPINGS.find(o =>
+    o.names.includes(b1Lower) ||
+    o.sheetNames.some(s => s.toLowerCase() === b1Lower)
+  );
+
+  const outlet2 = OUTLET_MAPPINGS.find(o =>
+    o.names.includes(b2Lower) ||
+    o.sheetNames.some(s => s.toLowerCase() === b2Lower)
+  );
+
+  // If both map to the same normalized outlet, they match
+  if (outlet1 && outlet2 && outlet1.normalized === outlet2.normalized) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Parse branch and channel filters from natural language
  * Examples: "CK Arekere", "Bellandur", "swiggy", "zomato", "dine in"
  * Returns: { branch, channel }
@@ -4828,33 +4926,17 @@ function parseFilters(message) {
   let branch = null;
   let channel = null;
 
-  // Parse channel filters
+  // Parse channel filters (match exact sheet format)
   if (lowerMessage.includes('swiggy')) {
     channel = 'Swiggy';
   } else if (lowerMessage.includes('zomato')) {
     channel = 'Zomato';
   } else if (lowerMessage.includes('dine in') || lowerMessage.includes('dine-in') || lowerMessage.includes('dinein')) {
-    channel = 'Dine In';
+    channel = 'Dine-in'; // Sheet uses "Dine-in" with hyphen
   }
 
-  // Parse branch/outlet filters - comprehensive outlet name matching
-  const outlets = [
-    { names: ['sahakarnagar', 'sahakara nagar', 'sahkar nagar'], normalized: 'Sahakarnagar' },
-    { names: ['residency road', 'residency', 'rr'], normalized: 'Residency Road' },
-    { names: ['whitefield', 'white field'], normalized: 'Whitefield' },
-    { names: ['koramangala', 'koramangla'], normalized: 'Koramangala' },
-    { names: ['kalyan nagar', 'kalyannagar', 'kalyan'], normalized: 'Kalyan Nagar' },
-    { names: ['bellandur'], normalized: 'Bellandur' },
-    { names: ['indiranagar', 'indira nagar'], normalized: 'Indiranagar' },
-    { names: ['arekere'], normalized: 'Arekere' },
-    { names: ['jayanagar', 'jaya nagar'], normalized: 'Jayanagar' },
-    { names: ['hsr layout', 'hsr', 'hsrlayout'], normalized: 'HSR Layout' },
-    { names: ['rajajinagar', 'raja ji nagar', 'rajaji nagar'], normalized: 'Rajajinagar' },
-    { names: ['central', 'ho', 'aod central'], normalized: 'Art Of Delight Central' }
-  ];
-
   // Check for outlet mentions in the message
-  for (const outlet of outlets) {
+  for (const outlet of OUTLET_MAPPINGS) {
     for (const name of outlet.names) {
       if (lowerMessage.includes(name)) {
         branch = outlet.normalized;
@@ -5140,8 +5222,8 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
       continue;
     }
 
-    // Apply branch filter if specified
-    if (branch && branchName.toLowerCase() !== branch.toLowerCase()) {
+    // Apply branch filter if specified (use smart matching for CK/outlet variations)
+    if (branch && !branchesMatch(branchName, branch)) {
       rowsFiltered++;
       continue;
     }
