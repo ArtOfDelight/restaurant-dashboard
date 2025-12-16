@@ -6692,9 +6692,46 @@ app.post('/api/product-chat', async (req, res) => {
     // Parse branch and channel filters from message
     const filters = parseFilters(message);
 
+    // Check if user wants channel-wise breakdown
+    const wantsChannelBreakdown = /channel[-\s]?wise|by channel|breakdown by channel|each channel|per channel|split by channel/i.test(message);
+
     // Handle comparison queries
     if (dateQuery && dateQuery.type === 'comparison') {
-      // Fetch data for both periods with filters
+      // If user wants channel-wise breakdown, fetch data for each channel separately
+      if (wantsChannelBreakdown) {
+        const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
+        const channelData = {};
+
+        // Fetch data for each channel
+        for (const channel of channels) {
+          const channelFilters = { ...filters, channel };
+          const [data1, data2] = await Promise.all([
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, channelFilters),
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, channelFilters)
+          ]);
+          channelData[channel] = { period1: data1, period2: data2 };
+        }
+
+        // Generate AI response with channel-wise comparison
+        const chatResponse = await generateChannelWiseComparisonResponse(
+          message,
+          channelData,
+          dateQuery,
+          conversationHistory,
+          filters
+        );
+
+        res.json({
+          success: true,
+          response: chatResponse.message,
+          data: chatResponse.structuredData || null,
+          dateRangeInfo: `Comparing: ${dateQuery.period1.label} vs ${dateQuery.period2.label} (Channel-wise)`,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Regular comparison (not channel-wise)
       const [productData1, productData2] = await Promise.all([
         processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, filters),
         processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, filters)
@@ -7372,6 +7409,133 @@ Response:`;
                `${dateQuery.period1.label}: ${productData1.summary.totalOrders} orders, Avg Rating: ${productData1.summary.avgRating.toFixed(2)}\n` +
                `${dateQuery.period2.label}: ${productData2.summary.totalOrders} orders, Avg Rating: ${productData2.summary.avgRating.toFixed(2)}\n\n` +
                `Please try rephrasing your question.`,
+      structuredData: null
+    };
+  }
+}
+
+// === CHANNEL-WISE COMPARISON CHATBOT ===
+
+async function generateChannelWiseComparisonResponse(userMessage, channelData, dateQuery, conversationHistory = [], filters = {}) {
+  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
+    return {
+      message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
+      structuredData: null
+    };
+  }
+
+  try {
+    // Build filter description
+    const filterParts = [];
+    if (filters.branch) filterParts.push(`Outlet: ${filters.branch}`);
+    const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets';
+
+    // Build channel-wise comparison data for the prompt
+    let channelSummaries = '';
+    const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
+
+    for (const channel of channels) {
+      const data = channelData[channel];
+      if (!data || !data.period1 || !data.period2) continue;
+
+      const period1 = data.period1;
+      const period2 = data.period2;
+
+      // Calculate top gainers for this channel
+      const product1Map = new Map(period1.products.map(p => [p.name, p]));
+      const product2Map = new Map(period2.products.map(p => [p.name, p]));
+
+      const comparableProducts = [];
+      period1.products.forEach(p1 => {
+        const p2 = product2Map.get(p1.name);
+        if (p2) {
+          const orderDiff = p1.totalOrders - p2.totalOrders;
+          const orderDiffPercent = p2.totalOrders > 0 ? ((orderDiff / p2.totalOrders) * 100).toFixed(1) : 0;
+          comparableProducts.push({
+            name: p1.name,
+            period1Orders: p1.totalOrders,
+            period2Orders: p2.totalOrders,
+            orderChange: orderDiff,
+            orderChangePercent: orderDiffPercent,
+            period1Rating: p1.avgRating,
+            period2Rating: p2.avgRating
+          });
+        }
+      });
+
+      // Sort by order change
+      comparableProducts.sort((a, b) => b.orderChange - a.orderChange);
+      const topGrowth = comparableProducts.filter(p => p.orderChange > 0).slice(0, 5);
+
+      const orderChange = period1.summary.totalOrders - period2.summary.totalOrders;
+      const orderChangePercent = period2.summary.totalOrders > 0
+        ? ((orderChange / period2.summary.totalOrders) * 100).toFixed(1)
+        : 0;
+
+      channelSummaries += `\n=== ${channel.toUpperCase()} ===
+${dateQuery.period1.label}: ${period1.summary.totalOrders} orders, Avg Rating: ${period1.summary.avgRating.toFixed(2)}
+${dateQuery.period2.label}: ${period2.summary.totalOrders} orders, Avg Rating: ${period2.summary.avgRating.toFixed(2)}
+Change: ${orderChange >= 0 ? '+' : ''}${orderChange} orders (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%)
+
+Top 5 Growing Products on ${channel}:
+${topGrowth.length > 0 ? topGrowth.map((p, idx) => `${idx + 1}. ${p.name}
+   ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
+   ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
+   Growth: +${p.orderChange} orders (+${p.orderChangePercent}%)`).join('\n') : 'No products with increased sales'}
+
+`;
+    }
+
+    // Prepare conversation context
+    const conversationContext = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n');
+
+    // Create the prompt
+    const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data across different channels (Swiggy, Zomato, Dine-in, Ownly, Magicpin).
+
+=== CHANNEL-WISE COMPARISON CONTEXT ===
+Comparing: ${dateQuery.period1.label} vs ${dateQuery.period2.label}
+Filters: ${filterInfo}
+
+${channelSummaries}
+
+${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
+
+=== YOUR TASK ===
+User Question: ${userMessage}
+
+INSTRUCTIONS:
+1. The user wants to see a CHANNEL-BY-CHANNEL breakdown
+2. For EACH channel (Swiggy, Zomato, Dine-in, Ownly, Magicpin), show:
+   - The top growing products with specific numbers
+   - Growth percentages and absolute changes
+   - Ratings for context
+3. Use EXACT product names from the data above
+4. Include specific numbers (orders, percentages, ratings)
+5. Use plain text only (no markdown like ** or __)
+6. Format clearly with channel headers
+7. Skip channels with no data or no growth
+
+Provide your channel-wise analysis in a clear, structured format:
+
+Response:`;
+
+    // Call AI with automatic failover
+    const aiMessage = await callAIWithFailover(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 3072  // Increased for channel-wise breakdown
+    });
+
+    return {
+      message: aiMessage,
+      structuredData: { channelData }
+    };
+
+  } catch (error) {
+    console.error('Error in channel-wise comparison:', error.message);
+    return {
+      message: `I encountered an error processing your channel-wise comparison. Please try rephrasing your question.`,
       structuredData: null
     };
   }
