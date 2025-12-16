@@ -4,6 +4,7 @@ const cors = require('cors');
 const { google } = require('googleapis');
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
+const Groq = require('groq-sdk');
 const CRITICAL_STOCK_BOT_TOKEN = process.env.CRITICAL_STOCK_BOT_TOKEN;
 const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
@@ -111,6 +112,18 @@ const GEMINI_API_KEYS = [
 ].filter(key => key && key.trim()); // Remove undefined/empty keys
 
 let currentKeyIndex = 0;
+
+// Groq API Configuration (FREE alternative to Gemini)
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const AI_PROVIDER = process.env.AI_PROVIDER || 'gemini'; // Options: 'gemini' or 'groq'
+let groqClient = null;
+
+if (GROQ_API_KEY) {
+  groqClient = new Groq({ apiKey: GROQ_API_KEY });
+  console.log(`✅ Groq AI initialized (Provider: ${AI_PROVIDER})`);
+} else if (AI_PROVIDER === 'groq') {
+  console.error('⚠️  AI_PROVIDER is set to "groq" but GROQ_API_KEY is missing');
+}
 
 // Telegram Bot setup with conflict resolution
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -6717,69 +6730,92 @@ function isRateLimitError(error) {
   );
 }
 
-// Make Gemini API call with automatic failover
-async function callGeminiWithFailover(url, data, maxRetries = null) {
-  // Default maxRetries to number of available keys
-  if (maxRetries === null) {
-    maxRetries = GEMINI_API_KEYS.length;
-  }
+// Universal AI call with automatic failover: Gemini → Groq
+async function callAIWithFailover(prompt, config = {}) {
+  const maxOutputTokens = config.maxOutputTokens || 2048;
+  const temperature = config.temperature || 0.7;
 
-  let lastError = null;
-  let attempts = 0;
+  // Try Gemini first (with key rotation)
+  if (GEMINI_API_KEYS.length > 0) {
+    let attempts = 0;
+    const maxRetries = GEMINI_API_KEYS.length;
 
-  while (attempts < maxRetries) {
-    try {
-      const currentKey = getCurrentGeminiKey();
-      const urlWithKey = url.includes('?') ? url : `${url}?key=${currentKey}`;
-      const finalUrl = url.includes('key=') ? url.replace(/key=[^&]*/, `key=${currentKey}`) : urlWithKey;
+    while (attempts < maxRetries) {
+      try {
+        const currentKey = getCurrentGeminiKey();
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${currentKey}`;
 
-      console.log(`🔑 Attempting Gemini API call with key ${currentKeyIndex + 1}/${GEMINI_API_KEYS.length} (attempt ${attempts + 1}/${maxRetries})`);
+        console.log(`🔑 Trying Gemini (key ${currentKeyIndex + 1}/${GEMINI_API_KEYS.length}, attempt ${attempts + 1})`);
 
-      const response = await axios.post(finalUrl, data);
-
-      // Success! Return the response
-      if (attempts > 0) {
-        console.log(`✅ Gemini API call succeeded after ${attempts + 1} attempt(s)`);
-      }
-      return response;
-
-    } catch (error) {
-      lastError = error;
-      attempts++;
-
-      // Check if this is a rate limit error
-      if (isRateLimitError(error)) {
-        console.log(`⚠️  Rate limit hit on key ${currentKeyIndex + 1}. Error: ${error.message}`);
-
-        // Try to rotate to next key
-        if (attempts < maxRetries) {
-          const rotated = rotateGeminiKey();
-          if (rotated) {
-            console.log(`🔄 Retrying with next API key...`);
-            continue; // Retry with new key
-          } else {
-            console.error('❌ No more API keys available for rotation');
-            break;
+        const response = await axios.post(url, {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens
           }
+        }, { timeout: 30000 });
+
+        console.log(`✅ Gemini succeeded`);
+        return response.data.candidates[0].content.parts[0].text;
+
+      } catch (error) {
+        attempts++;
+
+        // Check if this is a rate limit error
+        if (isRateLimitError(error)) {
+          console.log(`⚠️  Gemini rate limit hit (key ${currentKeyIndex + 1}). ${error.message}`);
+
+          // Try to rotate to next key
+          if (attempts < maxRetries) {
+            const rotated = rotateGeminiKey();
+            if (rotated) {
+              console.log(`🔄 Rotating to next Gemini key...`);
+              continue; // Retry with new key
+            }
+          }
+          console.log(`⚠️  All Gemini keys exhausted. Trying Groq...`);
+          break; // Fall through to Groq
+        } else {
+          // Not a rate limit error
+          console.error(`❌ Gemini error (non-rate-limit): ${error.message}`);
+          break; // Fall through to Groq
         }
-      } else {
-        // Not a rate limit error, don't retry
-        console.error(`❌ Gemini API call failed with non-rate-limit error: ${error.message}`);
-        throw error;
       }
     }
   }
 
-  // All retries exhausted
-  console.error(`❌ All ${maxRetries} Gemini API key(s) exhausted`);
-  throw lastError || new Error('All API keys exhausted');
+  // Try Groq as fallback
+  if (groqClient) {
+    try {
+      console.log(`🚀 Trying Groq (fallback)...`);
+
+      const completion = await groqClient.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile', // Best free model
+        temperature,
+        max_tokens: maxOutputTokens
+      });
+
+      console.log(`✅ Groq succeeded (FREE!)`);
+      return completion.choices[0].message.content;
+
+    } catch (error) {
+      console.error(`❌ Groq also failed: ${error.message}`);
+      throw new Error(`Both Gemini and Groq failed. Gemini: rate limited, Groq: ${error.message}`);
+    }
+  }
+
+  // No AI service available
+  throw new Error('All Gemini keys rate limited and Groq not configured. Add GROQ_API_KEY to .env');
 }
 
-// Helper function to generate chatbot responses using Gemini AI
+// Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
-  if (GEMINI_API_KEYS.length === 0) {
+  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
     return {
-      message: "AI service is not configured. Please contact the administrator.",
+      message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
       structuredData: null
     };
   }
@@ -6951,22 +6987,11 @@ Now provide your response following the same pattern as the examples above:
 
 Response:`;
 
-    // Call Gemini API with automatic failover
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
-
-    const response = await callGeminiWithFailover(geminiUrl, {
-      contents: [{
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 2048,
-      }
+    // Call AI with automatic failover (Gemini → Groq)
+    const aiMessage = await callAIWithFailover(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 2048
     });
-
-    const aiMessage = response.data.candidates[0].content.parts[0].text;
 
     // Extract structured data if the query is about specific products
     let structuredData = null;
@@ -7019,9 +7044,9 @@ Response:`;
 
 // Helper function to generate comparison chatbot responses
 async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = [], filters = {}) {
-  if (GEMINI_API_KEYS.length === 0) {
+  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
     return {
-      message: "AI service is not configured. Please contact the administrator.",
+      message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
       structuredData: null
     };
   }
@@ -7215,22 +7240,11 @@ Now provide your comparison analysis following the pattern above:
 
 Response:`;
 
-    // Call Gemini API with automatic failover
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
-
-    const response = await callGeminiWithFailover(geminiUrl, {
-      contents: [{
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 2048,
-      }
+    // Call AI with automatic failover (Gemini → Groq)
+    const aiMessage = await callAIWithFailover(prompt, {
+      temperature: 0.7,
+      maxOutputTokens: 2048
     });
-
-    const aiMessage = response.data.candidates[0].content.parts[0].text;
 
     // Create structured comparison data
     const structuredData = {
