@@ -6800,12 +6800,13 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       .sort((a, b) => b.totalOrders - a.totalOrders)
       .slice(0, 10);
 
-    // Create the prompt for Gemini
+    // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
+=== CONTEXT ===
 Date Range: ${dateRangeInfo}
 
-Current Product Data Summary:
+Product Data Summary:
 - Total Products: ${productData.summary.totalProductsInSheet}
 - Total Orders: ${productData.summary.totalOrders}
 - Average Rating: ${productData.summary.avgRating.toFixed(2)}
@@ -6824,20 +6825,70 @@ ${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${
 
 ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
+=== EXAMPLES OF GOOD RESPONSES ===
+
+Example 1:
+User: "What are the best selling products?"
+Assistant Reasoning: The user wants to know top sellers by volume. I should look at the "Top 20 Products by Sales" list and mention the top 3-5 with specific numbers.
+Assistant Response: In ${dateRangeInfo.toLowerCase()}, your best selling products are:
+
+1. ${topProducts[0]?.name || 'N/A'} - Leading with ${topProducts[0]?.totalOrders || 0} orders and a ${topProducts[0]?.avgRating.toFixed(1) || 'N/A'} star rating
+2. ${topProducts[1]?.name || 'N/A'} - ${topProducts[1]?.totalOrders || 0} orders with ${topProducts[1]?.avgRating.toFixed(1) || 'N/A'} stars
+3. ${topProducts[2]?.name || 'N/A'} - ${topProducts[2]?.totalOrders || 0} orders, rated ${topProducts[2]?.avgRating.toFixed(1) || 'N/A'} stars
+
+These three products account for ${((topProducts[0]?.totalOrders || 0) + (topProducts[1]?.totalOrders || 0) + (topProducts[2]?.totalOrders || 0))} orders total.
+
+Example 2:
+User: "Any problems with our products?"
+Assistant Reasoning: The user wants to identify issues. I should check the problematic products list and provide specific details about what's wrong.
+Assistant Response: ${lowRatedProducts.length > 0 ? `Yes, I've identified ${lowRatedProducts.length} products with concerning feedback in ${dateRangeInfo.toLowerCase()}:
+
+MOST CONCERNING:
+- ${lowRatedProducts[0]?.name} has ${lowRatedProducts[0]?.lowRatedPercentage.toFixed(1)}% low ratings (${lowRatedProducts[0]?.lowRated} out of ${lowRatedProducts[0]?.totalOrders} orders). This is significantly above average and needs immediate attention.
+
+${lowRatedProducts.length > 1 ? `ALSO WATCH:
+- ${lowRatedProducts[1]?.name}: ${lowRatedProducts[1]?.lowRatedPercentage.toFixed(1)}% low rated
+${lowRatedProducts.length > 2 ? `- ${lowRatedProducts[2]?.name}: ${lowRatedProducts[2]?.lowRatedPercentage.toFixed(1)}% low rated` : ''}` : ''}
+
+I recommend reviewing customer feedback for these items to identify quality or consistency issues.` : `Good news! No significant problems detected in ${dateRangeInfo.toLowerCase()}. All products are performing within acceptable ranges with low complaint rates.`}
+
+Example 3:
+User: "What sold well with good ratings?"
+Assistant Reasoning: The user wants products that excel in BOTH sales volume AND customer satisfaction. I should cross-reference the high-rated products list with sales volume.
+Assistant Response: Your top performers combining high sales with excellent ratings in ${dateRangeInfo.toLowerCase()}:
+
+${highRatedProducts.slice(0, 3).map((p, idx) => `${idx + 1}. ${p.name}
+   - ${p.totalOrders} orders (strong demand)
+   - ${p.avgRating.toFixed(1)} star rating (customer satisfaction)
+   - ${p.lowRatedPercentage.toFixed(1)}% complaint rate (low)`).join('\n\n')}
+
+These items are your proven winners - they're both popular with customers and consistently well-received.
+
+=== YOUR TASK ===
 User Question: ${userMessage}
 
-Instructions:
-- Answer the user's question based on the product data above for the specified date range
-- IMPORTANT: Always use the EXACT product names provided in the data above, never use placeholders like "Product 1", "Product 2", etc.
-- Always mention the date range context in your response (e.g., "In the last 7 days...")
-- Be conversational and helpful
-- Use specific numbers and actual product names when relevant
-- If asked about "best" items, consider both sales volume and ratings
-- Format your response clearly with bullet points or numbered lists when appropriate
-- If the question requires specific product details not in the summary, mention the top relevant products by their actual names
-- Keep responses concise but informative
-- DO NOT use markdown formatting like ** or __ in your response - use plain text only
-- The response will be displayed in a chat interface that does not support markdown
+STEP 1 - UNDERSTAND THE QUESTION:
+Think about what specific information the user is asking for. Are they asking about:
+- Sales performance (volume, rankings)?
+- Quality metrics (ratings, complaints)?
+- Specific products or categories?
+- Problems or opportunities?
+- Comparisons between products?
+
+STEP 2 - FIND RELEVANT DATA:
+Identify which products from the data above are most relevant to answer this question. Use the EXACT product names from the lists provided.
+
+STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
+- Start with the date range context
+- Use actual product names (never say "Product 1" or "your products" without naming them)
+- Include specific numbers (orders, ratings, percentages)
+- If identifying problems, explain WHY they're problems with numbers
+- If showing successes, explain what makes them successful
+- Keep it conversational but data-driven
+- Use plain text only (no markdown like ** or __)
+- Format with line breaks and bullets for readability
+
+Now provide your response following the same pattern as the examples above:
 
 Response:`;
 
@@ -6852,7 +6903,7 @@ Response:`;
         temperature: 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 2048,
       }
     });
 
@@ -6959,10 +7010,11 @@ async function generateComparisonChatbotResponse(userMessage, productData1, prod
     const topGainers = comparableProducts.filter(p => p.orderChange > 0).slice(0, 10);
     const topDecliners = comparableProducts.filter(p => p.orderChange < 0).slice(0, 10);
 
-    // Create the prompt for Gemini
+    // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze and compare product sales data from Swiggy and Zomato platforms across different time periods.
 
-Comparison: ${dateQuery.period1.label} vs ${dateQuery.period2.label}
+=== COMPARISON CONTEXT ===
+Comparing: ${dateQuery.period1.label} vs ${dateQuery.period2.label}
 
 Period 1 (${dateQuery.period1.label}):
 - Total Products: ${productData1.summary.totalProductsInSheet}
@@ -6994,18 +7046,109 @@ ${topDecliners.length > 0 ? topDecliners.map((p, idx) => `${idx + 1}. ${p.name}
 
 ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
+=== EXAMPLES OF GOOD COMPARISON RESPONSES ===
+
+Example 1:
+User: "How did sales change between these periods?"
+Assistant Reasoning: The user wants an overview of the overall sales trend. I should start with the big picture (total orders change), then highlight the most significant product-level changes with specific names and numbers.
+Assistant Response: Comparing ${dateQuery.period1.label} to ${dateQuery.period2.label}, your overall sales ${orderChange >= 0 ? 'increased' : 'decreased'} by ${Math.abs(orderChange)} orders (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%).
+
+BIGGEST WINNERS:
+${topGainers.slice(0, 3).map((p, idx) => `${idx + 1}. ${p.name} surged from ${p.period2Orders} to ${p.period1Orders} orders (+${p.orderChangePercent}%)
+   This represents an additional ${p.orderChange} orders - a strong performance gain.`).join('\n\n')}
+
+${topDecliners.length > 0 ? `NOTABLE DECLINES:
+${topDecliners.slice(0, 2).map((p, idx) => `${idx + 1}. ${p.name} dropped from ${p.period2Orders} to ${p.period1Orders} orders (${p.orderChangePercent}%)
+   Lost ${Math.abs(p.orderChange)} orders - worth investigating why.`).join('\n\n')}` : ''}
+
+${orderChange >= 0 ? 'The growth is primarily driven by the top gainers listed above.' : 'Focus on understanding what caused the declines in your previously strong products.'}
+
+Example 2:
+User: "What's driving the change?"
+Assistant Reasoning: The user wants to understand the reasons behind changes. I should analyze both volume AND quality changes, looking for patterns.
+Assistant Response: Analyzing the shift from ${dateQuery.period2.label} to ${dateQuery.period1.label}, here's what's driving the changes:
+
+KEY DRIVERS:
+${orderChange >= 0 ? `
+GROWTH FACTORS:
+- ${topGainers[0]?.name} alone contributed +${topGainers[0]?.orderChange} orders (${topGainers[0]?.orderChangePercent}% increase)
+- Rating ${topGainers[0]?.period1Rating > topGainers[0]?.period2Rating ? 'improved' : 'remained stable'} from ${topGainers[0]?.period2Rating.toFixed(1)} to ${topGainers[0]?.period1Rating.toFixed(1)} stars
+${topGainers.length > 1 ? `- ${topGainers[1]?.name} added +${topGainers[1]?.orderChange} orders (up ${topGainers[1]?.orderChangePercent}%)` : ''}
+
+Your top gainers maintained or improved quality while increasing volume - that's sustainable growth.` : `
+DECLINE FACTORS:
+- ${topDecliners[0]?.name} lost ${Math.abs(topDecliners[0]?.orderChange)} orders (${topDecliners[0]?.orderChangePercent}% drop)
+- Rating ${topDecliners[0]?.period1Rating < topDecliners[0]?.period2Rating ? 'decreased' : 'stayed similar'}: ${topDecliners[0]?.period2Rating.toFixed(1)} to ${topDecliners[0]?.period1Rating.toFixed(1)} stars
+${topDecliners.length > 1 ? `- ${topDecliners[1]?.name} down ${Math.abs(topDecliners[1]?.orderChange)} orders (${topDecliners[1]?.orderChangePercent}%)` : ''}
+
+${topDecliners[0]?.period1Rating < topDecliners[0]?.period2Rating ? 'Quality issues may be contributing to reduced demand.' : 'Demand dropped despite stable quality - possibly due to competition or menu fatigue.'}`}
+
+OVERALL QUALITY TREND:
+Average rating ${ratingChange >= 0 ? 'improved' : 'declined'} by ${Math.abs(ratingChange).toFixed(2)} stars - ${ratingChange >= 0 ? 'customer satisfaction is trending up' : 'customer satisfaction needs attention'}.
+
+Example 3:
+User: "Should I be concerned?"
+Assistant Reasoning: The user wants actionable insights about whether the trends are problematic. I should assess both the magnitude and direction of changes, and provide clear recommendations.
+Assistant Response: ${orderChange < -50 || (orderChangePercent < -10 && Math.abs(orderChange) > 20) ? `YES, there are concerning trends from ${dateQuery.period2.label} to ${dateQuery.period1.label}:
+
+RED FLAGS:
+- Overall orders down ${Math.abs(orderChange)} (${orderChangePercent}%) - this is a significant decline
+${topDecliners.slice(0, 2).map(p => `- ${p.name}: Lost ${Math.abs(p.orderChange)} orders (${p.orderChangePercent}%) ${p.period1Rating < p.period2Rating ? `AND rating dropped from ${p.period2Rating.toFixed(1)} to ${p.period1Rating.toFixed(1)} stars` : ''}`).join('\n')}
+
+IMMEDIATE ACTIONS NEEDED:
+1. Review customer feedback for ${topDecliners[0]?.name} to identify quality issues
+2. Assess if menu positioning or pricing changed for declining products
+3. Check if ingredients or preparation methods were modified
+${ratingChange < -0.2 ? '4. Overall rating decline suggests systemic quality concerns - conduct quality audit across all products' : ''}` : orderChange > 50 || (orderChangePercent > 10 && orderChange > 20) ? `GOOD NEWS - strong positive trends from ${dateQuery.period2.label} to ${dateQuery.period1.label}:
+
+POSITIVE SIGNALS:
+- Overall orders up ${orderChange} (${orderChangePercent}%) - excellent growth
+${topGainers.slice(0, 2).map(p => `- ${p.name}: Gained ${p.orderChange} orders (+${p.orderChangePercent}%) ${p.period1Rating > p.period2Rating ? `WITH rating improvement from ${p.period2Rating.toFixed(1)} to ${p.period1Rating.toFixed(1)} stars` : ''}`).join('\n')}
+
+${topDecliners.length > 0 && Math.abs(topDecliners[0].orderChange) > 20 ? `MINOR CONCERNS:
+- ${topDecliners[0]?.name} lost ${Math.abs(topDecliners[0]?.orderChange)} orders (${topDecliners[0]?.orderChangePercent}%)
+- Worth investigating but doesn't offset overall positive trend` : 'No significant concerns - growth is broad-based'}
+
+RECOMMENDATIONS:
+1. Maintain consistency on your top gainers - they're driving success
+2. Consider promoting ${topGainers[0]?.name} more heavily given strong performance
+${ratingChange > 0.2 ? '3. Quality improvements are paying off - maintain current standards' : ''}` : `STABLE PERFORMANCE from ${dateQuery.period2.label} to ${dateQuery.period1.label}:
+
+ASSESSMENT:
+- Minimal change in overall orders (${orderChangePercent}%) - relatively stable
+- Average rating ${ratingChange >= 0 ? 'slightly improved' : 'slightly declined'} by ${Math.abs(ratingChange).toFixed(2)} stars
+${topGainers.length > 0 && topDecliners.length > 0 ? `- Some products up, others down - normal variation` : ''}
+
+No major concerns, but opportunities for improvement:
+1. ${topGainers.length > 0 ? `Leverage success of ${topGainers[0]?.name} (+${topGainers[0]?.orderChangePercent}%) to drive more growth` : 'Consider promotional strategies to boost overall volume'}
+2. ${topDecliners.length > 0 ? `Address declining trend of ${topDecliners[0]?.name} (${topDecliners[0]?.orderChangePercent}%)` : 'Maintain current quality standards'}
+3. Stable is good, but look for growth opportunities`}
+
+=== YOUR TASK ===
 User Question: ${userMessage}
 
-Instructions:
-- Provide a comparative analysis based on the data above
-- ALWAYS use EXACT product names from the data, never use placeholders
-- Highlight key trends, changes, and insights between the two periods
-- Explain what's performing better or worse and potential reasons
-- Use specific numbers and percentages to support your analysis
-- Format your response clearly with bullet points or sections
-- Be conversational and actionable
-- DO NOT use markdown formatting like ** or __ in your response - use plain text only
-- The response will be displayed in a chat interface that does not support markdown
+STEP 1 - ANALYZE THE COMPARISON:
+Think about what changed between the two periods:
+- Is overall performance improving or declining?
+- Which specific products are driving changes?
+- Are there quality trends (rating changes)?
+- What's the magnitude of changes (small fluctuations vs significant shifts)?
+
+STEP 2 - IDENTIFY KEY INSIGHTS:
+What are the most important takeaways from this comparison?
+- Use EXACT product names from the data
+- Look at both volume (orders) and quality (ratings)
+- Consider percentage changes AND absolute numbers
+
+STEP 3 - PROVIDE ACTIONABLE RESPONSE:
+- Start with the overall trend
+- Highlight specific products by name with their actual numbers
+- Explain WHY changes matter (not just WHAT changed)
+- Provide concrete recommendations if asked
+- Use plain text only (no markdown)
+- Be direct and honest about concerns
+
+Now provide your comparison analysis following the pattern above:
 
 Response:`;
 
@@ -7020,7 +7163,7 @@ Response:`;
         temperature: 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 1536,
+        maxOutputTokens: 2048,
       }
     });
 
