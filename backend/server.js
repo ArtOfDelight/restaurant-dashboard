@@ -4824,64 +4824,64 @@ function parseNaturalDate(dateStr) {
  */
 const OUTLET_MAPPINGS = [
   {
+    names: ['bellandur'],
+    normalized: 'CK Bellandur',
+    sheetNames: ['CK Bellandur']
+  },
+  {
+    names: ['indiranagar', 'indira nagar'],
+    normalized: 'CK Indiranagar',
+    sheetNames: ['CK Indiranagar']
+  },
+  {
+    names: ['kalyan nagar', 'kalyannagar', 'kalyan'],
+    normalized: 'CK Kalyan Nagar',
+    sheetNames: ['CK Kalyan Nagar']
+  },
+  {
     names: ['sahakarnagar', 'sahakara nagar', 'sahkar nagar'],
-    normalized: 'Sahakarnagar',
-    sheetNames: ['CK Sahakarnagar', 'Sahakarnagar', 'CK Sahakara Nagar']
-  },
-  {
-    names: ['residency road', 'residency', 'rr'],
-    normalized: 'Residency Road',
-    sheetNames: ['Residency Road', 'RR']
-  },
-  {
-    names: ['whitefield', 'white field'],
-    normalized: 'Whitefield',
-    sheetNames: ['CK Whitefield', 'Whitefield', 'CK White Field']
+    normalized: 'CK Sahakarnagar',
+    sheetNames: ['CK Sahakarnagar']
   },
   {
     names: ['koramangala', 'koramangla'],
     normalized: 'Koramangala',
-    sheetNames: ['Koramangala', 'CK Koramangala']
+    sheetNames: ['Koramangala']
   },
   {
-    names: ['kalyan nagar', 'kalyannagar', 'kalyan'],
-    normalized: 'Kalyan Nagar',
-    sheetNames: ['CK Kalyan Nagar', 'Kalyan Nagar', 'CK Kalyannagar']
+    names: ['residency road', 'residency', 'rr'],
+    normalized: 'Residency Road',
+    sheetNames: ['Residency Road']
   },
   {
-    names: ['bellandur'],
-    normalized: 'Bellandur',
-    sheetNames: ['CK Bellandur', 'Bellandur']
+    names: ['hsr layout', 'hsr', 'hsrlayout'],
+    normalized: 'CK HSR Layout',
+    sheetNames: ['CK HSR Layout']
   },
   {
-    names: ['indiranagar', 'indira nagar'],
-    normalized: 'Indiranagar',
-    sheetNames: ['CK Indiranagar', 'Indiranagar', 'CK Indira Nagar']
-  },
-  {
-    names: ['arekere'],
-    normalized: 'Arekere',
-    sheetNames: ['CK Arekere', 'Arekere']
+    names: ['whitefield', 'white field', 'whitefiled'],
+    normalized: 'CK Whitefiled',
+    sheetNames: ['CK Whitefiled']
   },
   {
     names: ['jayanagar', 'jaya nagar'],
     normalized: 'Jayanagar',
-    sheetNames: ['CK Jayanagar', 'Jayanagar', 'CK Jaya Nagar']
-  },
-  {
-    names: ['hsr layout', 'hsr', 'hsrlayout'],
-    normalized: 'HSR Layout',
-    sheetNames: ['CK HSR Layout', 'HSR Layout', 'CK HSR', 'HSR']
+    sheetNames: ['Jayanagar']
   },
   {
     names: ['rajajinagar', 'raja ji nagar', 'rajaji nagar'],
     normalized: 'Rajajinagar',
-    sheetNames: ['CK Rajajinagar', 'Rajajinagar', 'CK Raja Ji Nagar']
+    sheetNames: ['Rajajinagar']
   },
   {
-    names: ['central', 'ho', 'aod central', 'head office', 'ho aod'],
-    normalized: 'Art Of Delight Central',
-    sheetNames: ['Art Of Delight Central', 'HO AOD', 'Central', 'Head Office', 'HO']
+    names: ['arekere'],
+    normalized: 'CK Arekere',
+    sheetNames: ['CK Arekere']
+  },
+  {
+    names: ['ferrohub', 'budigere', 'ferrohub budigere'],
+    normalized: 'Ferrohub Budigere',
+    sheetNames: ['Ferrohub Budigere']
   }
 ];
 
@@ -4932,7 +4932,11 @@ function parseFilters(message) {
   } else if (lowerMessage.includes('zomato')) {
     channel = 'Zomato';
   } else if (lowerMessage.includes('dine in') || lowerMessage.includes('dine-in') || lowerMessage.includes('dinein')) {
-    channel = 'Dine-in'; // Sheet uses "Dine-in" with hyphen
+    channel = 'Dine-in';
+  } else if (lowerMessage.includes('ownly')) {
+    channel = 'Ownly';
+  } else if (lowerMessage.includes('magicpin') || lowerMessage.includes('magic pin')) {
+    channel = 'Magicpin';
   }
 
   // Check for outlet mentions in the message
