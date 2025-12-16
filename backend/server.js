@@ -4965,14 +4965,14 @@ function parseDateQuery(message) {
 
   // Check for comparison queries first
   const comparisonPatterns = [
-    /last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(?:previous|the)\s+(\d+)\s+days?/i,
-    /last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(\d+)\s+days?\s+before/i,
-    /this\s+week\s+(?:vs|versus|compared to|and)\s+last\s+week/i,
-    /this\s+month\s+(?:vs|versus|compared to|and)\s+last\s+month/i,
+    /last\s+(\d+)\s+days?\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+(?:previous|the)\s+(\d+)\s+days?/i,
+    /last\s+(\d+)\s+days?\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+(\d+)\s+days?\s+before/i,
+    /this\s+week\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+last\s+week/i,
+    /this\s+month\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+last\s+month/i,
   ];
 
   // Check for "last 7 days vs previous 7 days" pattern
-  const lastVsPrevious = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:vs|versus|compared to|and)\s+(?:previous|the)\s+(\d+)\s+days?/i);
+  const lastVsPrevious = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+(?:previous|the)\s+(\d+)\s+days?/i);
   if (lastVsPrevious) {
     const days1 = parseInt(lastVsPrevious[1]);
     const days2 = parseInt(lastVsPrevious[2] || lastVsPrevious[1]);
@@ -4995,7 +4995,7 @@ function parseDateQuery(message) {
   }
 
   // Check for "last X days and Y days before that" pattern
-  const lastAndBefore = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:and|vs|versus|compared to)\s+(\d+)\s+days?\s+before\s+(?:that|it)/i);
+  const lastAndBefore = lowerMessage.match(/last\s+(\d+)\s+days?\s+(?:and|vs|versus|compar(?:ed|ing)\s+(?:to|the))\s+(\d+)\s+days?\s+before\s+(?:that|it)/i);
   if (lastAndBefore) {
     const days1 = parseInt(lastAndBefore[1]);
     const days2 = parseInt(lastAndBefore[2]);
@@ -5038,7 +5038,7 @@ function parseDateQuery(message) {
   }
 
   // Check for "last week vs the week before that/last" pattern
-  if (/last\s+week\s+(?:vs|versus|compared to|and)\s+(?:the\s+)?week\s+before\s+(?:that|last)/i.test(lowerMessage)) {
+  if (/last\s+week\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+(?:the\s+)?week\s+before\s+(?:that|last)/i.test(lowerMessage)) {
     return {
       type: 'comparison',
       period1: {
@@ -5057,7 +5057,7 @@ function parseDateQuery(message) {
   }
 
   // Check for this week vs last week
-  if (/this\s+week\s+(?:vs|versus|compared to|and)\s+last\s+week/i.test(lowerMessage)) {
+  if (/this\s+week\s+(?:vs|versus|compar(?:ed|ing)\s+(?:to|the)|and)\s+last\s+week/i.test(lowerMessage)) {
     const dayOfWeek = today.getDay();
     const thisWeekStart = new Date(today.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
     const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
