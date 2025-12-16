@@ -4824,28 +4824,31 @@ function parseFilters(message) {
     channel = 'Dine In';
   }
 
-  // Parse branch filters - look for common branch name patterns
-  const branchPatterns = [
-    /\b(ck\s+arekere|arekere)\b/i,
-    /\b(ck\s+bellandur|bellandur)\b/i,
-    /\b(ck\s+[a-z]+)\b/i  // Generic CK branch pattern
+  // Parse branch/outlet filters - comprehensive outlet name matching
+  const outlets = [
+    { names: ['sahakarnagar', 'sahakara nagar', 'sahkar nagar'], normalized: 'Sahakarnagar' },
+    { names: ['residency road', 'residency', 'rr'], normalized: 'Residency Road' },
+    { names: ['whitefield', 'white field'], normalized: 'Whitefield' },
+    { names: ['koramangala', 'koramangla'], normalized: 'Koramangala' },
+    { names: ['kalyan nagar', 'kalyannagar', 'kalyan'], normalized: 'Kalyan Nagar' },
+    { names: ['bellandur'], normalized: 'Bellandur' },
+    { names: ['indiranagar', 'indira nagar'], normalized: 'Indiranagar' },
+    { names: ['arekere'], normalized: 'Arekere' },
+    { names: ['jayanagar', 'jaya nagar'], normalized: 'Jayanagar' },
+    { names: ['hsr layout', 'hsr', 'hsrlayout'], normalized: 'HSR Layout' },
+    { names: ['rajajinagar', 'raja ji nagar', 'rajaji nagar'], normalized: 'Rajajinagar' },
+    { names: ['central', 'ho', 'aod central'], normalized: 'Art Of Delight Central' }
   ];
 
-  for (const pattern of branchPatterns) {
-    const match = message.match(pattern);
-    if (match) {
-      // Normalize branch name (e.g., "arekere" -> "CK Arekere", "bellandur" -> "CK Bellandur")
-      let branchName = match[1].trim();
-      if (!branchName.toLowerCase().startsWith('ck ')) {
-        branchName = 'CK ' + branchName.charAt(0).toUpperCase() + branchName.slice(1);
-      } else {
-        // Capitalize properly
-        const parts = branchName.split(' ');
-        branchName = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+  // Check for outlet mentions in the message
+  for (const outlet of outlets) {
+    for (const name of outlet.names) {
+      if (lowerMessage.includes(name)) {
+        branch = outlet.normalized;
+        break;
       }
-      branch = branchName;
-      break;
     }
+    if (branch) break;
   }
 
   console.log(`Parsed filters - Branch: ${branch || 'None'}, Channel: ${channel || 'None'}`);
@@ -6827,10 +6830,9 @@ ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
 === EXAMPLES OF GOOD RESPONSES ===
 
-Example 1:
+Example 1 - Best Sellers Query:
 User: "What are the best selling products?"
-Assistant Reasoning: The user wants to know top sellers by volume. I should look at the "Top 20 Products by Sales" list and mention the top 3-5 with specific numbers.
-Assistant Response: In ${dateRangeInfo.toLowerCase()}, your best selling products are:
+Response: In ${dateRangeInfo.toLowerCase()}, your best selling products are:
 
 1. ${topProducts[0]?.name || 'N/A'} - Leading with ${topProducts[0]?.totalOrders || 0} orders and a ${topProducts[0]?.avgRating.toFixed(1) || 'N/A'} star rating
 2. ${topProducts[1]?.name || 'N/A'} - ${topProducts[1]?.totalOrders || 0} orders with ${topProducts[1]?.avgRating.toFixed(1) || 'N/A'} stars
@@ -6838,10 +6840,9 @@ Assistant Response: In ${dateRangeInfo.toLowerCase()}, your best selling product
 
 These three products account for ${((topProducts[0]?.totalOrders || 0) + (topProducts[1]?.totalOrders || 0) + (topProducts[2]?.totalOrders || 0))} orders total.
 
-Example 2:
+Example 2 - Problem Detection:
 User: "Any problems with our products?"
-Assistant Reasoning: The user wants to identify issues. I should check the problematic products list and provide specific details about what's wrong.
-Assistant Response: ${lowRatedProducts.length > 0 ? `Yes, I've identified ${lowRatedProducts.length} products with concerning feedback in ${dateRangeInfo.toLowerCase()}:
+Response: ${lowRatedProducts.length > 0 ? `Yes, I've identified ${lowRatedProducts.length} products with concerning feedback in ${dateRangeInfo.toLowerCase()}:
 
 MOST CONCERNING:
 - ${lowRatedProducts[0]?.name} has ${lowRatedProducts[0]?.lowRatedPercentage.toFixed(1)}% low ratings (${lowRatedProducts[0]?.lowRated} out of ${lowRatedProducts[0]?.totalOrders} orders). This is significantly above average and needs immediate attention.
@@ -6852,10 +6853,9 @@ ${lowRatedProducts.length > 2 ? `- ${lowRatedProducts[2]?.name}: ${lowRatedProdu
 
 I recommend reviewing customer feedback for these items to identify quality or consistency issues.` : `Good news! No significant problems detected in ${dateRangeInfo.toLowerCase()}. All products are performing within acceptable ranges with low complaint rates.`}
 
-Example 3:
+Example 3 - Quality + Sales:
 User: "What sold well with good ratings?"
-Assistant Reasoning: The user wants products that excel in BOTH sales volume AND customer satisfaction. I should cross-reference the high-rated products list with sales volume.
-Assistant Response: Your top performers combining high sales with excellent ratings in ${dateRangeInfo.toLowerCase()}:
+Response: Your top performers combining high sales with excellent ratings in ${dateRangeInfo.toLowerCase()}:
 
 ${highRatedProducts.slice(0, 3).map((p, idx) => `${idx + 1}. ${p.name}
    - ${p.totalOrders} orders (strong demand)
@@ -6863,6 +6863,48 @@ ${highRatedProducts.slice(0, 3).map((p, idx) => `${idx + 1}. ${p.name}
    - ${p.lowRatedPercentage.toFixed(1)}% complaint rate (low)`).join('\n\n')}
 
 These items are your proven winners - they're both popular with customers and consistently well-received.
+
+Example 4 - Outlet-Specific Query:
+User: "How is Koramangala doing?"
+Response: Here's the performance for Koramangala outlet in ${dateRangeInfo.toLowerCase()}:
+
+TOP SELLERS AT KORAMANGALA:
+1. Chocolate Fudge Brownie - 156 orders, 4.6 stars
+2. Vanilla Bean Ice Cream - 134 orders, 4.5 stars
+3. Strawberry Cheesecake - 98 orders, 4.3 stars
+
+Total orders from Koramangala: 843
+Average rating: 4.4 stars
+
+The outlet is performing well with strong customer satisfaction. Your dessert items are particularly popular here.
+
+Example 5 - Date-Specific Query:
+User: "What sold best last week?"
+Response: In the last 7 days, your top performing products were:
+
+1. Red Velvet Cake - 89 orders (up 23% from previous week)
+2. Mango Ice Cream - 76 orders (seasonal favorite)
+3. Dark Chocolate Truffle - 64 orders (consistently strong)
+
+Total orders last week: 634
+Compared to the week before: +12% growth
+
+The increase was primarily driven by seasonal items and your cake offerings.
+
+Example 6 - Channel-Specific Query:
+User: "How are we doing on Swiggy?"
+Response: Your Swiggy performance in ${dateRangeInfo.toLowerCase()}:
+
+TOP SWIGGY PRODUCTS:
+1. Ice Cream Tub (2kg) - 234 orders, 4.7 stars
+2. Brownie Pack - 187 orders, 4.5 stars
+3. Cheesecake Slice - 165 orders, 4.6 stars
+
+Swiggy total orders: 1,245
+Average rating: 4.5 stars
+Low rated percentage: 3.2% (excellent)
+
+Swiggy performance is strong. Bulk items like ice cream tubs are performing particularly well on this platform.
 
 === YOUR TASK ===
 User Question: ${userMessage}
@@ -6872,18 +6914,25 @@ Think about what specific information the user is asking for. Are they asking ab
 - Sales performance (volume, rankings)?
 - Quality metrics (ratings, complaints)?
 - Specific products or categories?
+- Specific outlets/branches (Koramangala, HSR, Indiranagar, etc.)?
+- Specific channels (Swiggy, Zomato, Dine In)?
+- Specific time periods (last week, last 7 days, specific dates)?
 - Problems or opportunities?
-- Comparisons between products?
+- Comparisons between products/outlets/time periods?
 
 STEP 2 - FIND RELEVANT DATA:
-Identify which products from the data above are most relevant to answer this question. Use the EXACT product names from the lists provided.
+Identify which products from the data above are most relevant to answer this question.
+- Use the EXACT product names from the lists provided
+- Note if they're asking about a specific outlet, channel, or time period
+- If filtered data applies, reference the filter in your response
 
 STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
-- Start with the date range context
+- Start with the date range context (and outlet/channel if filtered)
 - Use actual product names (never say "Product 1" or "your products" without naming them)
 - Include specific numbers (orders, ratings, percentages)
 - If identifying problems, explain WHY they're problems with numbers
 - If showing successes, explain what makes them successful
+- Acknowledge any filters applied (outlet, channel, date range)
 - Keep it conversational but data-driven
 - Use plain text only (no markdown like ** or __)
 - Format with line breaks and bullets for readability
@@ -7048,10 +7097,9 @@ ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
 === EXAMPLES OF GOOD COMPARISON RESPONSES ===
 
-Example 1:
+Example 1 - Sales Trend Comparison:
 User: "How did sales change between these periods?"
-Assistant Reasoning: The user wants an overview of the overall sales trend. I should start with the big picture (total orders change), then highlight the most significant product-level changes with specific names and numbers.
-Assistant Response: Comparing ${dateQuery.period1.label} to ${dateQuery.period2.label}, your overall sales ${orderChange >= 0 ? 'increased' : 'decreased'} by ${Math.abs(orderChange)} orders (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%).
+Response: Comparing ${dateQuery.period1.label} to ${dateQuery.period2.label}, your overall sales ${orderChange >= 0 ? 'increased' : 'decreased'} by ${Math.abs(orderChange)} orders (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%).
 
 BIGGEST WINNERS:
 ${topGainers.slice(0, 3).map((p, idx) => `${idx + 1}. ${p.name} surged from ${p.period2Orders} to ${p.period1Orders} orders (+${p.orderChangePercent}%)
@@ -7063,10 +7111,9 @@ ${topDecliners.slice(0, 2).map((p, idx) => `${idx + 1}. ${p.name} dropped from $
 
 ${orderChange >= 0 ? 'The growth is primarily driven by the top gainers listed above.' : 'Focus on understanding what caused the declines in your previously strong products.'}
 
-Example 2:
+Example 2 - Change Drivers Analysis:
 User: "What's driving the change?"
-Assistant Reasoning: The user wants to understand the reasons behind changes. I should analyze both volume AND quality changes, looking for patterns.
-Assistant Response: Analyzing the shift from ${dateQuery.period2.label} to ${dateQuery.period1.label}, here's what's driving the changes:
+Response: Analyzing the shift from ${dateQuery.period2.label} to ${dateQuery.period1.label}, here's what's driving the changes:
 
 KEY DRIVERS:
 ${orderChange >= 0 ? `
@@ -7086,10 +7133,9 @@ ${topDecliners[0]?.period1Rating < topDecliners[0]?.period2Rating ? 'Quality iss
 OVERALL QUALITY TREND:
 Average rating ${ratingChange >= 0 ? 'improved' : 'declined'} by ${Math.abs(ratingChange).toFixed(2)} stars - ${ratingChange >= 0 ? 'customer satisfaction is trending up' : 'customer satisfaction needs attention'}.
 
-Example 3:
+Example 3 - Concern Assessment:
 User: "Should I be concerned?"
-Assistant Reasoning: The user wants actionable insights about whether the trends are problematic. I should assess both the magnitude and direction of changes, and provide clear recommendations.
-Assistant Response: ${orderChange < -50 || (orderChangePercent < -10 && Math.abs(orderChange) > 20) ? `YES, there are concerning trends from ${dateQuery.period2.label} to ${dateQuery.period1.label}:
+Response: ${orderChange < -50 || (orderChangePercent < -10 && Math.abs(orderChange) > 20) ? `YES, there are concerning trends from ${dateQuery.period2.label} to ${dateQuery.period1.label}:
 
 RED FLAGS:
 - Overall orders down ${Math.abs(orderChange)} (${orderChangePercent}%) - this is a significant decline
