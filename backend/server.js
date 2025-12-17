@@ -7039,11 +7039,18 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
       range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
     });
 
-    const trackerData = trackerResponse.data.values || [];
+    const allTrackerData = trackerResponse.data.values || [];
 
-    if (trackerData.length <= 1) {
+    if (allTrackerData.length <= 1) {
       return { stockEvents: [], summary: 'No stock tracking data available' };
     }
+
+    // Only process the most recent 10,000 rows (recent data is at bottom)
+    const RECENT_ROWS_COUNT = 10000;
+    const startIndex = Math.max(1, allTrackerData.length - RECENT_ROWS_COUNT);
+    const trackerData = allTrackerData.slice(startIndex);
+
+    console.log(`📊 Processing ${trackerData.length} recent rows (from row ${startIndex + 1} to ${allTrackerData.length}) out of ${allTrackerData.length} total rows`);
 
     // Calculate date threshold
     const now = new Date();
@@ -7196,11 +7203,18 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
       range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
     });
 
-    const trackerData = trackerResponse.data.values || [];
+    const allTrackerData = trackerResponse.data.values || [];
 
-    if (trackerData.length <= 1) {
+    if (allTrackerData.length <= 1) {
       return { stockEvents: [], summary: 'No stock tracking data available' };
     }
+
+    // Only process the most recent 10,000 rows (recent data is at bottom)
+    const RECENT_ROWS_COUNT = 10000;
+    const startIndex = Math.max(1, allTrackerData.length - RECENT_ROWS_COUNT);
+    const trackerData = allTrackerData.slice(startIndex);
+
+    console.log(`📊 Processing ${trackerData.length} recent rows (from row ${startIndex + 1} to ${allTrackerData.length}) out of ${allTrackerData.length} total rows`);
 
     // Calculate date threshold
     const now = new Date();
@@ -7209,7 +7223,7 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
     // Collect ALL stock events
     const stockEvents = [];
 
-    for (let i = 1; i < trackerData.length; i++) {
+    for (let i = 0; i < trackerData.length; i++) {
       const row = trackerData[i];
       if (row && row[0] && row[1] && row[3]) { // Time, Outlet, Item Name required
         const entryTime = row[0].toString().trim();
