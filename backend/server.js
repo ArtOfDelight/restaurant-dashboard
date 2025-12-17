@@ -7036,7 +7036,7 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
     // Fetch tracker data
     const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // A=?, B=Time, C=Outlet, D=Items
+      range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
     });
 
     const trackerData = trackerResponse.data.values || [];
@@ -7058,10 +7058,11 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
 
     for (let i = 1; i < trackerData.length; i++) {
       const row = trackerData[i];
-      if (row && row[1] && row[2] && row[3]) {
-        const entryTime = row[1].toString().trim();
-        const entryOutlet = row[2].toString().trim();
-        const entryItems = row[3].toString().trim();
+      if (row && row[0] && row[1] && row[3]) { // Time, Outlet, Item Name (SKU is optional)
+        const entryTime = row[0].toString().trim();
+        const entryOutlet = row[1].toString().trim();
+        const entrySKU = row[2] ? row[2].toString().trim() : 'N/A';
+        const entryItemName = row[3].toString().trim();
 
         // Check if within date range
         try {
@@ -7076,55 +7077,53 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
           continue;
         }
 
-        // Check if any of our products are in this entry
-        const itemsList = entryItems.split(',').map(item => item.trim());
+        // Match this item against our product names
+        const normalizedItem = normalizeProductName(entryItemName);
 
-        for (const item of itemsList) {
-          const normalizedItem = normalizeProductName(item);
+        // Check if this item matches any of our products (fuzzy matching)
+        for (let j = 0; j < productNames.length; j++) {
+          const productName = productNames[j];
+          const normalizedProduct = normalizedProductNames[j];
 
-          // Check if this item matches any of our products (fuzzy matching)
-          for (let j = 0; j < productNames.length; j++) {
-            const productName = productNames[j];
-            const normalizedProduct = normalizedProductNames[j];
+          // Use fuzzy matching (score > 80 is a good match)
+          const score = calculateFuzzyScore(normalizedItem, normalizedProduct);
 
-            // Use fuzzy matching (score > 80 is a good match)
-            const score = calculateFuzzyScore(normalizedItem, normalizedProduct);
+          if (score > 80) {
+            stockEvents.push({
+              productName: productName,
+              matchedItem: entryItemName,
+              outlet: entryOutlet,
+              time: entryTime,
+              sku: entrySKU,
+              fuzzyScore: score
+            });
 
-            if (score > 80) {
-              stockEvents.push({
-                productName: productName,
-                matchedItem: item,
-                outlet: entryOutlet,
-                time: entryTime,
-                fuzzyScore: score
-              });
-
-              // Update product stock map
-              if (!productStockMap.has(productName)) {
-                productStockMap.set(productName, { outletEvents: [], totalEvents: 0, detailedEvents: [] });
-              }
-
-              const stockInfo = productStockMap.get(productName);
-              stockInfo.totalEvents++;
-
-              // Track detailed events with timestamps
-              stockInfo.detailedEvents.push({
-                outlet: entryOutlet,
-                time: entryTime,
-                item: item
-              });
-
-              // Track unique outlets
-              if (!stockInfo.outletEvents.find(e => e.outlet === entryOutlet)) {
-                stockInfo.outletEvents.push({ outlet: entryOutlet, count: 1, lastSeen: entryTime });
-              } else {
-                const outletEvent = stockInfo.outletEvents.find(e => e.outlet === entryOutlet);
-                outletEvent.count++;
-                outletEvent.lastSeen = entryTime;
-              }
-
-              break; // Don't match the same item to multiple products
+            // Update product stock map
+            if (!productStockMap.has(productName)) {
+              productStockMap.set(productName, { outletEvents: [], totalEvents: 0, detailedEvents: [] });
             }
+
+            const stockInfo = productStockMap.get(productName);
+            stockInfo.totalEvents++;
+
+            // Track detailed events with timestamps and SKU
+            stockInfo.detailedEvents.push({
+              outlet: entryOutlet,
+              time: entryTime,
+              item: entryItemName,
+              sku: entrySKU
+            });
+
+            // Track unique outlets
+            if (!stockInfo.outletEvents.find(e => e.outlet === entryOutlet)) {
+              stockInfo.outletEvents.push({ outlet: entryOutlet, count: 1, lastSeen: entryTime });
+            } else {
+              const outletEvent = stockInfo.outletEvents.find(e => e.outlet === entryOutlet);
+              outletEvent.count++;
+              outletEvent.lastSeen = entryTime;
+            }
+
+            break; // Don't match the same item to multiple products
           }
         }
       }
@@ -7288,22 +7287,24 @@ IMPORTANT: When analyzing sales performance, consider that these products may ha
       // Add detailed event log if user is asking for specific dates/outlets
       if (wantsDetailedEvents && stockCorrelation.allStockEvents) {
         stockInfo += `\n=== DETAILED OUT-OF-STOCK EVENT LOG ===
-The following is a complete log of out-of-stock events with exact dates and outlets:
+The following is a complete log of out-of-stock events with exact dates, outlets, and SKU codes:
 
 ${stockCorrelation.allStockEvents.slice(0, 100).map((event, idx) =>
   `${idx + 1}. ${event.productName}
+   - SKU Code: ${event.sku}
    - Date/Time: ${event.time}
    - Outlet: ${event.outlet}
-   - Item Name in Tracker: ${event.matchedItem}`
+   - Item Name: ${event.matchedItem}`
 ).join('\n')}
 ${stockCorrelation.allStockEvents.length > 100 ? `\n... and ${stockCorrelation.allStockEvents.length - 100} more events` : ''}
 
-When asked for specific dates and outlets, use this detailed log to provide EXACT information including:
+When asked for specific dates, outlets, and SKU codes, use this detailed log to provide EXACT information including:
+- The SKU code of the out-of-stock item
 - The specific date and time of the stock-out event
 - The exact outlet name where it occurred
-- The item name as it appears in the stock tracker
+- The full item name as it appears in the stock tracker
 
-NOTE: SKU numbers are NOT available in the stock tracker data. The tracker only contains item names, dates, and outlets.
+IMPORTANT: Always include the SKU code when listing out-of-stock items.
 `;
       }
     } else if (stockCorrelation && !stockCorrelation.hasStockIssues) {
