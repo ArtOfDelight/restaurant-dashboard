@@ -42,9 +42,15 @@ const ProductAnalysisDashboard = lazy(() =>
   }))
 );
 
-const StockDashboard = lazy(() => 
-  import('./StockDashboard').catch(() => ({ 
+const StockDashboard = lazy(() =>
+  import('./StockDashboard').catch(() => ({
     default: () => <MissingComponent componentName="STOCK DASHBOARD" fileName="StockDashboard" />
+  }))
+);
+
+const AODAssistant = lazy(() =>
+  import('./AODAssistant').catch(() => ({
+    default: () => <MissingComponent componentName="AOD ASSISTANT" fileName="AODAssistant" />
   }))
 );
 
@@ -280,12 +286,13 @@ function App() {
   const [currentView, setCurrentView] = useState(isStandalone ? 'checklist' : 'product');
   const [isNavigating, setIsNavigating] = useState(false);
 
-  // Navigation configuration - 9 dashboards
+  // Navigation configuration - 10 dashboards
   const navigationItems = [
     { key: 'dashboard', label: 'ZOMATO DB', icon: '🍕' },
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'stock', label: 'STOCK DB', icon: '📦' },
+    { key: 'aod', label: 'AOD ASSISTANT', icon: '🤖' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
@@ -311,6 +318,7 @@ function App() {
       swiggy: <SwiggyDashboard />,
       product: <ProductAnalysisDashboard />,
       stock: <StockDashboard />,
+      aod: <AODAssistant />,
       outlet: <HighRatedDashboard />,
       employee: <EmployeeDashboard />,
       checklist: <ChecklistDashboard />,
@@ -421,14 +429,15 @@ function App() {
       if (e.altKey) {
         const keyMap = {
           '1': 'dashboard',
-          '2': 'swiggy', 
+          '2': 'swiggy',
           '3': 'product',
           '4': 'stock',
-          '5': 'outlet',
-          '6': 'employee',
-          '7': 'checklist',
-          '8': 'tickets',
-          '9': 'broadcast'
+          '5': 'aod',
+          '6': 'outlet',
+          '7': 'employee',
+          '8': 'checklist',
+          '9': 'tickets',
+          '0': 'broadcast'
         };
         
         if (keyMap[e.key]) {
@@ -574,7 +583,7 @@ function App() {
             lineHeight: '1.2',
             minWidth: '60px'
           }}>
-            <div>ALT+1-9</div>
+            <div>ALT+0-9</div>
             <div>SHORTCUTS</div>
           </div>
         </nav>
@@ -627,10 +636,10 @@ function App() {
           fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
         }}>
           <div>
-            DASHBOARD SUITE v2.4 • POWERED BY REACT & RISTAAPPS API • 9 INTEGRATED DASHBOARDS
+            DASHBOARD SUITE v2.5 • POWERED BY REACT & RISTAAPPS API • 10 INTEGRATED DASHBOARDS
           </div>
           <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-            USE ALT + 1-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS
+            USE ALT + 0-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS • AOD ASSISTANT
           </div>
         </footer>
       )}
