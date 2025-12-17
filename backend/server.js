@@ -113,17 +113,28 @@ const GEMINI_API_KEYS = [
 
 let currentKeyIndex = 0;
 
-// Groq API Configuration (FREE alternative to Gemini)
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const AI_PROVIDER = process.env.AI_PROVIDER || 'gemini'; // Options: 'gemini' or 'groq'
-let groqClient = null;
+// Groq API Configuration (FREE alternative to Gemini) - Multiple keys for failover
+const GROQ_API_KEYS = [
+  process.env.GROQ_API_KEY,
+  process.env.GROQ_API_KEY1,
+  process.env.GROQ_API_KEY2,
+  process.env.GROQ_API_KEY3
+].filter(key => key && key.trim()); // Remove undefined/empty keys
 
-if (GROQ_API_KEY) {
-  groqClient = new Groq({ apiKey: GROQ_API_KEY });
-  console.log(`✅ Groq AI initialized (Provider: ${AI_PROVIDER})`);
+let currentGroqKeyIndex = 0;
+const AI_PROVIDER = process.env.AI_PROVIDER || 'gemini'; // Options: 'gemini' or 'groq'
+
+// Initialize Groq clients array
+let groqClients = [];
+if (GROQ_API_KEYS.length > 0) {
+  groqClients = GROQ_API_KEYS.map(key => new Groq({ apiKey: key }));
+  console.log(`✅ Loaded ${GROQ_API_KEYS.length} Groq API key(s) for failover (Provider: ${AI_PROVIDER})`);
 } else if (AI_PROVIDER === 'groq') {
-  console.error('⚠️  AI_PROVIDER is set to "groq" but GROQ_API_KEY is missing');
+  console.error('⚠️  AI_PROVIDER is set to "groq" but no GROQ_API_KEY is configured');
 }
+
+// Legacy support - keep groqClient pointing to first client
+let groqClient = groqClients.length > 0 ? groqClients[0] : null;
 
 // Telegram Bot setup with conflict resolution
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -6853,6 +6864,52 @@ function isRateLimitError(error) {
   );
 }
 
+// === GROQ API KEY ROTATION HELPERS ===
+
+// Get current active Groq client
+function getCurrentGroqClient() {
+  if (groqClients.length === 0) {
+    throw new Error('No Groq API keys available');
+  }
+  return groqClients[currentGroqKeyIndex];
+}
+
+// Rotate to next available Groq API key
+function rotateGroqKey() {
+  if (groqClients.length <= 1) {
+    console.warn('⚠️  Only one Groq API key available, cannot rotate');
+    return false;
+  }
+
+  const oldIndex = currentGroqKeyIndex;
+  currentGroqKeyIndex = (currentGroqKeyIndex + 1) % groqClients.length;
+
+  console.log(`🔄 Rotated Groq API key: Key ${oldIndex + 1} → Key ${currentGroqKeyIndex + 1}`);
+  return true;
+}
+
+// Check if error is a Groq rate limit error
+function isGroqRateLimitError(error) {
+  if (!error) return false;
+
+  // Groq uses similar rate limit patterns
+  const errorMessage = error.message || '';
+  const errorString = JSON.stringify(error);
+
+  const groqRateLimitIndicators = [
+    'rate_limit_exceeded',
+    'rate limit',
+    'quota exceeded',
+    'too many requests',
+    '429'
+  ];
+
+  return groqRateLimitIndicators.some(indicator =>
+    errorMessage.toLowerCase().includes(indicator) ||
+    errorString.toLowerCase().includes(indicator)
+  );
+}
+
 // Universal AI call with automatic failover: Gemini → Groq
 async function callAIWithFailover(prompt, config = {}) {
   const maxOutputTokens = config.maxOutputTokens || 2048;
@@ -6909,24 +6966,49 @@ async function callAIWithFailover(prompt, config = {}) {
     }
   }
 
-  // Try Groq as fallback
-  if (groqClient) {
-    try {
-      console.log(`🚀 Trying Groq (fallback)...`);
+  // Try Groq as fallback (with key rotation)
+  if (groqClients.length > 0) {
+    let groqAttempts = 0;
+    const maxGroqRetries = groqClients.length;
 
-      const completion = await groqClient.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'llama-3.3-70b-versatile', // Best free model
-        temperature,
-        max_tokens: maxOutputTokens
-      });
+    while (groqAttempts < maxGroqRetries) {
+      try {
+        const currentGroqClient = getCurrentGroqClient();
+        console.log(`🚀 Trying Groq (key ${currentGroqKeyIndex + 1}/${groqClients.length}, attempt ${groqAttempts + 1})...`);
 
-      console.log(`✅ Groq succeeded (FREE!)`);
-      return completion.choices[0].message.content;
+        const completion = await currentGroqClient.chat.completions.create({
+          messages: [{ role: 'user', content: prompt }],
+          model: 'llama-3.3-70b-versatile', // Best free model
+          temperature,
+          max_tokens: maxOutputTokens
+        });
 
-    } catch (error) {
-      console.error(`❌ Groq also failed: ${error.message}`);
-      throw new Error(`Both Gemini and Groq failed. Gemini: rate limited, Groq: ${error.message}`);
+        console.log(`✅ Groq succeeded (FREE!)`);
+        return completion.choices[0].message.content;
+
+      } catch (error) {
+        groqAttempts++;
+
+        // Check if this is a Groq rate limit error
+        if (isGroqRateLimitError(error)) {
+          console.log(`⚠️  Groq rate limit hit (key ${currentGroqKeyIndex + 1}). ${error.message}`);
+
+          // Try to rotate to next key
+          if (groqAttempts < maxGroqRetries) {
+            const rotated = rotateGroqKey();
+            if (rotated) {
+              console.log(`🔄 Rotating to next Groq key...`);
+              continue; // Retry with new key
+            }
+          }
+          console.log(`⚠️  All Groq keys exhausted.`);
+          throw new Error(`Both Gemini and Groq rate limited. All ${GEMINI_API_KEYS.length} Gemini + ${groqClients.length} Groq keys exhausted.`);
+        } else {
+          // Not a rate limit error
+          console.error(`❌ Groq error (non-rate-limit): ${error.message}`);
+          throw new Error(`Both Gemini and Groq failed. Gemini: rate limited, Groq: ${error.message}`);
+        }
+      }
     }
   }
 
@@ -7139,7 +7221,7 @@ async function correlateSalesWithStock(productData, dateRangeInfo, filters = {})
 
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
-  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
+  if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
     return {
       message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
       structuredData: null
@@ -7453,7 +7535,7 @@ Response:`;
 
 // Helper function to generate comparison chatbot responses
 async function generateComparisonChatbotResponse(userMessage, productData1, productData2, dateQuery, conversationHistory = [], filters = {}) {
-  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
+  if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
     return {
       message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
       structuredData: null
@@ -7742,7 +7824,7 @@ Response:`;
 // === CHANNEL-WISE COMPARISON CHATBOT ===
 
 async function generateChannelWiseComparisonResponse(userMessage, channelData, dateQuery, conversationHistory = [], filters = {}) {
-  if (GEMINI_API_KEYS.length === 0 && !groqClient) {
+  if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
     return {
       message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
       structuredData: null
