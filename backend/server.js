@@ -7101,11 +7101,18 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
 
               // Update product stock map
               if (!productStockMap.has(productName)) {
-                productStockMap.set(productName, { outletEvents: [], totalEvents: 0 });
+                productStockMap.set(productName, { outletEvents: [], totalEvents: 0, detailedEvents: [] });
               }
 
               const stockInfo = productStockMap.get(productName);
               stockInfo.totalEvents++;
+
+              // Track detailed events with timestamps
+              stockInfo.detailedEvents.push({
+                outlet: entryOutlet,
+                time: entryTime,
+                item: item
+              });
 
               // Track unique outlets
               if (!stockInfo.outletEvents.find(e => e.outlet === entryOutlet)) {
@@ -7196,7 +7203,8 @@ async function correlateSalesWithStock(productData, dateRangeInfo, filters = {})
           rating: product.avgRating,
           stockEvents: stockInfo.totalEvents,
           outletCount: stockInfo.outletEvents.length,
-          outlets: stockInfo.outletEvents.map(e => `${e.outlet} (${e.count}x)`).join(', ')
+          outlets: stockInfo.outletEvents.map(e => `${e.outlet} (${e.count}x)`).join(', '),
+          detailedEvents: stockInfo.detailedEvents || [] // Include detailed timestamp info
         });
       }
     }
@@ -7210,7 +7218,8 @@ async function correlateSalesWithStock(productData, dateRangeInfo, filters = {})
       summary: affectedProducts.length > 0
         ? `${affectedProducts.length} product(s) had stock availability issues that may have affected sales.`
         : 'No correlation between sales and stock issues detected.',
-      totalStockEvents: stockData.stockEvents.length
+      totalStockEvents: stockData.stockEvents.length,
+      allStockEvents: stockData.stockEvents // Include all raw events for detailed queries
     };
 
   } catch (error) {
@@ -7261,6 +7270,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Prepare stock information for prompt
     let stockInfo = '';
     if (stockCorrelation && stockCorrelation.hasStockIssues) {
+      // Check if user is asking for detailed event information
+      const wantsDetailedEvents = /exact|specific|when|which date|what date|detail|timestamp/i.test(userMessage);
+
       stockInfo = `\n=== STOCK AVAILABILITY ANALYSIS ===
 ${stockCorrelation.summary}
 
@@ -7272,6 +7284,28 @@ ${stockCorrelation.affectedProducts.map((p, idx) => `${idx + 1}. ${p.name}
 
 IMPORTANT: When analyzing sales performance, consider that these products may have lower sales due to stock unavailability, NOT quality issues. This is critical for accurate insights.
 `;
+
+      // Add detailed event log if user is asking for specific dates/outlets
+      if (wantsDetailedEvents && stockCorrelation.allStockEvents) {
+        stockInfo += `\n=== DETAILED OUT-OF-STOCK EVENT LOG ===
+The following is a complete log of out-of-stock events with exact dates and outlets:
+
+${stockCorrelation.allStockEvents.slice(0, 100).map((event, idx) =>
+  `${idx + 1}. ${event.productName}
+   - Date/Time: ${event.time}
+   - Outlet: ${event.outlet}
+   - Item Name in Tracker: ${event.matchedItem}`
+).join('\n')}
+${stockCorrelation.allStockEvents.length > 100 ? `\n... and ${stockCorrelation.allStockEvents.length - 100} more events` : ''}
+
+When asked for specific dates and outlets, use this detailed log to provide EXACT information including:
+- The specific date and time of the stock-out event
+- The exact outlet name where it occurred
+- The item name as it appears in the stock tracker
+
+NOTE: SKU numbers are NOT available in the stock tracker data. The tracker only contains item names, dates, and outlets.
+`;
+      }
     } else if (stockCorrelation && !stockCorrelation.hasStockIssues) {
       stockInfo = `\n=== STOCK AVAILABILITY ANALYSIS ===
 ✓ No stock availability issues detected for analyzed products.
