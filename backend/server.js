@@ -7220,8 +7220,15 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
     const now = new Date();
     const threshold = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000));
 
+    console.log(`🔍 Date Filter Debug:`);
+    console.log(`   Current date (now): ${now.toISOString()} (${now.toLocaleString()})`);
+    console.log(`   Threshold (${daysBack} days back): ${threshold.toISOString()} (${threshold.toLocaleString()})`);
+    console.log(`   Looking for dates >= ${threshold.toLocaleDateString()}`);
+
     // Collect ALL stock events
     const stockEvents = [];
+    let debugCount = 0;
+    let filteredByDateCount = 0;
 
     for (let i = 0; i < trackerData.length; i++) {
       const row = trackerData[i];
@@ -7233,7 +7240,15 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
 
         // Check if within date range using proper date parser
         const entryDate = parseTrackerDate(entryTime);
+
+        // Debug first 5 rows
+        if (debugCount < 5) {
+          console.log(`   Row ${startIndex + i + 1}: "${entryTime}" → ${entryDate ? entryDate.toISOString() : 'PARSE_FAILED'} → ${entryDate && entryDate >= threshold ? '✅ PASS' : '❌ FILTERED'}`);
+          debugCount++;
+        }
+
         if (!entryDate || entryDate < threshold) {
+          filteredByDateCount++;
           continue;
         }
 
@@ -7252,6 +7267,8 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
         });
       }
     }
+
+    console.log(`📊 Date filtering results: ${filteredByDateCount} rows filtered out, ${stockEvents.length} events passed filter`);
 
     // Generate summary
     const summary = stockEvents.length === 0
