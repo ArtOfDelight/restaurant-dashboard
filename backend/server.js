@@ -6813,6 +6813,69 @@ app.post('/api/product-chat', async (req, res) => {
   }
 });
 
+// Direct stock-out events endpoint (no AI, just data)
+app.get('/api/stock-events', async (req, res) => {
+  try {
+    const daysBack = parseInt(req.query.daysBack) || 7;
+    const outlet = req.query.outlet || null;
+
+    console.log(`📦 Stock Events Query: last ${daysBack} days${outlet ? ` at ${outlet}` : ''}`);
+
+    // Get stock events directly
+    const stockData = await getAllStockEvents(daysBack, outlet);
+
+    // Format the response
+    const formattedEvents = stockData.stockEvents.map(event => ({
+      itemName: event.productName,
+      sku: event.sku,
+      dateTime: event.time,
+      outlet: event.outlet
+    }));
+
+    // Group events by product name
+    const groupedByProduct = {};
+    stockData.stockEvents.forEach(event => {
+      const name = event.productName;
+      if (!groupedByProduct[name]) {
+        groupedByProduct[name] = {
+          itemName: name,
+          totalEvents: 0,
+          events: []
+        };
+      }
+      groupedByProduct[name].totalEvents++;
+      groupedByProduct[name].events.push({
+        sku: event.sku,
+        dateTime: event.time,
+        outlet: event.outlet
+      });
+    });
+
+    const productList = Object.values(groupedByProduct).sort((a, b) => b.totalEvents - a.totalEvents);
+
+    res.json({
+      success: true,
+      summary: {
+        totalEvents: stockData.stockEvents.length,
+        uniqueProducts: productList.length,
+        daysAnalyzed: daysBack,
+        outlet: outlet || 'All outlets'
+      },
+      products: productList,
+      allEvents: formattedEvents,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error fetching stock events:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // === GEMINI API KEY ROTATION HELPERS ===
 
 // Get current active Gemini API key
