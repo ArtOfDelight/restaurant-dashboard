@@ -7490,6 +7490,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
 
       // Get ALL stock events (not filtered by sales data)
       allStockEventsData = await getAllStockEvents(daysBack, filters.branch || null);
+
+      // ALSO get stock correlation with sales data for impact analysis
+      stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
     } else {
       // Get stock correlation with sales data
       stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
@@ -7519,6 +7522,24 @@ When answering, provide:
 - The specific outlet name
 - Group by product name to show all instances
 `;
+
+      // Add sales correlation data if available
+      if (stockCorrelation && stockCorrelation.hasStockIssues) {
+        stockInfo += `\n=== SALES IMPACT ANALYSIS ===
+Products from above list that ALSO have sales data (for impact correlation):
+${stockCorrelation.affectedProducts.map((p, idx) => `${idx + 1}. ${p.name}
+   - Current Period Sales: ${p.orders} orders
+   - Average Rating: ${p.rating ? p.rating.toFixed(2) : 'N/A'} stars
+   - Stock-out Events: ${p.stockEvents} event(s) in ${p.outletCount} outlet(s)
+   - Impact: Product had ${p.stockEvents} stock-out(s) during the period which likely reduced potential sales`).join('\n')}
+
+CRITICAL FOR ANALYSIS:
+- Products with stock-outs AND low sales: The low sales are likely DUE TO stock unavailability
+- Products with stock-outs AND good ratings: Sales drop is NOT a quality issue, it's a supply issue
+- To calculate sales impact: Compare current sales to historical average (if product normally sells well but had low sales this period with stock-outs, that indicates impact)
+`;
+      }
+
     } else if (stockCorrelation && stockCorrelation.hasStockIssues) {
       // Sales-correlated stock analysis
       // Check if user is asking for detailed event information
