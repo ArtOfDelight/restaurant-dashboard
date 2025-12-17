@@ -7157,6 +7157,93 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
 }
 
 /**
+ * Get ALL stock-out events from tracker (not filtered by sales data)
+ * Returns complete list of stock events in the time period
+ */
+async function getAllStockEvents(daysBack = 7, outlet = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const TRACKER_TAB = 'Tracker';
+
+    console.log(`Fetching ALL stock events from tracker (last ${daysBack} days)`);
+
+    // Fetch tracker data
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
+    });
+
+    const trackerData = trackerResponse.data.values || [];
+
+    if (trackerData.length <= 1) {
+      return { stockEvents: [], summary: 'No stock tracking data available' };
+    }
+
+    // Calculate date threshold
+    const now = new Date();
+    const threshold = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000));
+
+    // Collect ALL stock events
+    const stockEvents = [];
+
+    for (let i = 1; i < trackerData.length; i++) {
+      const row = trackerData[i];
+      if (row && row[0] && row[1] && row[3]) { // Time, Outlet, Item Name required
+        const entryTime = row[0].toString().trim();
+        const entryOutlet = row[1].toString().trim();
+        const entrySKU = row[2] ? row[2].toString().trim() : 'N/A';
+        const entryItemName = row[3].toString().trim();
+
+        // Check if within date range
+        try {
+          const entryDate = new Date(entryTime);
+          if (entryDate < threshold) continue;
+        } catch (e) {
+          continue;
+        }
+
+        // Apply outlet filter if specified
+        if (outlet && entryOutlet.toLowerCase() !== outlet.toLowerCase()) {
+          continue;
+        }
+
+        // Add ALL events (no filtering by product sales data)
+        stockEvents.push({
+          productName: entryItemName,
+          matchedItem: entryItemName,
+          outlet: entryOutlet,
+          time: entryTime,
+          sku: entrySKU
+        });
+      }
+    }
+
+    // Generate summary
+    const summary = stockEvents.length === 0
+      ? `No out-of-stock events found in the last ${daysBack} days.`
+      : `Found ${stockEvents.length} out-of-stock event(s) in the last ${daysBack} days.`;
+
+    return {
+      stockEvents: stockEvents,
+      summary: summary,
+      daysAnalyzed: daysBack
+    };
+
+  } catch (error) {
+    console.error('Error fetching all stock events:', error.message);
+    return {
+      stockEvents: [],
+      summary: 'Error fetching stock data',
+      error: error.message
+    };
+  }
+}
+
+/**
  * Correlate sales deprecation with stock availability
  * Analyzes if sales decrease is due to stock issues
  */
@@ -7263,14 +7350,55 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
     const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
 
-    // NEW: Get stock correlation data
-    const stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
+    // Check if user is asking primarily about stock (not sales analysis)
+    const isStockFocusedQuery = /out of stock|stock.*out|went.*stock|stock.*issue|stock.*event|which.*stock|stock.*last week/i.test(userMessage);
+
+    // NEW: Get stock data
+    let stockCorrelation = null;
+    let allStockEventsData = null;
+
+    if (isStockFocusedQuery) {
+      // Parse days from dateRangeInfo for ALL stock events
+      let daysBack = 7;
+      if (dateRangeInfo.includes('last 7 days') || dateRangeInfo.includes('Last 7 days')) daysBack = 7;
+      else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+      else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+
+      // Get ALL stock events (not filtered by sales data)
+      allStockEventsData = await getAllStockEvents(daysBack, filters.branch || null);
+    } else {
+      // Get stock correlation with sales data
+      stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
+    }
 
     // Prepare stock information for prompt
     let stockInfo = '';
-    if (stockCorrelation && stockCorrelation.hasStockIssues) {
+
+    // If user is asking about stock primarily, show ALL stock events
+    if (isStockFocusedQuery && allStockEventsData) {
+      stockInfo = `\n=== COMPLETE STOCK-OUT EVENT LOG ===
+${allStockEventsData.summary}
+
+ALL Out-of-Stock Events from Tracker:
+${allStockEventsData.stockEvents.slice(0, 200).map((event, idx) =>
+  `${idx + 1}. ${event.productName}
+   - SKU Code: ${event.sku}
+   - Date/Time: ${event.time}
+   - Outlet: ${event.outlet}`
+).join('\n')}
+${allStockEventsData.stockEvents.length > 200 ? `\n... and ${allStockEventsData.stockEvents.length - 200} more events (showing first 200)` : ''}
+
+IMPORTANT: This is the COMPLETE list of ALL out-of-stock events from the tracker, regardless of whether these products had sales or not.
+When answering, provide:
+- The exact SKU code for each item
+- The precise date and time
+- The specific outlet name
+- Group by product name to show all instances
+`;
+    } else if (stockCorrelation && stockCorrelation.hasStockIssues) {
+      // Sales-correlated stock analysis
       // Check if user is asking for detailed event information
-      const wantsDetailedEvents = /exact|specific|when|which date|what date|detail|timestamp/i.test(userMessage);
+      const wantsDetailedEvents = /exact|specific|when|which date|what date|detail|timestamp|sku/i.test(userMessage);
 
       stockInfo = `\n=== STOCK AVAILABILITY ANALYSIS ===
 ${stockCorrelation.summary}
