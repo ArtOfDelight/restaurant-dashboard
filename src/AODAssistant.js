@@ -3,15 +3,41 @@ import React, { useState, useRef, useEffect } from 'react';
 const API_URL = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 function AODAssistant() {
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState(() => {
+    // Load chat history from localStorage on mount
+    try {
+      const saved = localStorage.getItem('aod-chat-history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error('Failed to load chat history:', e);
+      return [];
+    }
+  });
   const [chatInput, setChatInput] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
   const chatEndRef = useRef(null);
+
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    try {
+      localStorage.setItem('aod-chat-history', JSON.stringify(chatMessages));
+    } catch (e) {
+      console.error('Failed to save chat history:', e);
+    }
+  }, [chatMessages]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
+
+  // Clear chat history
+  const clearChatHistory = () => {
+    if (window.confirm('Clear all chat history? This cannot be undone.')) {
+      setChatMessages([]);
+      localStorage.removeItem('aod-chat-history');
+    }
+  };
 
   // Send message to chatbot
   const sendChatMessage = async (message) => {
@@ -99,28 +125,63 @@ function AODAssistant() {
       <div style={{
         background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
         padding: '30px',
-        borderBottom: '2px solid rgba(255, 255, 255, 0.1)'
+        borderBottom: '2px solid rgba(255, 255, 255, 0.1)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
       }}>
-        <h1 style={{
-          margin: 0,
-          fontSize: '2rem',
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-          textTransform: 'uppercase',
-          letterSpacing: '3px',
-          color: 'white',
-          textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
-        }}>
-          🤖 AOD ASSISTANT
-        </h1>
-        <p style={{
-          margin: '10px 0 0 0',
-          fontSize: '0.95rem',
-          color: 'rgba(255, 255, 255, 0.9)',
-          fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-          letterSpacing: '1px'
-        }}>
-          AI-Powered Sales & Inventory Analysis • Ask me anything about your products, sales, or stock
-        </p>
+        <div>
+          <h1 style={{
+            margin: 0,
+            fontSize: '2rem',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            textTransform: 'uppercase',
+            letterSpacing: '3px',
+            color: 'white',
+            textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
+          }}>
+            🤖 AOD ASSISTANT
+          </h1>
+          <p style={{
+            margin: '10px 0 0 0',
+            fontSize: '0.95rem',
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+            letterSpacing: '1px'
+          }}>
+            AI-Powered Sales & Inventory Analysis • Ask me anything about your products, sales, or stock
+          </p>
+        </div>
+        {chatMessages.length > 0 && (
+          <button
+            onClick={clearChatHistory}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              color: 'white',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              fontSize: '0.85rem',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'rgba(239, 68, 68, 0.3)';
+              e.target.style.borderColor = '#ef4444';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+              e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }}
+          >
+            🗑️ Clear Chat
+          </button>
+        )}
       </div>
 
       {/* Chat Messages Area */}
