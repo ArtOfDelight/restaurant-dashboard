@@ -6934,6 +6934,209 @@ async function callAIWithFailover(prompt, config = {}) {
   throw new Error('All Gemini keys rate limited and Groq not configured. Add GROQ_API_KEY to .env');
 }
 
+// === STOCK DATA INTEGRATION FOR CHATBOT ===
+
+/**
+ * Get stock tracker data for specific products/items
+ * Checks out-of-stock history from tracker sheet
+ */
+async function getStockDataForProducts(productNames, daysBack = 7, outlet = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const TRACKER_TAB = 'Copy of Tracker';
+
+    console.log(`Fetching stock tracker data for ${productNames.length} products (last ${daysBack} days)`);
+
+    // Fetch tracker data
+    const trackerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${TRACKER_TAB}!A:D`, // A=?, B=Time, C=Outlet, D=Items
+    });
+
+    const trackerData = trackerResponse.data.values || [];
+
+    if (trackerData.length <= 1) {
+      return { stockEvents: [], summary: 'No stock tracking data available' };
+    }
+
+    // Calculate date threshold
+    const now = new Date();
+    const threshold = new Date(now.getTime() - (daysBack * 24 * 60 * 60 * 1000));
+
+    // Track stock events for each product
+    const stockEvents = [];
+    const productStockMap = new Map(); // Map: productName -> { outletEvents: [], totalEvents: 0 }
+
+    // Normalize product names for matching
+    const normalizedProductNames = productNames.map(name => normalizeProductName(name));
+
+    for (let i = 1; i < trackerData.length; i++) {
+      const row = trackerData[i];
+      if (row && row[1] && row[2] && row[3]) {
+        const entryTime = row[1].toString().trim();
+        const entryOutlet = row[2].toString().trim();
+        const entryItems = row[3].toString().trim();
+
+        // Check if within date range
+        try {
+          const entryDate = new Date(entryTime);
+          if (entryDate < threshold) continue;
+        } catch (e) {
+          continue;
+        }
+
+        // Apply outlet filter if specified
+        if (outlet && entryOutlet.toLowerCase() !== outlet.toLowerCase()) {
+          continue;
+        }
+
+        // Check if any of our products are in this entry
+        const itemsList = entryItems.split(',').map(item => item.trim());
+
+        for (const item of itemsList) {
+          const normalizedItem = normalizeProductName(item);
+
+          // Check if this item matches any of our products (fuzzy matching)
+          for (let j = 0; j < productNames.length; j++) {
+            const productName = productNames[j];
+            const normalizedProduct = normalizedProductNames[j];
+
+            // Use fuzzy matching (score > 80 is a good match)
+            const score = calculateFuzzyScore(normalizedItem, normalizedProduct);
+
+            if (score > 80) {
+              stockEvents.push({
+                productName: productName,
+                matchedItem: item,
+                outlet: entryOutlet,
+                time: entryTime,
+                fuzzyScore: score
+              });
+
+              // Update product stock map
+              if (!productStockMap.has(productName)) {
+                productStockMap.set(productName, { outletEvents: [], totalEvents: 0 });
+              }
+
+              const stockInfo = productStockMap.get(productName);
+              stockInfo.totalEvents++;
+
+              // Track unique outlets
+              if (!stockInfo.outletEvents.find(e => e.outlet === entryOutlet)) {
+                stockInfo.outletEvents.push({ outlet: entryOutlet, count: 1, lastSeen: entryTime });
+              } else {
+                const outletEvent = stockInfo.outletEvents.find(e => e.outlet === entryOutlet);
+                outletEvent.count++;
+                outletEvent.lastSeen = entryTime;
+              }
+
+              break; // Don't match the same item to multiple products
+            }
+          }
+        }
+      }
+    }
+
+    // Generate summary
+    let summary = '';
+    if (stockEvents.length === 0) {
+      summary = `No out-of-stock events found for these products in the last ${daysBack} days.`;
+    } else {
+      const affectedProducts = productStockMap.size;
+      const totalEvents = stockEvents.length;
+      summary = `Found ${totalEvents} out-of-stock event(s) affecting ${affectedProducts} product(s) in the last ${daysBack} days.`;
+    }
+
+    return {
+      stockEvents: stockEvents,
+      productStockMap: productStockMap,
+      summary: summary,
+      daysAnalyzed: daysBack
+    };
+
+  } catch (error) {
+    console.error('Error fetching stock data for products:', error.message);
+    return {
+      stockEvents: [],
+      summary: 'Error fetching stock data',
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Correlate sales deprecation with stock availability
+ * Analyzes if sales decrease is due to stock issues
+ */
+async function correlateSalesWithStock(productData, dateRangeInfo, filters = {}) {
+  try {
+    // Extract product names from product data
+    const productNames = productData.products.map(p => p.name);
+
+    if (productNames.length === 0) {
+      return null;
+    }
+
+    // Parse days from dateRangeInfo
+    let daysBack = 7;
+    if (dateRangeInfo.includes('last 7 days')) daysBack = 7;
+    else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+    else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+
+    // Get stock data for these products
+    const stockData = await getStockDataForProducts(
+      productNames,
+      daysBack,
+      filters.branch || null
+    );
+
+    if (!stockData.productStockMap || stockData.productStockMap.size === 0) {
+      return {
+        hasStockIssues: false,
+        affectedProducts: [],
+        summary: 'No stock issues detected for analyzed products.'
+      };
+    }
+
+    // Identify products with both low sales AND stock issues
+    const affectedProducts = [];
+
+    for (const product of productData.products) {
+      if (stockData.productStockMap.has(product.name)) {
+        const stockInfo = stockData.productStockMap.get(product.name);
+        affectedProducts.push({
+          name: product.name,
+          orders: product.totalOrders,
+          rating: product.avgRating,
+          stockEvents: stockInfo.totalEvents,
+          outletCount: stockInfo.outletEvents.length,
+          outlets: stockInfo.outletEvents.map(e => `${e.outlet} (${e.count}x)`).join(', ')
+        });
+      }
+    }
+
+    // Sort by stock events (most affected first)
+    affectedProducts.sort((a, b) => b.stockEvents - a.stockEvents);
+
+    return {
+      hasStockIssues: affectedProducts.length > 0,
+      affectedProducts: affectedProducts,
+      summary: affectedProducts.length > 0
+        ? `${affectedProducts.length} product(s) had stock availability issues that may have affected sales.`
+        : 'No correlation between sales and stock issues detected.',
+      totalStockEvents: stockData.stockEvents.length
+    };
+
+  } catch (error) {
+    console.error('Error correlating sales with stock:', error.message);
+    return null;
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && !groqClient) {
@@ -6970,6 +7173,31 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
     const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
 
+    // NEW: Get stock correlation data
+    const stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
+
+    // Prepare stock information for prompt
+    let stockInfo = '';
+    if (stockCorrelation && stockCorrelation.hasStockIssues) {
+      stockInfo = `\n=== STOCK AVAILABILITY ANALYSIS ===
+${stockCorrelation.summary}
+
+Products with Out-of-Stock Events:
+${stockCorrelation.affectedProducts.map((p, idx) => `${idx + 1}. ${p.name}
+   - Sales: ${p.orders} orders
+   - Stock Issues: ${p.stockEvents} out-of-stock event(s) in ${p.outletCount} outlet(s)
+   - Affected Outlets: ${p.outlets}`).join('\n')}
+
+IMPORTANT: When analyzing sales performance, consider that these products may have lower sales due to stock unavailability, NOT quality issues. This is critical for accurate insights.
+`;
+    } else if (stockCorrelation && !stockCorrelation.hasStockIssues) {
+      stockInfo = `\n=== STOCK AVAILABILITY ANALYSIS ===
+✓ No stock availability issues detected for analyzed products.
+- All products appear to have been consistently in stock during this period.
+- Sales performance reflects actual demand, not stock constraints.
+`;
+    }
+
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
@@ -6993,6 +7221,7 @@ ${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOr
 
 Top 10 Problematic Products (>5% low ratings):
 ${lowRatedProducts.length > 0 ? lowRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Low Rated: ${p.lowRatedPercentage.toFixed(1)}%, Total Orders: ${p.totalOrders}`).join('\n') : 'No products with >5% low ratings'}
+${stockInfo}
 
 ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
@@ -7074,6 +7303,37 @@ Low rated percentage: 3.2% (excellent)
 
 Swiggy performance is strong. Bulk items like ice cream tubs are performing particularly well on this platform.
 
+Example 7 - Stock-Aware Analysis:
+User: "Why did Chocolate Brownie sales drop?"
+Response: Looking at Chocolate Brownie in ${dateRangeInfo.toLowerCase()}:
+
+SALES PERFORMANCE:
+- 45 orders (below average for this product)
+- 4.3 star rating (good quality)
+
+STOCK AVAILABILITY ISSUE DETECTED:
+- 3 out-of-stock events across 2 outlets (Koramangala, HSR Layout)
+- Stock unavailable on multiple days during this period
+
+ANALYSIS:
+The sales drop is NOT due to quality issues (4.3 stars is solid). The main factor is stock availability - the product was out of stock at key outlets, preventing customers from ordering it.
+
+RECOMMENDATION:
+Improve inventory management for Chocolate Brownie. The demand is there (good ratings), but stock constraints are limiting sales. This represents lost revenue opportunity.
+
+Example 8 - Growth Validation with Stock Data:
+User: "Red Velvet Cake sales grew 25%. Is our production keeping up?"
+Response: Excellent news about Red Velvet Cake's 25% growth in ${dateRangeInfo.toLowerCase()}!
+
+STOCK AVAILABILITY CHECK:
+✓ No out-of-stock events detected during this period
+✓ Product was consistently available across all outlets
+
+ANALYSIS:
+YES, your production is keeping pace with demand. The 25% growth is real demand growth, not recovery from stock issues. The consistent availability means you're meeting customer demand effectively.
+
+This is healthy, sustainable growth driven by product popularity, not just resolving supply problems.
+
 === YOUR TASK ===
 User Question: ${userMessage}
 
@@ -7087,12 +7347,16 @@ Think about what specific information the user is asking for. Are they asking ab
 - Specific time periods (last week, last 7 days, specific dates)?
 - Problems or opportunities?
 - Comparisons between products/outlets/time periods?
+- Stock availability or out-of-stock issues?
+- Why sales increased or decreased (consider stock availability)?
 
 STEP 2 - FIND RELEVANT DATA:
 Identify which products from the data above are most relevant to answer this question.
 - Use the EXACT product names from the lists provided
 - Note if they're asking about a specific outlet, channel, or time period
 - If filtered data applies, reference the filter in your response
+- CHECK THE STOCK AVAILABILITY ANALYSIS section if provided
+- Correlate sales patterns with stock events when relevant
 
 STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
 - IMPORTANT: The data you see is ALREADY FILTERED by the filters shown above
@@ -7101,6 +7365,9 @@ STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
 - Include specific numbers (orders, ratings, percentages)
 - If identifying problems, explain WHY they're problems with numbers
 - If showing successes, explain what makes them successful
+- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales deprecation
+- When sales are down + stock issues present = explain it's likely a supply problem, NOT demand/quality problem
+- When sales are up + no stock issues = confirm production is keeping pace with demand
 - NEVER say "I don't have outlet-specific data" - the data IS outlet-specific if an outlet filter is shown
 - Keep it conversational but data-driven
 - Use plain text only (no markdown like ** or __)
@@ -7140,9 +7407,28 @@ Response:`;
       };
     }
 
+    // Include stock correlation if available and relevant to the query
+    if (stockCorrelation && (
+      lowerMessage.includes('stock') ||
+      lowerMessage.includes('out of stock') ||
+      lowerMessage.includes('deprecat') ||
+      lowerMessage.includes('drop') ||
+      lowerMessage.includes('decreas') ||
+      lowerMessage.includes('growth') ||
+      lowerMessage.includes('increas')
+    )) {
+      structuredData = structuredData || {};
+      structuredData.stockAnalysis = {
+        hasStockIssues: stockCorrelation.hasStockIssues,
+        affectedProducts: stockCorrelation.affectedProducts,
+        summary: stockCorrelation.summary
+      };
+    }
+
     return {
       message: aiMessage,
-      structuredData: structuredData
+      structuredData: structuredData,
+      stockCorrelation: stockCorrelation // Include for frontend use
     };
 
   } catch (error) {
@@ -7223,6 +7509,44 @@ async function generateComparisonChatbotResponse(userMessage, productData1, prod
     if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
     const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
 
+    // NEW: Get stock correlation data for both periods
+    const stockCorrelation1 = await correlateSalesWithStock(productData1, dateQuery.period1.label, filters);
+    const stockCorrelation2 = await correlateSalesWithStock(productData2, dateQuery.period2.label, filters);
+
+    // Prepare stock comparison info
+    let stockComparisonInfo = '';
+    if (stockCorrelation1 || stockCorrelation2) {
+      stockComparisonInfo = `\n=== STOCK AVAILABILITY COMPARISON ===\n`;
+
+      if (stockCorrelation1 && stockCorrelation1.hasStockIssues) {
+        stockComparisonInfo += `\nPeriod 1 (${dateQuery.period1.label}) - STOCK ISSUES DETECTED:\n`;
+        stockComparisonInfo += `${stockCorrelation1.summary}\n`;
+        stockComparisonInfo += `Affected Products:\n`;
+        stockComparisonInfo += stockCorrelation1.affectedProducts.slice(0, 5).map(p =>
+          `- ${p.name}: ${p.stockEvents} out-of-stock event(s) in ${p.outletCount} outlet(s)`
+        ).join('\n');
+      } else {
+        stockComparisonInfo += `\nPeriod 1 (${dateQuery.period1.label}): ✓ No significant stock issues\n`;
+      }
+
+      if (stockCorrelation2 && stockCorrelation2.hasStockIssues) {
+        stockComparisonInfo += `\n\nPeriod 2 (${dateQuery.period2.label}) - STOCK ISSUES DETECTED:\n`;
+        stockComparisonInfo += `${stockCorrelation2.summary}\n`;
+        stockComparisonInfo += `Affected Products:\n`;
+        stockComparisonInfo += stockCorrelation2.affectedProducts.slice(0, 5).map(p =>
+          `- ${p.name}: ${p.stockEvents} out-of-stock event(s) in ${p.outletCount} outlet(s)`
+        ).join('\n');
+      } else {
+        stockComparisonInfo += `\nPeriod 2 (${dateQuery.period2.label}): ✓ No significant stock issues\n`;
+      }
+
+      stockComparisonInfo += `\n\nCRITICAL: When analyzing sales changes, consider stock availability:
+- If Period 1 had stock issues and Period 2 didn't: Lower sales in Period 1 may be due to supply constraints
+- If Period 2 had stock issues and Period 1 didn't: Lower sales in Period 2 may be due to supply constraints
+- Products with stock issues should NOT be flagged as "declining in popularity" - they had supply problems
+`;
+    }
+
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze and compare product sales data from Swiggy and Zomato platforms across different time periods.
 
@@ -7257,6 +7581,7 @@ ${topDecliners.length > 0 ? topDecliners.map((p, idx) => `${idx + 1}. ${p.name}
    ${dateQuery.period1.label}: ${p.period1Orders} orders (Rating: ${p.period1Rating.toFixed(2)})
    ${dateQuery.period2.label}: ${p.period2Orders} orders (Rating: ${p.period2Rating.toFixed(2)})
    Change: ${p.orderChange} orders (${p.orderChangePercent}%)`).join('\n') : 'No products with decreased sales'}
+${stockComparisonInfo}
 
 ${conversationContext ? `Previous Conversation:\n${conversationContext}\n` : ''}
 
