@@ -17,6 +17,9 @@ function AODAssistant() {
   const sendChatMessage = async (message) => {
     if (!message.trim()) return;
 
+    console.log('🤖 AOD Assistant - Sending message:', message);
+    console.log('🤖 API URL:', API_URL);
+
     setLoadingChat(true);
 
     // Add user message to chat
@@ -28,6 +31,9 @@ function AODAssistant() {
       // Get conversation history (last 10 messages for context)
       const conversationHistory = chatMessages.slice(-10);
 
+      console.log('🤖 Calling API:', `${API_URL}/api/product-chat`);
+      console.log('🤖 Request body:', { message, conversationHistory });
+
       const response = await fetch(`${API_URL}/api/product-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,7 +43,12 @@ function AODAssistant() {
         })
       });
 
+      console.log('🤖 Response status:', response.status);
+      console.log('🤖 Response ok:', response.ok);
+
       const data = await response.json();
+
+      console.log('🤖 Response data:', data);
 
       // Add AI response to chat
       const aiMessage = {
@@ -46,16 +57,20 @@ function AODAssistant() {
         data: data.data || null
       };
 
+      console.log('🤖 AI message:', aiMessage);
+
       setChatMessages(prev => [...prev, aiMessage]);
     } catch (error) {
-      console.error('Error calling chatbot:', error);
+      console.error('🤖 Error calling chatbot:', error);
+      console.error('🤖 Error stack:', error.stack);
       setChatMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: 'Sorry, I encountered an error. Please try again. Error: ' + error.message,
         error: true
       }]);
     } finally {
       setLoadingChat(false);
+      console.log('🤖 Chat request complete');
     }
   };
 
