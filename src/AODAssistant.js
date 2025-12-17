@@ -352,7 +352,7 @@ function AODAssistant() {
         borderTop: '1px solid var(--border-light)',
         fontSize: '0.75rem',
         color: 'var(--text-muted)',
-        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace',
+        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
         textAlign: 'center'
       }}>
         💡 TIP: Press Enter to send • Shift+Enter for new line • AI analyzes sales + inventory together
