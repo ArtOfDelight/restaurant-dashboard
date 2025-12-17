@@ -7064,11 +7064,9 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
         const entrySKU = row[2] ? row[2].toString().trim() : 'N/A';
         const entryItemName = row[3].toString().trim();
 
-        // Check if within date range
-        try {
-          const entryDate = new Date(entryTime);
-          if (entryDate < threshold) continue;
-        } catch (e) {
+        // Check if within date range using proper date parser
+        const entryDate = parseTrackerDate(entryTime);
+        if (!entryDate || entryDate < threshold) {
           continue;
         }
 
@@ -7157,6 +7155,27 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
 }
 
 /**
+ * Parse date from DD/MM/YYYY HH:mm format used in tracker sheet
+ */
+function parseTrackerDate(dateString) {
+  try {
+    // Format: "15/12/2025 18:13" (DD/MM/YYYY HH:mm)
+    const parts = dateString.split(' ');
+    const datePart = parts[0]; // "15/12/2025"
+    const timePart = parts[1] || '00:00'; // "18:13"
+
+    const [day, month, year] = datePart.split('/');
+    const [hours, minutes] = timePart.split(':');
+
+    // JavaScript Date months are 0-indexed
+    return new Date(year, month - 1, day, hours, minutes);
+  } catch (e) {
+    console.warn(`Failed to parse tracker date: ${dateString}`, e);
+    return null;
+  }
+}
+
+/**
  * Get ALL stock-out events from tracker (not filtered by sales data)
  * Returns complete list of stock events in the time period
  */
@@ -7198,11 +7217,9 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
         const entrySKU = row[2] ? row[2].toString().trim() : 'N/A';
         const entryItemName = row[3].toString().trim();
 
-        // Check if within date range
-        try {
-          const entryDate = new Date(entryTime);
-          if (entryDate < threshold) continue;
-        } catch (e) {
+        // Check if within date range using proper date parser
+        const entryDate = parseTrackerDate(entryTime);
+        if (!entryDate || entryDate < threshold) {
           continue;
         }
 
