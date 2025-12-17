@@ -7186,7 +7186,7 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
     // Fetch tracker data
     const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
+      range: `${TRACKER_TAB}!B:E`, // B=Time, C=Outlet, D=SKU Code, E=Item Name
     });
 
     const allTrackerData = trackerResponse.data.values || [];
@@ -7350,7 +7350,7 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
     // Fetch tracker data
     const trackerResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`, // A=Time, B=Outlet, C=SKU Code, D=Item Name
+      range: `${TRACKER_TAB}!B:E`, // B=Time, C=Outlet, D=SKU Code, E=Item Name
     });
 
     const allTrackerData = trackerResponse.data.values || [];
