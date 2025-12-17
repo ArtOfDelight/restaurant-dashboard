@@ -7379,6 +7379,14 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
     const stockEvents = [];
     let debugCount = 0;
     let filteredByDateCount = 0;
+    let emptyRowCount = 0;
+
+    // Debug: Show first 5 raw rows
+    console.log(`🔬 Raw row data sample (first 5 rows):`);
+    for (let i = 0; i < Math.min(5, trackerData.length); i++) {
+      const row = trackerData[i];
+      console.log(`   Row ${startIndex + i + 1}: ${row ? `[${row.length} cols] ${JSON.stringify(row.slice(0, 4))}` : 'undefined/null'}`);
+    }
 
     for (let i = 0; i < trackerData.length; i++) {
       const row = trackerData[i];
@@ -7415,10 +7423,15 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
           time: entryTime,
           sku: entrySKU
         });
+      } else {
+        emptyRowCount++;
       }
     }
 
-    console.log(`📊 Date filtering results: ${filteredByDateCount} rows filtered out, ${stockEvents.length} events passed filter`);
+    console.log(`📊 Processing results:`);
+    console.log(`   - Empty/invalid rows (missing required columns): ${emptyRowCount}`);
+    console.log(`   - Rows filtered by date: ${filteredByDateCount}`);
+    console.log(`   - Events that passed all filters: ${stockEvents.length}`);
 
     // Generate summary
     const summary = stockEvents.length === 0
