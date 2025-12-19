@@ -5193,8 +5193,11 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
   const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
   const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
   const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+  const netSaleIndex = headers.findIndex(h => h && h.toLowerCase().includes('net sale'));
+  const packagingChargesIndex = headers.findIndex(h => h && h.toLowerCase().includes('packaging charges'));
+  const totalRevenueIndex = headers.findIndex(h => h && h.toLowerCase().includes('total revenue'));
 
-  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}`);
+  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}, Net Sale: ${netSaleIndex}, Packaging Charges: ${packagingChargesIndex}, Total Revenue: ${totalRevenueIndex}`);
 
   if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
     console.error('ERROR: Required columns not found in ProductDetails sheet');
@@ -5221,6 +5224,9 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     const orderCount = parseInt(row[orderCountIndex]) || 0;
     const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
     const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+    const netSale = netSaleIndex !== -1 ? (parseFloat(row[netSaleIndex]) || 0) : 0;
+    const packagingCharges = packagingChargesIndex !== -1 ? (parseFloat(row[packagingChargesIndex]) || 0) : 0;
+    const totalRevenue = totalRevenueIndex !== -1 ? (parseFloat(row[totalRevenueIndex]) || 0) : 0;
 
     if (!itemName) continue;
 
@@ -5252,14 +5258,20 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     totalRowsProcessed++;
     const normalizedName = normalizeProductName(itemName);
 
-    // Aggregate counts for the same item across different dates
+    // Aggregate counts and revenue for the same item across different dates
     if (itemsMap.has(normalizedName)) {
       const existing = itemsMap.get(normalizedName);
       existing.totalOrders += orderCount;
+      existing.totalNetSale += netSale;
+      existing.totalPackagingCharges += packagingCharges;
+      existing.totalRevenue += totalRevenue;
     } else {
       itemsMap.set(normalizedName, {
         itemName,
         totalOrders: orderCount,
+        totalNetSale: netSale,
+        totalPackagingCharges: packagingCharges,
+        totalRevenue: totalRevenue,
         normalizedName
       });
     }
@@ -5744,6 +5756,9 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       totalOrders: matchedProducts.reduce((sum, p) => sum + p.totalOrders, 0),
       totalHighRated: matchedProducts.reduce((sum, p) => sum + p.highRated, 0),
       totalLowRated: matchedProducts.reduce((sum, p) => sum + p.lowRated, 0),
+      totalNetSale: matchedProducts.reduce((sum, p) => sum + (p.totalNetSale || 0), 0),
+      totalPackagingCharges: matchedProducts.reduce((sum, p) => sum + (p.totalPackagingCharges || 0), 0),
+      totalRevenue: matchedProducts.reduce((sum, p) => sum + (p.totalRevenue || 0), 0),
       avgRating: 0,
       avgLowRatedPercentage: 0,
       dateFilter: daysFilter ? `Last ${daysFilter} days` : 'All dates'
@@ -5768,6 +5783,9 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
     console.log(`Matched Products (100%): ${summary.matchedProducts}`);
     console.log(`Unmatched Products: ${summary.unmatchedProducts}`);
     console.log(`Total Orders: ${summary.totalOrders}`);
+    console.log(`Total Net Sale: ₹${summary.totalNetSale.toFixed(2)}`);
+    console.log(`Total Packaging Charges: ₹${summary.totalPackagingCharges.toFixed(2)}`);
+    console.log(`Total Revenue: ₹${summary.totalRevenue.toFixed(2)}`);
     console.log(`High Rated: ${summary.totalHighRated} (${summary.totalOrders > 0 ? ((summary.totalHighRated / summary.totalOrders) * 100).toFixed(2) : 0}%)`);
     console.log(`Low Rated: ${summary.totalLowRated} (${summary.avgLowRatedPercentage.toFixed(2)}%)`);
     console.log(`Average Rating: ${summary.avgRating.toFixed(2)}`);
@@ -7598,13 +7616,16 @@ Filters: ${filterInfo}
 Product Data Summary:
 - Total Products: ${productData.summary.totalProductsInSheet}
 - Total Orders: ${productData.summary.totalOrders}
+- Total Net Sale: ₹${productData.summary.totalNetSale.toFixed(2)}
+- Total Packaging Charges: ₹${productData.summary.totalPackagingCharges.toFixed(2)}
+- Total Revenue: ₹${productData.summary.totalRevenue.toFixed(2)}
 - Average Rating: ${productData.summary.avgRating.toFixed(2)}
 - High Rated Orders: ${productData.summary.totalHighRated}
 - Low Rated Orders: ${productData.summary.totalLowRated}
 - Average Low Rated Percentage: ${productData.summary.avgLowRatedPercentage.toFixed(2)}%
 
 Top 20 Products by Sales:
-${topProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
+${topProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Revenue: ₹${(p.totalRevenue || 0).toFixed(2)}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
 
 Top 10 High-Rated Products (4.0+):
 ${highRatedProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Avg Rating: ${p.avgRating.toFixed(2)}`).join('\n')}
@@ -7730,6 +7751,7 @@ User Question: ${userMessage}
 STEP 1 - UNDERSTAND THE QUESTION:
 Think about what specific information the user is asking for. Are they asking about:
 - Sales performance (volume, rankings)?
+- Revenue metrics (total revenue, net sales)?
 - Quality metrics (ratings, complaints)?
 - Specific products or categories?
 - Specific outlets/branches (Koramangala, HSR, Indiranagar, etc.)?
@@ -7738,7 +7760,7 @@ Think about what specific information the user is asking for. Are they asking ab
 - Problems or opportunities?
 - Comparisons between products/outlets/time periods?
 - Stock availability or out-of-stock issues?
-- Why sales increased or decreased (consider stock availability)?
+- Why sales or revenue increased or decreased (consider stock availability)?
 
 STEP 2 - FIND RELEVANT DATA:
 Identify which products from the data above are most relevant to answer this question.
@@ -7752,12 +7774,14 @@ STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
 - IMPORTANT: The data you see is ALREADY FILTERED by the filters shown above
 - Start your response by acknowledging the specific outlet/channel/date if filtered
 - Use actual product names from the filtered data (never say "Product 1" or generic references)
-- Include specific numbers (orders, ratings, percentages)
+- Include specific numbers (orders, ratings, percentages, revenue amounts)
+- When discussing revenue, always use the ₹ symbol and format numbers properly
+- Analyze both sales volume AND revenue together (a product may have low orders but high revenue due to pricing)
 - If identifying problems, explain WHY they're problems with numbers
 - If showing successes, explain what makes them successful
-- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales deprecation
-- When sales are down + stock issues present = explain it's likely a supply problem, NOT demand/quality problem
-- When sales are up + no stock issues = confirm production is keeping pace with demand
+- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales/revenue deprecation
+- When sales/revenue are down + stock issues present = explain it's likely a supply problem, NOT demand/quality problem
+- When sales/revenue are up + no stock issues = confirm production is keeping pace with demand
 - NEVER say "I don't have outlet-specific data" - the data IS outlet-specific if an outlet filter is shown
 - Keep it conversational but data-driven
 - Use plain text only (no markdown like ** or __)
@@ -7947,17 +7971,20 @@ Filters: ${filterInfo}
 Period 1 (${dateQuery.period1.label}):
 - Total Products: ${productData1.summary.totalProductsInSheet}
 - Total Orders: ${productData1.summary.totalOrders}
+- Total Revenue: ₹${productData1.summary.totalRevenue.toFixed(2)}
 - Average Rating: ${productData1.summary.avgRating.toFixed(2)}
 - Low Rated Orders: ${productData1.summary.totalLowRated} (${productData1.summary.avgLowRatedPercentage.toFixed(2)}%)
 
 Period 2 (${dateQuery.period2.label}):
 - Total Products: ${productData2.summary.totalProductsInSheet}
 - Total Orders: ${productData2.summary.totalOrders}
+- Total Revenue: ₹${productData2.summary.totalRevenue.toFixed(2)}
 - Average Rating: ${productData2.summary.avgRating.toFixed(2)}
 - Low Rated Orders: ${productData2.summary.totalLowRated} (${productData2.summary.avgLowRatedPercentage.toFixed(2)}%)
 
 Overall Change:
 - Orders: ${orderChange >= 0 ? '+' : ''}${orderChange} (${orderChangePercent >= 0 ? '+' : ''}${orderChangePercent}%)
+- Revenue: ${(productData1.summary.totalRevenue - productData2.summary.totalRevenue) >= 0 ? '+' : ''}₹${(productData1.summary.totalRevenue - productData2.summary.totalRevenue).toFixed(2)} (${productData2.summary.totalRevenue > 0 ? ((((productData1.summary.totalRevenue - productData2.summary.totalRevenue) / productData2.summary.totalRevenue) * 100).toFixed(1)) : '0'}%)
 - Average Rating: ${ratingChange >= 0 ? '+' : ''}${ratingChange.toFixed(2)}
 
 Top 10 Products with Increased Sales:
