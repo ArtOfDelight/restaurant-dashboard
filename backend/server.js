@@ -7337,6 +7337,12 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
 
     for (let i = 0; i < trackerData.length; i++) {
       const row = trackerData[i];
+
+      // Skip header row (contains "Time", "Outlet", etc.)
+      if (row && row[0] && row[0].toString().toLowerCase() === 'time') {
+        continue;
+      }
+
       if (row && row[0] && row[1] && row[3]) { // Time, Outlet, Item Name required
         const entryTime = row[0].toString().trim();
         const entryOutlet = row[1].toString().trim();
