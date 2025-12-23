@@ -7408,6 +7408,107 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
 }
 
 /**
+ * Delivery Schedule Configuration
+ * Maps outlet codes to their delivery days
+ */
+const DELIVERY_SCHEDULE = {
+  // Group 1: Monday, Thursday, Saturday
+  'BLN': [1, 4, 6],        // Bangalore (assuming)
+  'WF': [1, 4, 6],         // WF
+  'KLN': [1, 4, 6],        // Koramangala (KLN)
+  'SAHA': [1, 4, 6],       // Sahakarnagar
+
+  // Group 2: Wednesday, Friday, Sunday
+  'IND': [3, 5, 0],        // Indiranagar
+  'KOR': [3, 5, 0],        // Koramangala (KOR)
+  'HSR': [3, 5, 0],        // HSR Layout
+  'ARK': [3, 5, 0],        // Arekere
+  'JAY': [3, 5, 0],        // Jayanagar
+
+  // Special: Night deliveries on Monday & Thursday
+  'FERRO': [1, 4]          // FERRO (night deliveries)
+};
+
+// Outlet name mappings (full name to code)
+const OUTLET_NAME_TO_CODE = {
+  'koramangala': 'KLN',
+  'sahakarnagar': 'SAHA',
+  'sahakar nagar': 'SAHA',
+  'indiranagar': 'IND',
+  'hsr layout': 'HSR',
+  'hsr': 'HSR',
+  'arekere': 'ARK',
+  'ck arekere': 'ARK',
+  'jayanagar': 'JAY',
+  'ferro': 'FERRO',
+  'residency road': 'BLN',
+  'marathahalli': 'WF'
+};
+
+/**
+ * Get days until next delivery for an outlet
+ * Returns object with next delivery day info and urgency level
+ */
+function getNextDeliveryInfo(outletName) {
+  const today = new Date();
+  const currentDay = today.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+
+  // Normalize outlet name and get code
+  const normalizedName = outletName.toLowerCase().trim();
+  const outletCode = OUTLET_NAME_TO_CODE[normalizedName];
+
+  if (!outletCode || !DELIVERY_SCHEDULE[outletCode]) {
+    return {
+      hasSchedule: false,
+      message: 'Delivery schedule not available',
+      urgency: 'unknown'
+    };
+  }
+
+  const deliveryDays = DELIVERY_SCHEDULE[outletCode];
+
+  // Find next delivery day
+  let daysUntilDelivery = 7; // Max days in a week
+  let nextDeliveryDay = null;
+
+  for (let i = 0; i <= 7; i++) {
+    const checkDay = (currentDay + i) % 7;
+    if (deliveryDays.includes(checkDay)) {
+      daysUntilDelivery = i;
+      nextDeliveryDay = checkDay;
+      break;
+    }
+  }
+
+  // Determine urgency
+  let urgency, urgencyLabel;
+  if (daysUntilDelivery === 0) {
+    urgency = 'low';
+    urgencyLabel = '✅ OK - Delivery TODAY';
+  } else if (daysUntilDelivery === 1) {
+    urgency = 'low';
+    urgencyLabel = '✅ OK - Delivery TOMORROW';
+  } else if (daysUntilDelivery === 2) {
+    urgency = 'medium';
+    urgencyLabel = '⚠️ MEDIUM - Delivery in 2 days';
+  } else {
+    urgency = 'high';
+    urgencyLabel = `🔴 CRITICAL - Delivery in ${daysUntilDelivery} days`;
+  }
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  return {
+    hasSchedule: true,
+    daysUntilDelivery,
+    nextDeliveryDay: dayNames[nextDeliveryDay],
+    urgency,
+    urgencyLabel,
+    message: urgencyLabel
+  };
+}
+
+/**
  * Get current stock status from Live Inventory sheet
  * Returns real-time IN STOCK / OUT OF STOCK status for all items
  */
@@ -7467,6 +7568,9 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
           continue;
         }
 
+        // Get delivery info for this outlet
+        const deliveryInfo = getNextDeliveryInfo(itemOutlet);
+
         inventoryItems.push({
           skuCode,
           itemName,
@@ -7474,7 +7578,8 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
           status,
           lastStockOutDate: lastStockOut,
           lastStockInDate: lastStockIn,
-          currentSince
+          currentSince,
+          deliveryInfo
         });
       }
     }
@@ -7745,18 +7850,37 @@ IMPORTANT: Always include the SKU code when listing out-of-stock items.
       const outOfStockItems = liveInventoryData.items.filter(item => item.status.toLowerCase().includes('out'));
       const inStockItems = liveInventoryData.items.filter(item => item.status.toLowerCase().includes('in'));
 
+      // Group OUT OF STOCK items by urgency
+      const criticalItems = outOfStockItems.filter(item => item.deliveryInfo?.urgency === 'high');
+      const mediumItems = outOfStockItems.filter(item => item.deliveryInfo?.urgency === 'medium');
+      const okItems = outOfStockItems.filter(item => item.deliveryInfo?.urgency === 'low');
+      const unknownItems = outOfStockItems.filter(item => !item.deliveryInfo?.hasSchedule);
+
       stockInfo += `\n=== LIVE INVENTORY STATUS (CURRENT) ===
 ${liveInventoryData.summary}
 
-Currently OUT OF STOCK Items (${outOfStockItems.length}):
-${outOfStockItems.slice(0, 50).map((item, idx) =>
+🔴 CRITICAL OUT OF STOCK (${criticalItems.length}) - Delivery 3+ days away:
+${criticalItems.slice(0, 30).map((item, idx) =>
   `${idx + 1}. ${item.itemName}
    - SKU: ${item.skuCode || 'N/A'}
    - Outlet: ${item.outlet}
-   - Last Stock Out: ${item.lastStockOutDate}
-   - Current Since: ${item.currentSince}`
+   - ${item.deliveryInfo.urgencyLabel} (Next: ${item.deliveryInfo.nextDeliveryDay})
+   - Out Since: ${item.lastStockOutDate}`
 ).join('\n')}
-${outOfStockItems.length > 50 ? `\n... and ${outOfStockItems.length - 50} more OUT OF STOCK items` : ''}
+${criticalItems.length > 30 ? `\n... and ${criticalItems.length - 30} more CRITICAL items` : ''}
+
+⚠️ MEDIUM PRIORITY OUT OF STOCK (${mediumItems.length}) - Delivery in 2 days:
+${mediumItems.slice(0, 20).map((item, idx) =>
+  `${idx + 1}. ${item.itemName} - ${item.outlet} - ${item.deliveryInfo.urgencyLabel}`
+).join('\n')}
+${mediumItems.length > 20 ? `\n... and ${mediumItems.length - 20} more MEDIUM items` : ''}
+
+✅ OK - OUT OF STOCK (${okItems.length}) - Delivery today/tomorrow:
+${okItems.slice(0, 15).map((item, idx) =>
+  `${idx + 1}. ${item.itemName} - ${item.outlet} - ${item.deliveryInfo.urgencyLabel}`
+).join('\n')}
+${okItems.length > 15 ? `\n... and ${okItems.length - 15} more OK items` : ''}
+${unknownItems.length > 0 ? `\n${unknownItems.length} items with unknown delivery schedule` : ''}
 
 Currently IN STOCK Items (${inStockItems.length}):
 ${inStockItems.slice(0, 20).map((item, idx) =>
@@ -7764,7 +7888,14 @@ ${inStockItems.slice(0, 20).map((item, idx) =>
 ).join('\n')}
 ${inStockItems.length > 20 ? `\n... and ${inStockItems.length - 20} more IN STOCK items` : ''}
 
-IMPORTANT: This is REAL-TIME inventory status. When user asks "what's currently out of stock" or "current stock status", use this section.
+DELIVERY SCHEDULE CONTEXT:
+- Group 1 (BLN, WF, KLN/Koramangala, Sahakarnagar): Mon, Thu, Sat deliveries
+- Group 2 (Indiranagar, HSR, Arekere, Jayanagar): Wed, Fri, Sun deliveries
+- FERRO: Night deliveries Mon & Thu
+- We keep half-day stock, so items out today/tomorrow delivery = low priority
+- CRITICAL items need immediate attention (3+ days until delivery)
+
+IMPORTANT: This is REAL-TIME inventory status prioritized by delivery urgency. When answering, focus on CRITICAL items first.
 `;
     }
 
