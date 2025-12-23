@@ -232,10 +232,10 @@ function AODAssistant() {
               margin: '40px auto 0'
             }}>
               {[
-                'Which items went out of stock last week?',
+                'Which products generate the most revenue?',
                 'What are the best selling products?',
-                'Show me low-rated products',
-                'Compare this week vs last week'
+                'Show me total revenue this week',
+                'Compare revenue this week vs last week'
               ].map((suggestion, idx) => (
                 <button
                   key={idx}

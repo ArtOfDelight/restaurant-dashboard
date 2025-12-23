@@ -5198,6 +5198,7 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
   const totalRevenueIndex = headers.findIndex(h => h && h.toLowerCase().includes('total revenue'));
 
   console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}, Net Sale: ${netSaleIndex}, Packaging Charges: ${packagingChargesIndex}, Total Revenue: ${totalRevenueIndex}`);
+  console.log(`Revenue calculation: ${totalRevenueIndex !== -1 ? 'Using Total Revenue column' : 'Calculating from Net Sale + Packaging Charges'}`);
 
   if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
     console.error('ERROR: Required columns not found in ProductDetails sheet');
@@ -5226,7 +5227,10 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
     const netSale = netSaleIndex !== -1 ? (parseFloat(row[netSaleIndex]) || 0) : 0;
     const packagingCharges = packagingChargesIndex !== -1 ? (parseFloat(row[packagingChargesIndex]) || 0) : 0;
-    const totalRevenue = totalRevenueIndex !== -1 ? (parseFloat(row[totalRevenueIndex]) || 0) : 0;
+    // Calculate totalRevenue: use the column if it exists, otherwise calculate from netSale + packagingCharges
+    const totalRevenue = totalRevenueIndex !== -1
+      ? (parseFloat(row[totalRevenueIndex]) || 0)
+      : (netSale + packagingCharges);
 
     if (!itemName) continue;
 
