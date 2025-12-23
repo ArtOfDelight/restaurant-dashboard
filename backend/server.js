@@ -5626,6 +5626,7 @@ function matchProductsWithRatings(productDetails, zomatoItems, swiggyItems) {
       matchedProducts.push({
         name: product.itemName,
         totalOrders: totalOrders,
+        totalRevenue: product.totalRevenue || 0,
         zomatoMatch: zomatoMatch ? '✓' : '✗',
         swiggyMatch: swiggyMatch ? '✓' : '✗',
         avgRating: parseFloat(avgRating.toFixed(2)),
