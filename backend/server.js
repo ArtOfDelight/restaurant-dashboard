@@ -7408,6 +7408,109 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
 }
 
 /**
+ * Get current stock status from Live Inventory sheet
+ * Returns real-time IN STOCK / OUT OF STOCK status for all items
+ */
+async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
+    const LIVE_INVENTORY_TAB = 'Live Inventory';
+
+    console.log(`📦 Fetching Live Inventory${outlet ? ` for ${outlet}` : ''}${statusFilter ? ` (${statusFilter})` : ''}`);
+
+    // Fetch live inventory data
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${LIVE_INVENTORY_TAB}!A:G`, // A=SKU, B=Item, C=Outlet, D=Status, E=LastOut, F=LastIn, G=CurrentSince
+    });
+
+    const allData = response.data.values || [];
+
+    if (allData.length <= 1) {
+      return { items: [], summary: 'No live inventory data available' };
+    }
+
+    // Skip header row
+    const dataRows = allData.slice(1);
+
+    const inventoryItems = [];
+    let filteredCount = 0;
+
+    for (const row of dataRows) {
+      if (row && row.length >= 4) { // Need at least SKU, Item, Outlet, Status
+        const skuCode = row[0] ? row[0].toString().trim() : '';
+        const itemName = row[1] ? row[1].toString().trim() : '';
+        const itemOutlet = row[2] ? row[2].toString().trim() : '';
+        const status = row[3] ? row[3].toString().trim() : '';
+        const lastStockOut = row[4] ? row[4].toString().trim() : '';
+        const lastStockIn = row[5] ? row[5].toString().trim() : '';
+        const currentSince = row[6] ? row[6].toString().trim() : '';
+
+        // Skip if missing required fields
+        if (!itemName || !itemOutlet || !status) {
+          continue;
+        }
+
+        // Apply outlet filter if specified
+        if (outlet && itemOutlet.toLowerCase() !== outlet.toLowerCase()) {
+          filteredCount++;
+          continue;
+        }
+
+        // Apply status filter if specified (OUT OF STOCK, IN STOCK)
+        if (statusFilter && status.toLowerCase() !== statusFilter.toLowerCase()) {
+          filteredCount++;
+          continue;
+        }
+
+        inventoryItems.push({
+          skuCode,
+          itemName,
+          outlet: itemOutlet,
+          status,
+          lastStockOutDate: lastStockOut,
+          lastStockInDate: lastStockIn,
+          currentSince
+        });
+      }
+    }
+
+    // Generate summary
+    const outOfStockCount = inventoryItems.filter(item => item.status.toLowerCase().includes('out')).length;
+    const inStockCount = inventoryItems.filter(item => item.status.toLowerCase().includes('in')).length;
+
+    const summary = outlet
+      ? `${outlet}: ${outOfStockCount} OUT OF STOCK, ${inStockCount} IN STOCK`
+      : `Total: ${outOfStockCount} OUT OF STOCK, ${inStockCount} IN STOCK across all outlets`;
+
+    console.log(`📊 Live Inventory Results: ${inventoryItems.length} items (filtered: ${filteredCount})`);
+
+    return {
+      items: inventoryItems,
+      summary,
+      counts: {
+        total: inventoryItems.length,
+        outOfStock: outOfStockCount,
+        inStock: inStockCount,
+        filtered: filteredCount
+      }
+    };
+
+  } catch (error) {
+    console.error('Error fetching live inventory:', error.message);
+    return {
+      items: [],
+      summary: 'Error fetching live inventory data',
+      error: error.message
+    };
+  }
+}
+
+/**
  * Correlate sales deprecation with stock availability
  * Analyzes if sales decrease is due to stock issues
  */
@@ -7517,9 +7620,18 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking primarily about stock (not sales analysis)
     const isStockFocusedQuery = /out of stock|stock.*out|went.*stock|stock.*issue|stock.*event|which.*stock|stock.*last week/i.test(userMessage);
 
+    // Check if user is asking about current/live stock status
+    const isLiveInventoryQuery = /current.*stock|currently.*stock|what.*in stock|live.*inventory|stock.*status|stock.*now|which.*currently/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
+    let liveInventoryData = null;
+
+    // Get live inventory if user is asking about current status
+    if (isLiveInventoryQuery) {
+      liveInventoryData = await getLiveInventoryStatus(filters.branch || null, null);
+    }
 
     if (isStockFocusedQuery) {
       // Parse days from dateRangeInfo for ALL stock events
@@ -7625,6 +7737,34 @@ IMPORTANT: Always include the SKU code when listing out-of-stock items.
 ✓ No stock availability issues detected for analyzed products.
 - All products appear to have been consistently in stock during this period.
 - Sales performance reflects actual demand, not stock constraints.
+`;
+    }
+
+    // Add live inventory data if requested
+    if (liveInventoryData && liveInventoryData.items.length > 0) {
+      const outOfStockItems = liveInventoryData.items.filter(item => item.status.toLowerCase().includes('out'));
+      const inStockItems = liveInventoryData.items.filter(item => item.status.toLowerCase().includes('in'));
+
+      stockInfo += `\n=== LIVE INVENTORY STATUS (CURRENT) ===
+${liveInventoryData.summary}
+
+Currently OUT OF STOCK Items (${outOfStockItems.length}):
+${outOfStockItems.slice(0, 50).map((item, idx) =>
+  `${idx + 1}. ${item.itemName}
+   - SKU: ${item.skuCode || 'N/A'}
+   - Outlet: ${item.outlet}
+   - Last Stock Out: ${item.lastStockOutDate}
+   - Current Since: ${item.currentSince}`
+).join('\n')}
+${outOfStockItems.length > 50 ? `\n... and ${outOfStockItems.length - 50} more OUT OF STOCK items` : ''}
+
+Currently IN STOCK Items (${inStockItems.length}):
+${inStockItems.slice(0, 20).map((item, idx) =>
+  `${idx + 1}. ${item.itemName} - ${item.outlet} (Last Stock In: ${item.lastStockInDate})`
+).join('\n')}
+${inStockItems.length > 20 ? `\n... and ${inStockItems.length - 20} more IN STOCK items` : ''}
+
+IMPORTANT: This is REAL-TIME inventory status. When user asks "what's currently out of stock" or "current stock status", use this section.
 `;
     }
 
