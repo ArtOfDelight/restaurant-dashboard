@@ -5206,12 +5206,13 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
   const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
   const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
   const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
-  const netSaleIndex = headers.findIndex(h => h && h.toLowerCase().includes('net sale'));
-  const packagingChargesIndex = headers.findIndex(h => h && h.toLowerCase().includes('packaging charges'));
-  const totalRevenueIndex = headers.findIndex(h => h && h.toLowerCase().includes('total revenue'));
+  const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
 
-  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}, Net Sale: ${netSaleIndex}, Packaging Charges: ${packagingChargesIndex}, Total Revenue: ${totalRevenueIndex}`);
-  console.log(`Revenue calculation: ${totalRevenueIndex !== -1 ? 'Using Total Revenue column' : 'Calculating from Net Sale + Packaging Charges'}`);
+  console.log(`ProductDetails columns - Date: ${dateIndex}, Item Name: ${itemNameIndex}, Order Count: ${orderCountIndex}, Branch: ${branchIndex}, Channel: ${channelIndex}, Revenue: ${revenueIndex}`);
+
+  if (revenueIndex === -1) {
+    console.warn('WARNING: Revenue column not found in ProductDetails sheet');
+  }
 
   if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
     console.error('ERROR: Required columns not found in ProductDetails sheet');
@@ -5238,12 +5239,7 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     const orderCount = parseInt(row[orderCountIndex]) || 0;
     const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
     const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
-    const netSale = netSaleIndex !== -1 ? parseCurrencyValue(row[netSaleIndex]) : 0;
-    const packagingCharges = packagingChargesIndex !== -1 ? parseCurrencyValue(row[packagingChargesIndex]) : 0;
-    // Calculate totalRevenue: use the column if it exists, otherwise calculate from netSale + packagingCharges
-    const totalRevenue = totalRevenueIndex !== -1
-      ? parseCurrencyValue(row[totalRevenueIndex])
-      : (netSale + packagingCharges);
+    const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
 
     if (!itemName) continue;
 
@@ -5279,16 +5275,12 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     if (itemsMap.has(normalizedName)) {
       const existing = itemsMap.get(normalizedName);
       existing.totalOrders += orderCount;
-      existing.totalNetSale += netSale;
-      existing.totalPackagingCharges += packagingCharges;
-      existing.totalRevenue += totalRevenue;
+      existing.totalRevenue += revenue;
     } else {
       itemsMap.set(normalizedName, {
         itemName,
         totalOrders: orderCount,
-        totalNetSale: netSale,
-        totalPackagingCharges: packagingCharges,
-        totalRevenue: totalRevenue,
+        totalRevenue: revenue,
         normalizedName
       });
     }
@@ -5773,8 +5765,6 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       totalOrders: matchedProducts.reduce((sum, p) => sum + p.totalOrders, 0),
       totalHighRated: matchedProducts.reduce((sum, p) => sum + p.highRated, 0),
       totalLowRated: matchedProducts.reduce((sum, p) => sum + p.lowRated, 0),
-      totalNetSale: matchedProducts.reduce((sum, p) => sum + (p.totalNetSale || 0), 0),
-      totalPackagingCharges: matchedProducts.reduce((sum, p) => sum + (p.totalPackagingCharges || 0), 0),
       totalRevenue: matchedProducts.reduce((sum, p) => sum + (p.totalRevenue || 0), 0),
       avgRating: 0,
       avgLowRatedPercentage: 0,
@@ -5800,8 +5790,6 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
     console.log(`Matched Products (100%): ${summary.matchedProducts}`);
     console.log(`Unmatched Products: ${summary.unmatchedProducts}`);
     console.log(`Total Orders: ${summary.totalOrders}`);
-    console.log(`Total Net Sale: ₹${summary.totalNetSale.toFixed(2)}`);
-    console.log(`Total Packaging Charges: ₹${summary.totalPackagingCharges.toFixed(2)}`);
     console.log(`Total Revenue: ₹${summary.totalRevenue.toFixed(2)}`);
     console.log(`High Rated: ${summary.totalHighRated} (${summary.totalOrders > 0 ? ((summary.totalHighRated / summary.totalOrders) * 100).toFixed(2) : 0}%)`);
     console.log(`Low Rated: ${summary.totalLowRated} (${summary.avgLowRatedPercentage.toFixed(2)}%)`);
@@ -7643,8 +7631,6 @@ Filters: ${filterInfo}
 Product Data Summary:
 - Total Products: ${productData.summary.totalProductsInSheet}
 - Total Orders: ${productData.summary.totalOrders}
-- Total Net Sale: ₹${productData.summary.totalNetSale.toFixed(2)}
-- Total Packaging Charges: ₹${productData.summary.totalPackagingCharges.toFixed(2)}
 - Total Revenue: ₹${productData.summary.totalRevenue.toFixed(2)}
 - Average Rating: ${productData.summary.avgRating.toFixed(2)}
 - High Rated Orders: ${productData.summary.totalHighRated}
