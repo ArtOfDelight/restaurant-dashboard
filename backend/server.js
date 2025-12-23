@@ -6651,17 +6651,22 @@ app.get('/api/debug-product-analysis', async (req, res) => {
     const PRODUCT_SPREADSHEET_ID = '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
     console.log(`Debug: Fetching raw data from ${PRODUCT_SPREADSHEET_ID}`);
 
-    const [zomatoOrders, swiggyReview, igccComplaints] = await Promise.all([
+    const [productDetails, zomatoOrders, swiggyReview, igccComplaints] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: PRODUCT_SPREADSHEET_ID,
+        range: `ProductDetails!A1:Z20`,
+      }).catch(e => ({ data: { values: null }, error: e.message })),
+
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `zomato_orders!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message })),
-      
+
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `Copy of swiggy_review!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message })),
-      
+
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
         range: `IGCC!A1:Z20`,
@@ -6672,6 +6677,11 @@ app.get('/api/debug-product-analysis', async (req, res) => {
       success: true,
       spreadsheetId: PRODUCT_SPREADSHEET_ID,
       sheets: {
+        product_details: {
+          headers: productDetails.data.values?.[0] || null,
+          sample: productDetails.data.values?.slice(1, 6) || null,
+          error: productDetails.error || null
+        },
         zomato_orders: {
           headers: zomatoOrders.data.values?.[0] || null,
           sample: zomatoOrders.data.values?.slice(1, 6) || null,
@@ -6688,7 +6698,7 @@ app.get('/api/debug-product-analysis', async (req, res) => {
           error: igccComplaints.error || null
         }
       },
-      note: "Only IGCC is used for complaints. Zomato/Swiggy complaints are ignored.",
+      note: "ProductDetails is used for order counts and revenue. IGCC is used for complaints. Zomato/Swiggy are used for ratings.",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
