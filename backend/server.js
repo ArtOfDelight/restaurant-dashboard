@@ -9795,31 +9795,38 @@ app.get('/api/debug-stock', async (req, res) => {
     }
 
     const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
-    
+
     console.log(`Debug: Checking stock spreadsheet ${STOCK_SPREADSHEET_ID}`);
 
-    // Test with first outlet
-    const testOutlet = 'Sahakarnagar';
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${testOutlet}!A1:C10`, // Get first 10 rows for debugging
-    });
+    // Fetch both Tracker and Live Inventory sheets
+    const [trackerData, liveInventoryData] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        range: 'Tracker!A1:E20',
+      }).catch(e => ({ data: { values: null }, error: e.message })),
 
-    const rawData = response.data.values || [];
+      sheets.spreadsheets.values.get({
+        spreadsheetId: STOCK_SPREADSHEET_ID,
+        range: 'Live Inventory!A1:G20',
+      }).catch(e => ({ data: { values: null }, error: e.message }))
+    ]);
 
     res.json({
       success: true,
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      testOutlet: testOutlet,
-      rawData: rawData,
-      rowCount: rawData.length,
-      headers: rawData[0] || null,
-      sampleData: rawData.slice(1, 4), // Show 3 sample rows
-      expectedStructure: {
-        'A': 'skuCode',
-        'B': 'shortName',
-        'C': 'longName'
+      sheets: {
+        tracker: {
+          headers: trackerData.data.values?.[0] || null,
+          sample: trackerData.data.values?.slice(1, 6) || null,
+          error: trackerData.error || null
+        },
+        liveInventory: {
+          headers: liveInventoryData.data.values?.[0] || null,
+          sample: liveInventoryData.data.values?.slice(1, 6) || null,
+          error: liveInventoryData.error || null
+        }
       },
+      note: "Tracker shows stock-out events. Live Inventory shows current status with last stock out/in dates.",
       timestamp: new Date().toISOString()
     });
 
