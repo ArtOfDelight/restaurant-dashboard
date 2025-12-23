@@ -1000,7 +1000,7 @@ async function sendCriticalStockAlerts() {
       }
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
 
     // Step 1: Get critical items from MasterSheet
     const masterResponse = await sheets.spreadsheets.values.get({
@@ -7125,7 +7125,7 @@ async function getStockDataForProducts(productNames, daysBack = 7, outlet = null
       await initializeGoogleServices();
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     const TRACKER_TAB = 'Tracker';
 
     console.log(`Fetching stock tracker data for ${productNames.length} products (last ${daysBack} days)`);
@@ -7289,7 +7289,7 @@ async function getAllStockEvents(daysBack = 7, outlet = null) {
       await initializeGoogleServices();
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     const TRACKER_TAB = 'Tracker';
 
     console.log(`Fetching ALL stock events from tracker (last ${daysBack} days)`);
@@ -9668,7 +9668,7 @@ app.get('/api/stock-data', async (req, res) => {
       }
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     
     // List of outlet names (tabs)
     const outlets = [
@@ -9794,7 +9794,7 @@ app.get('/api/debug-stock', async (req, res) => {
       await initializeGoogleServices();
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     
     console.log(`Debug: Checking stock spreadsheet ${STOCK_SPREADSHEET_ID}`);
 
@@ -9828,7 +9828,7 @@ app.get('/api/debug-stock', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8'
+      spreadsheetId: '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg'
     });
   }
 });
@@ -9862,7 +9862,7 @@ app.get('/api/stock-tracker-data', async (req, res) => {
       }
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     const TRACKER_TAB = 'Tracker';
     
     console.log(`Fetching tracker data from: ${STOCK_SPREADSHEET_ID}, Tab: ${TRACKER_TAB}`);
@@ -9955,7 +9955,7 @@ app.get('/api/stock-summary', async (req, res) => {
       }
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
 
     // Step 1: Get all items from MasterSheet for reference
     console.log('Step 1: Loading MasterSheet for item reference...');
@@ -10135,7 +10135,7 @@ app.get('/api/stock-item-details/:skuCode', async (req, res) => {
       }
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
 
     // Step 1: Get item name from MasterSheet
     console.log(`[POPUP] Getting item name for SKU: ${skuCode}`);
@@ -10318,7 +10318,7 @@ app.get('/api/debug-stock-summary', async (req, res) => {
       await initializeGoogleServices();
     }
 
-    const STOCK_SPREADSHEET_ID = '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8';
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     const testOutlets = ['Sahakarnagar', 'Residency Road'];
     
     console.log(`Debug: Testing stock summary with outlets: ${testOutlets.join(', ')}`);
@@ -10366,7 +10366,7 @@ app.get('/api/debug-stock-summary', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
-      spreadsheetId: '16ut6A_7EHEjVbzEne23dhoQtPtDvoMt8P478huFaGS8'
+      spreadsheetId: '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg'
     });
   }
 });
