@@ -5180,6 +5180,19 @@ function isDateInRange(dateStr, startDate, endDate) {
 }
 
 /**
+ * Parse currency value - removes ₹ symbol, commas, and other non-numeric characters
+ * @param {string|number} value - The value to parse
+ * @returns {number} - Parsed number or 0
+ */
+function parseCurrencyValue(value) {
+  if (!value) return 0;
+  // Convert to string and remove ₹, commas, and extra spaces
+  const cleanValue = value.toString().replace(/[₹,\s]/g, '');
+  const parsed = parseFloat(cleanValue);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
  * Process ProductDetails sheet - Aggregate orders by item name with date filter
  * @param {Array} rawData - The raw sheet data
  * @param {Number|Object} filterOrRange - Either daysFilter (number) or dateRange {startDate, endDate}
@@ -5225,11 +5238,11 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
     const orderCount = parseInt(row[orderCountIndex]) || 0;
     const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
     const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
-    const netSale = netSaleIndex !== -1 ? (parseFloat(row[netSaleIndex]) || 0) : 0;
-    const packagingCharges = packagingChargesIndex !== -1 ? (parseFloat(row[packagingChargesIndex]) || 0) : 0;
+    const netSale = netSaleIndex !== -1 ? parseCurrencyValue(row[netSaleIndex]) : 0;
+    const packagingCharges = packagingChargesIndex !== -1 ? parseCurrencyValue(row[packagingChargesIndex]) : 0;
     // Calculate totalRevenue: use the column if it exists, otherwise calculate from netSale + packagingCharges
     const totalRevenue = totalRevenueIndex !== -1
-      ? (parseFloat(row[totalRevenueIndex]) || 0)
+      ? parseCurrencyValue(row[totalRevenueIndex])
       : (netSale + packagingCharges);
 
     if (!itemName) continue;
