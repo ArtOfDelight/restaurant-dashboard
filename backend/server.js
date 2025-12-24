@@ -7731,7 +7731,7 @@ async function calculateSalesImpact(productNames, daysBack = 7, outlet = null) {
           const beforePeriodEnd = new Date(stockOutDate);
           beforePeriodEnd.setDate(beforePeriodEnd.getDate() - 1);
           const beforePeriodStart = new Date(beforePeriodEnd);
-          beforePeriodStart.setDate(beforePeriodStart.setDate(beforePeriodStart.getDate() - 6)); // 7 days before
+          beforePeriodStart.setDate(beforePeriodStart.getDate() - 6); // 7 days before
 
           const duringPeriodStart = stockOutDate;
           const duringPeriodEnd = new Date(stockOutDate);
