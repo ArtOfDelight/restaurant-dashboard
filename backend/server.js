@@ -7686,6 +7686,247 @@ async function correlateSalesWithStock(productData, dateRangeInfo, filters = {})
   }
 }
 
+/**
+ * Calculate sales impact before and after stock-out events
+ * Returns percentage drop in sales and revenue impact
+ */
+async function calculateSalesImpact(productNames, daysBack = 7, outlet = null) {
+  try {
+    console.log('Calculating sales impact for stock-out events...');
+
+    // Get stock-out events for the specified products
+    const stockData = await getStockDataForProducts(productNames, daysBack, outlet);
+
+    if (!stockData.productStockMap || stockData.productStockMap.size === 0) {
+      return {
+        success: false,
+        message: 'No stock-out events found for the specified products and time period.',
+        impacts: []
+      };
+    }
+
+    const impacts = [];
+
+    // Process each product that had stock-out events
+    for (const [productName, stockInfo] of stockData.productStockMap) {
+      const productImpacts = [];
+
+      // Process each stock-out event
+      for (const event of stockInfo.detailedEvents || []) {
+        try {
+          // Parse the stock-out date (format: "DD/MM/YYYY HH:mm")
+          const stockOutDateParts = event.time.split(' ')[0].split('/');
+          const stockOutDate = new Date(
+            parseInt(stockOutDateParts[2]),
+            parseInt(stockOutDateParts[1]) - 1,
+            parseInt(stockOutDateParts[0])
+          );
+
+          if (isNaN(stockOutDate.getTime())) {
+            console.warn(`Invalid date for stock-out event: ${event.time}`);
+            continue;
+          }
+
+          // Define periods
+          const beforePeriodEnd = new Date(stockOutDate);
+          beforePeriodEnd.setDate(beforePeriodEnd.getDate() - 1);
+          const beforePeriodStart = new Date(beforePeriodEnd);
+          beforePeriodStart.setDate(beforePeriodStart.setDate(beforePeriodStart.getDate() - 6)); // 7 days before
+
+          const duringPeriodStart = stockOutDate;
+          const duringPeriodEnd = new Date(stockOutDate);
+          duringPeriodEnd.setDate(duringPeriodEnd.getDate() + 2); // Assume 3-day stock-out
+
+          const afterPeriodStart = new Date(duringPeriodEnd);
+          afterPeriodStart.setDate(afterPeriodStart.getDate() + 1);
+          const afterPeriodEnd = new Date(afterPeriodStart);
+          afterPeriodEnd.setDate(afterPeriodEnd.getDate() + 6); // 7 days after
+
+          // Get sales data for each period
+          const beforeSales = await getSalesForPeriod(productName, beforePeriodStart, beforePeriodEnd, event.outlet);
+          const duringSales = await getSalesForPeriod(productName, duringPeriodStart, duringPeriodEnd, event.outlet);
+          const afterSales = await getSalesForPeriod(productName, afterPeriodStart, afterPeriodEnd, event.outlet);
+
+          // Calculate impact
+          const avgDailyBefore = beforeSales.totalOrders / 7;
+          const avgDailyDuring = duringSales.totalOrders / 3;
+          const avgDailyAfter = afterSales.totalOrders / 7;
+
+          const salesDropPercentage = avgDailyBefore > 0
+            ? ((avgDailyBefore - avgDailyDuring) / avgDailyBefore * 100)
+            : 0;
+
+          const expectedOrders = avgDailyBefore * 3;
+          const lostOrders = Math.max(0, expectedOrders - duringSales.totalOrders);
+          const lostRevenue = lostOrders * (beforeSales.totalRevenue / Math.max(1, beforeSales.totalOrders));
+
+          productImpacts.push({
+            stockOutDate: event.time,
+            outlet: event.outlet,
+            sku: event.sku,
+            beforePeriod: {
+              start: beforePeriodStart.toISOString().split('T')[0],
+              end: beforePeriodEnd.toISOString().split('T')[0],
+              totalOrders: beforeSales.totalOrders,
+              totalRevenue: beforeSales.totalRevenue,
+              avgDailyOrders: avgDailyBefore.toFixed(2)
+            },
+            duringPeriod: {
+              start: duringPeriodStart.toISOString().split('T')[0],
+              end: duringPeriodEnd.toISOString().split('T')[0],
+              totalOrders: duringSales.totalOrders,
+              totalRevenue: duringSales.totalRevenue,
+              avgDailyOrders: avgDailyDuring.toFixed(2)
+            },
+            afterPeriod: {
+              start: afterPeriodStart.toISOString().split('T')[0],
+              end: afterPeriodEnd.toISOString().split('T')[0],
+              totalOrders: afterSales.totalOrders,
+              totalRevenue: afterSales.totalRevenue,
+              avgDailyOrders: avgDailyAfter.toFixed(2)
+            },
+            impact: {
+              salesDropPercentage: salesDropPercentage.toFixed(2),
+              lostOrders: Math.round(lostOrders),
+              lostRevenue: lostRevenue.toFixed(2),
+              recoveryPercentage: avgDailyBefore > 0
+                ? ((avgDailyAfter / avgDailyBefore) * 100).toFixed(2)
+                : 0
+            }
+          });
+        } catch (eventError) {
+          console.error(`Error processing event for ${productName}:`, eventError.message);
+        }
+      }
+
+      if (productImpacts.length > 0) {
+        // Calculate aggregate impact for the product
+        const totalLostOrders = productImpacts.reduce((sum, imp) => sum + parseInt(imp.impact.lostOrders), 0);
+        const totalLostRevenue = productImpacts.reduce((sum, imp) => sum + parseFloat(imp.impact.lostRevenue), 0);
+        const avgSalesDropPercentage = productImpacts.reduce((sum, imp) => sum + parseFloat(imp.impact.salesDropPercentage), 0) / productImpacts.length;
+
+        impacts.push({
+          productName,
+          totalStockOutEvents: productImpacts.length,
+          totalLostOrders,
+          totalLostRevenue: totalLostRevenue.toFixed(2),
+          avgSalesDropPercentage: avgSalesDropPercentage.toFixed(2),
+          events: productImpacts
+        });
+      }
+    }
+
+    // Sort by total lost revenue (highest impact first)
+    impacts.sort((a, b) => parseFloat(b.totalLostRevenue) - parseFloat(a.totalLostRevenue));
+
+    return {
+      success: true,
+      totalProducts: impacts.length,
+      totalLostOrders: impacts.reduce((sum, imp) => sum + imp.totalLostOrders, 0),
+      totalLostRevenue: impacts.reduce((sum, imp) => sum + parseFloat(imp.totalLostRevenue), 0).toFixed(2),
+      impacts
+    };
+
+  } catch (error) {
+    console.error('Error calculating sales impact:', error.message);
+    return {
+      success: false,
+      message: `Error: ${error.message}`,
+      impacts: []
+    };
+  }
+}
+
+/**
+ * Get sales data for a specific product and time period
+ */
+async function getSalesForPeriod(productName, startDate, endDate, outlet = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    // Fetch ProductDetails sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A:Z'
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length < 2) {
+      return { totalOrders: 0, totalRevenue: 0 };
+    }
+
+    const headers = rows[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+    const ordersIndex = headers.findIndex(h => h && h.toLowerCase() === 'orders');
+    const revenueIndex = headers.findIndex(h => h && (h.toLowerCase().includes('revenue') || h.toLowerCase().includes('total')));
+    const outletIndex = headers.findIndex(h => h && (h.toLowerCase().includes('outlet') || h.toLowerCase().includes('branch')));
+
+    let totalOrders = 0;
+    let totalRevenue = 0;
+
+    // Process rows
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+
+      // Check product name match (fuzzy)
+      const itemName = row[itemNameIndex] || '';
+      if (!itemName.toLowerCase().includes(productName.toLowerCase().substring(0, 10))) {
+        continue;
+      }
+
+      // Check outlet match if specified
+      if (outlet && outletIndex >= 0) {
+        const rowOutlet = row[outletIndex] || '';
+        if (!rowOutlet.toLowerCase().includes(outlet.toLowerCase())) {
+          continue;
+        }
+      }
+
+      // Check date range
+      if (dateIndex >= 0) {
+        const dateStr = row[dateIndex];
+        if (dateStr) {
+          const rowDate = parseDate(dateStr);
+          if (rowDate && rowDate >= startDate && rowDate <= endDate) {
+            totalOrders += parseInt(row[ordersIndex]) || 0;
+            totalRevenue += parseFloat(row[revenueIndex]) || 0;
+          }
+        }
+      }
+    }
+
+    return { totalOrders, totalRevenue };
+
+  } catch (error) {
+    console.error('Error getting sales for period:', error.message);
+    return { totalOrders: 0, totalRevenue: 0 };
+  }
+}
+
+/**
+ * Parse date string in various formats
+ */
+function parseDate(dateStr) {
+  try {
+    // Try DD/MM/YYYY format
+    if (dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      }
+    }
+
+    // Try standard Date parsing
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? null : date;
+  } catch (error) {
+    return null;
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -7728,10 +7969,14 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about current/live stock status
     const isLiveInventoryQuery = /current.*stock|currently.*stock|what.*in stock|live.*inventory|stock.*status|stock.*now|which.*currently/i.test(userMessage);
 
+    // Check if user is asking about sales impact from stock-outs
+    const isSalesImpactQuery = /sales.*impact|impact.*sales|percentage.*drop|drop.*sales|lost.*sales|lost.*revenue|sales.*before.*after|before.*after.*stock|revenue.*impact|calculate.*impact|sales.*decrease|decrease.*sales/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
     let liveInventoryData = null;
+    let salesImpactData = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -7753,6 +7998,21 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     } else {
       // Get stock correlation with sales data
       stockCorrelation = await correlateSalesWithStock(productData, dateRangeInfo, filters);
+    }
+
+    // Calculate sales impact if user is asking about impact
+    if (isSalesImpactQuery && productData.products.length > 0) {
+      // Parse days from dateRangeInfo
+      let daysBack = 7;
+      if (dateRangeInfo.includes('last 7 days') || dateRangeInfo.includes('Last 7 days')) daysBack = 7;
+      else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+      else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+
+      // Get product names from the current product data
+      const productNames = productData.products.slice(0, 50).map(p => p.name);
+
+      // Calculate sales impact
+      salesImpactData = await calculateSalesImpact(productNames, daysBack, filters.branch || null);
     }
 
     // Prepare stock information for prompt
@@ -7896,6 +8156,55 @@ DELIVERY SCHEDULE CONTEXT:
 - CRITICAL items need immediate attention (3+ days until delivery)
 
 IMPORTANT: This is REAL-TIME inventory status prioritized by delivery urgency. When answering, focus on CRITICAL items first.
+`;
+    }
+
+    // Add sales impact analysis if calculated
+    if (salesImpactData && salesImpactData.success && salesImpactData.impacts.length > 0) {
+      stockInfo += `\n=== SALES IMPACT ANALYSIS - BEFORE/AFTER STOCK-OUTS ===
+Summary:
+- Total Products Analyzed: ${salesImpactData.totalProducts}
+- Total Lost Orders: ${salesImpactData.totalLostOrders}
+- Total Lost Revenue: ₹${salesImpactData.totalLostRevenue}
+
+Detailed Impact by Product (sorted by revenue impact):
+${salesImpactData.impacts.map((product, idx) => `
+${idx + 1}. ${product.productName}
+   - Stock-Out Events: ${product.totalStockOutEvents}
+   - Average Sales Drop: ${product.avgSalesDropPercentage}%
+   - Total Lost Orders: ${product.totalLostOrders}
+   - Total Lost Revenue: ₹${product.totalLostRevenue}
+
+   Detailed Events:
+${product.events.map((event, eventIdx) => `   Event ${eventIdx + 1} - ${event.stockOutDate} at ${event.outlet}:
+      • Before Stock-Out (${event.beforePeriod.start} to ${event.beforePeriod.end}):
+        - Orders: ${event.beforePeriod.totalOrders} | Revenue: ₹${event.beforePeriod.totalRevenue.toFixed(2)}
+        - Avg Daily Orders: ${event.beforePeriod.avgDailyOrders}
+      • During Stock-Out (${event.duringPeriod.start} to ${event.duringPeriod.end}):
+        - Orders: ${event.duringPeriod.totalOrders} | Revenue: ₹${event.duringPeriod.totalRevenue.toFixed(2)}
+        - Avg Daily Orders: ${event.duringPeriod.avgDailyOrders}
+      • After Stock-Out (${event.afterPeriod.start} to ${event.afterPeriod.end}):
+        - Orders: ${event.afterPeriod.totalOrders} | Revenue: ₹${event.afterPeriod.totalRevenue.toFixed(2)}
+        - Avg Daily Orders: ${event.afterPeriod.avgDailyOrders}
+      • IMPACT:
+        - Sales Drop: ${event.impact.salesDropPercentage}%
+        - Lost Orders: ${event.impact.lostOrders}
+        - Lost Revenue: ₹${event.impact.lostRevenue}
+        - Recovery Rate: ${event.impact.recoveryPercentage}%`).join('\n')}
+`).join('\n')}
+
+CRITICAL INSIGHTS FOR RESPONSE:
+- The above data shows EXACT percentage drops in sales before and after each stock-out event
+- "Sales Drop %" = ((Avg Daily Before - Avg Daily During) / Avg Daily Before) * 100
+- "Lost Orders" = Expected orders based on pre-stock-out average minus actual orders during stock-out
+- "Lost Revenue" = Lost orders multiplied by average revenue per order
+- "Recovery Rate" = (Avg Daily After / Avg Daily Before) * 100 - shows if sales recovered post-stock-out
+- When answering about sales impact, use these EXACT numbers and percentages
+- Highlight products with highest revenue impact first
+`;
+    } else if (salesImpactData && !salesImpactData.success) {
+      stockInfo += `\n=== SALES IMPACT ANALYSIS ===
+${salesImpactData.message || 'Unable to calculate sales impact - no stock-out events found in the specified period.'}
 `;
     }
 
