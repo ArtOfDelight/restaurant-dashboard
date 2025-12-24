@@ -7616,6 +7616,121 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
 }
 
 /**
+ * Get stock-out durations from Live Inventory sheet
+ * Calculates how long products were out of stock using LastOut and LastIn timestamps
+ */
+async function getStockOutDurations(daysBack = 7, outlet = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
+    const LIVE_INVENTORY_TAB = 'Live Inventory';
+
+    console.log(`📦 Calculating stock-out durations for last ${daysBack} days...`);
+
+    // Fetch live inventory data
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${LIVE_INVENTORY_TAB}!A:G`,
+    });
+
+    const allData = response.data.values || [];
+    if (allData.length <= 1) {
+      return { stockOutEvents: [], summary: 'No live inventory data available' };
+    }
+
+    const dataRows = allData.slice(1);
+    const stockOutEvents = [];
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+
+    for (const row of dataRows) {
+      if (row && row.length >= 6) {
+        const skuCode = row[0] ? row[0].toString().trim() : '';
+        const itemName = row[1] ? row[1].toString().trim() : '';
+        const itemOutlet = row[2] ? row[2].toString().trim() : '';
+        const status = row[3] ? row[3].toString().trim() : '';
+        const lastStockOut = row[4] ? row[4].toString().trim() : '';
+        const lastStockIn = row[5] ? row[5].toString().trim() : '';
+
+        if (!itemName || !lastStockOut) continue;
+
+        // Apply outlet filter
+        if (outlet && itemOutlet.toLowerCase() !== outlet.toLowerCase()) continue;
+
+        // Parse dates
+        const stockOutDate = parseDate(lastStockOut);
+        if (!stockOutDate || stockOutDate < cutoffDate) continue;
+
+        let durationHours = null;
+        let durationDays = null;
+        let isStillOut = false;
+
+        if (lastStockIn && lastStockIn !== '') {
+          const stockInDate = parseDate(lastStockIn);
+          if (stockInDate && stockInDate > stockOutDate) {
+            const durationMs = stockInDate - stockOutDate;
+            durationHours = (durationMs / (1000 * 60 * 60)).toFixed(1);
+            durationDays = (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
+          }
+        } else {
+          // Still out of stock
+          isStillOut = true;
+          const now = new Date();
+          const durationMs = now - stockOutDate;
+          durationHours = (durationMs / (1000 * 60 * 60)).toFixed(1);
+          durationDays = (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
+        }
+
+        stockOutEvents.push({
+          sku: skuCode,
+          itemName,
+          outlet: itemOutlet,
+          stockOutDate: lastStockOut,
+          stockInDate: lastStockIn || 'Still Out',
+          durationHours: parseFloat(durationHours),
+          durationDays: parseFloat(durationDays),
+          isStillOut,
+          status
+        });
+      }
+    }
+
+    // Sort by duration (longest first)
+    stockOutEvents.sort((a, b) => b.durationHours - a.durationHours);
+
+    // Calculate summary stats
+    const totalEvents = stockOutEvents.length;
+    const stillOutCount = stockOutEvents.filter(e => e.isStillOut).length;
+    const resolvedCount = totalEvents - stillOutCount;
+    const avgDurationHours = totalEvents > 0
+      ? (stockOutEvents.reduce((sum, e) => sum + e.durationHours, 0) / totalEvents).toFixed(1)
+      : 0;
+
+    return {
+      stockOutEvents,
+      summary: `Found ${totalEvents} stock-out events in last ${daysBack} days. ${stillOutCount} still out, ${resolvedCount} resolved. Avg duration: ${avgDurationHours} hours.`,
+      stats: {
+        totalEvents,
+        stillOut: stillOutCount,
+        resolved: resolvedCount,
+        avgDurationHours: parseFloat(avgDurationHours)
+      }
+    };
+
+  } catch (error) {
+    console.error('Error calculating stock-out durations:', error.message);
+    return {
+      stockOutEvents: [],
+      summary: `Error: ${error.message}`,
+      stats: null
+    };
+  }
+}
+
+/**
  * Correlate sales deprecation with stock availability
  * Analyzes if sales decrease is due to stock issues
  */
@@ -7972,11 +8087,15 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about sales impact from stock-outs
     const isSalesImpactQuery = /sales.*impact|impact.*sales|percentage.*drop|drop.*sales|lost.*sales|lost.*revenue|sales.*before.*after|before.*after.*stock|revenue.*impact|calculate.*impact|sales.*decrease|decrease.*sales/i.test(userMessage);
 
+    // Check if user is asking about stock-out durations
+    const isDurationQuery = /duration|how long|stock.*out.*for|out.*for.*how|time.*out|hours.*out|days.*out|stock.*out.*time/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
     let liveInventoryData = null;
     let salesImpactData = null;
+    let durationData = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -8013,6 +8132,17 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
 
       // Calculate sales impact
       salesImpactData = await calculateSalesImpact(productNames, daysBack, filters.branch || null);
+    }
+
+    // Get stock-out durations if user is asking about durations
+    if (isDurationQuery || isStockFocusedQuery) {
+      let daysBack = 7;
+      if (dateRangeInfo.includes('last 7 days') || dateRangeInfo.includes('Last 7 days')) daysBack = 7;
+      else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+      else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+      else if (dateRangeInfo.includes('last 2 days')) daysBack = 2;
+
+      durationData = await getStockOutDurations(daysBack, filters.branch || null);
     }
 
     // Prepare stock information for prompt
@@ -8208,8 +8338,40 @@ ${salesImpactData.message || 'Unable to calculate sales impact - no stock-out ev
 `;
     }
 
+    // Add stock-out duration data if available
+    if (durationData && durationData.stockOutEvents && durationData.stockOutEvents.length > 0) {
+      stockInfo += `\n=== STOCK-OUT DURATIONS (From Live Inventory) ===
+${durationData.summary}
+
+Top Stock-Out Events by Duration:
+${durationData.stockOutEvents.slice(0, 20).map((event, idx) =>
+  `${idx + 1}. ${event.itemName} (${event.outlet})
+   - SKU: ${event.sku}
+   - Out Since: ${event.stockOutDate}
+   - Back In Stock: ${event.stockInDate}
+   - Duration: ${event.durationDays} days (${event.durationHours} hours)${event.isStillOut ? ' - STILL OUT OF STOCK ⚠️' : ''}`
+).join('\n')}
+${durationData.stockOutEvents.length > 20 ? `\n... and ${durationData.stockOutEvents.length - 20} more events` : ''}
+
+CRITICAL INSIGHTS:
+- Average stock-out duration: ${durationData.stats.avgDurationHours} hours
+- ${durationData.stats.stillOut} items still out of stock
+- ${durationData.stats.resolved} items resolved
+- When answering duration questions, use these EXACT durations from Live Inventory
+- Prioritize items that are STILL OUT or had longest durations
+`;
+    }
+
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
+
+CRITICAL RESPONSE GUIDELINES:
+- Keep responses COMPACT and INFORMATIVE
+- Use bullet points and tables for better readability
+- Limit lists to top 5-10 items unless specifically asked for more
+- Provide summary statistics first, then details
+- Focus on actionable insights, not just data dumps
+- When showing stock-out events, GROUP by product and show counts, not every single event
 
 === CONTEXT ===
 Date Range: ${dateRangeInfo}
