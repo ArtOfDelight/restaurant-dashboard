@@ -8023,14 +8023,33 @@ async function getSalesForPeriod(productName, startDate, endDate, outlet = null)
 
 /**
  * Parse date string in various formats
+ * Handles: DD/MM/YYYY, DD/MM/YYYY HH:MM, standard ISO dates
  */
 function parseDate(dateStr) {
   try {
-    // Try DD/MM/YYYY format
+    if (!dateStr || dateStr.trim() === '') return null;
+
+    // Try DD/MM/YYYY or DD/MM/YYYY HH:MM format
     if (dateStr.includes('/')) {
-      const parts = dateStr.split('/');
-      if (parts.length === 3) {
-        return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      // Split by space to separate date and time
+      const [datePart, timePart] = dateStr.split(' ');
+      const dateParts = datePart.split('/');
+
+      if (dateParts.length === 3) {
+        const day = parseInt(dateParts[0]);
+        const month = parseInt(dateParts[1]) - 1; // JS months are 0-indexed
+        const year = parseInt(dateParts[2]);
+
+        if (timePart) {
+          // Parse time HH:MM
+          const timeParts = timePart.split(':');
+          const hours = parseInt(timeParts[0]) || 0;
+          const minutes = parseInt(timeParts[1]) || 0;
+          return new Date(year, month, day, hours, minutes);
+        } else {
+          // No time component
+          return new Date(year, month, day);
+        }
       }
     }
 
