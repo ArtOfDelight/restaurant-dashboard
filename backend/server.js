@@ -8682,7 +8682,7 @@ ${durationPercentageData.summary}
 - Outlet: ${durationPercentageData.details.outlet}
 ${durationPercentageData.details.outlets && durationPercentageData.details.outlets.length > 1 ? `- Outlets included: ${durationPercentageData.details.outlets.join(', ')}
 - Outlet breakdown:
-${durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${ob.hoursPerDay} hrs/day × ${durationPercentageData.details.daysAnalyzed} days = ${ob.totalHours} hours`).join('\n')}` : `- Operating hours per day: ${durationPercentageData.details.outletBreakdown[0].hoursPerDay} hours (NOT 24 hours!)`}
+${durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${ob.hoursPerDay} hrs/day × ${durationPercentageData.details.daysAnalyzed} days = ${ob.totalHours} hours`).join('\n')}` : durationPercentageData.details.outletBreakdown && durationPercentageData.details.outletBreakdown.length > 0 ? `- Operating hours per day: ${durationPercentageData.details.outletBreakdown[0].hoursPerDay} hours (NOT 24 hours!)` : ''}
 - Days analyzed: ${durationPercentageData.details.daysAnalyzed} days
 - Total operating hours: ${durationPercentageData.details.totalOperatingHours} hours
 - Number of OOS entries found: ${durationPercentageData.details.entriesCount}
