@@ -8682,7 +8682,7 @@ ${durationPercentageData.summary}
 - Outlet: ${durationPercentageData.details.outlet}
 ${durationPercentageData.details.outlets && durationPercentageData.details.outlets.length > 1 ? `- Outlets included: ${durationPercentageData.details.outlets.join(', ')}
 - Outlet breakdown:
-${durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${ob.hoursPerDay} hrs/day × ${durationPercentageData.details.daysAnalyzed} days = ${ob.totalHours} hours`).join('\n')}` : durationPercentageData.details.outletBreakdown && durationPercentageData.details.outletBreakdown.length > 0 ? `- Operating hours per day: ${durationPercentageData.details.outletBreakdown[0].hoursPerDay} hours (NOT 24 hours!)` : ''}
+${durationPercentageData.details.outletBreakdown && durationPercentageData.details.outletBreakdown.length > 0 ? durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${ob.hoursPerDay} hrs/day × ${durationPercentageData.details.daysAnalyzed} days = ${ob.totalHours} hours`).join('\n') : 'N/A'}` : durationPercentageData.details.outletBreakdown && durationPercentageData.details.outletBreakdown.length > 0 ? `- Operating hours per day: ${durationPercentageData.details.outletBreakdown[0].hoursPerDay} hours (NOT 24 hours!)` : ''}
 - Days analyzed: ${durationPercentageData.details.daysAnalyzed} days
 - Total operating hours: ${durationPercentageData.details.totalOperatingHours} hours
 - Number of OOS entries found: ${durationPercentageData.details.entriesCount}
@@ -8690,11 +8690,11 @@ ${durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${
 - CALCULATED PERCENTAGE: ${durationPercentageData.percentage}%
 
 BREAKDOWN OF ALL ENTRIES (PERIOD-AWARE AGGREGATION):
-${durationPercentageData.details.events.map((event, idx) =>
+${durationPercentageData.details.events && durationPercentageData.details.events.length > 0 ? durationPercentageData.details.events.map((event, idx) =>
   `${idx + 1}. Duration counted: ${event.durationHours.toFixed(1)} hours${event.note ? ' ' + event.note : ''}
    - Status: ${event.status}
    - Stock-out date: ${event.stockOutDate}`
-).join('\n')}
+).join('\n') : 'No events found'}
 ${durationPercentageData.details.entriesCount > 1 ? `\nTotal OOS Hours in Period: ${durationPercentageData.details.totalOOSHours} hours (aggregated from ${durationPercentageData.details.entriesCount} entries)` : ''}
 
 ⚠️ MANDATORY INSTRUCTIONS FOR PERCENTAGE CALCULATIONS:
