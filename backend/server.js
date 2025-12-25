@@ -7772,7 +7772,7 @@ async function getStockOutDurations(daysBack = 7, outlet = null) {
 }
 
 /**
- * Calculate out-of-stock duration percentage for an item at an outlet
+ * Calculate out-of-stock duration percentage for an item at an outlet or across all outlets
  * Returns the percentage of time an item was out of stock relative to operating hours
  */
 async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 3) {
@@ -7784,7 +7784,8 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
     const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
     const LIVE_INVENTORY_TAB = 'Live Inventory';
 
-    console.log(`📊 Calculating OOS percentage for "${itemQuery}" at "${outletQuery}" (last ${daysBack} days)`);
+    const isAllOutlets = !outletQuery || outletQuery.toLowerCase() === 'all';
+    console.log(`📊 Calculating OOS percentage for "${itemQuery}" ${isAllOutlets ? 'across ALL outlets' : `at "${outletQuery}"`} (last ${daysBack} days)`);
 
     // Fetch live inventory data
     const response = await sheets.spreadsheets.values.get({
@@ -7803,12 +7804,10 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
 
-    // Get operating hours for the outlet (will be used to cap durations)
-    const outletHoursPerDay = getOutletOperatingHours(outletQuery);
-    const maxDurationForPeriod = daysBack * outletHoursPerDay;
+    // Track outlets found for calculating total operating hours
+    const outletsFound = new Set();
 
     console.log(`📊 Analyzing period: last ${daysBack} days (cutoff: ${cutoffDate.toISOString()})`);
-    console.log(`📊 Max duration for period: ${maxDurationForPeriod} hours (${daysBack} days × ${outletHoursPerDay} hrs/day)`);
 
     // Find matching items and aggregate their durations within the time period
     for (const row of dataRows) {
@@ -7824,9 +7823,16 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
         // Match item (by name or SKU) and outlet
         const itemMatches = itemName.toLowerCase().includes(itemQuery.toLowerCase()) ||
                           skuCode.toLowerCase().includes(itemQuery.toLowerCase());
-        const outletMatches = itemOutlet.toLowerCase().includes(outletQuery.toLowerCase());
+        const outletMatches = isAllOutlets || itemOutlet.toLowerCase().includes(outletQuery.toLowerCase());
 
         if (itemMatches && outletMatches && durationHours > 0) {
+          // Get operating hours for THIS specific outlet
+          const outletHoursPerDay = getOutletOperatingHours(itemOutlet);
+          const maxDurationForPeriod = daysBack * outletHoursPerDay;
+
+          // Track this outlet
+          outletsFound.add(itemOutlet);
+
           // Parse the stock-out date to check if it's within the period
           const stockOutDate = lastStockOut ? parseDate(lastStockOut) : null;
 
@@ -7888,7 +7894,7 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
     if (itemsFound.length === 0) {
       return {
         percentage: 0,
-        summary: `No out-of-stock events found for "${itemQuery}" at "${outletQuery}" in the last ${daysBack} days`,
+        summary: `No out-of-stock events found for "${itemQuery}" ${isAllOutlets ? 'across all outlets' : `at "${outletQuery}"`} in the last ${daysBack} days`,
         details: {
           totalOOSHours: 0,
           totalOperatingHours: 0,
@@ -7897,22 +7903,47 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
       };
     }
 
-    // Calculate total operating hours using the outlet hours already determined
-    const totalOperatingHours = daysBack * outletHoursPerDay;
+    // Calculate total operating hours based on outlets found
+    let totalOperatingHours = 0;
+    const outletBreakdown = [];
+
+    if (isAllOutlets) {
+      // Sum operating hours for all outlets found
+      for (const outlet of outletsFound) {
+        const hours = getOutletOperatingHours(outlet);
+        const outletTotal = daysBack * hours;
+        totalOperatingHours += outletTotal;
+        outletBreakdown.push({ outlet, hoursPerDay: hours, totalHours: outletTotal });
+      }
+    } else {
+      // Single outlet
+      const outletHoursPerDay = getOutletOperatingHours(itemsFound[0].outlet);
+      totalOperatingHours = daysBack * outletHoursPerDay;
+      outletBreakdown.push({
+        outlet: itemsFound[0].outlet,
+        hoursPerDay: outletHoursPerDay,
+        totalHours: totalOperatingHours
+      });
+    }
 
     // Calculate percentage
     const percentage = ((totalOOSHours / totalOperatingHours) * 100).toFixed(2);
 
+    const outletList = isAllOutlets
+      ? `across ${outletsFound.size} outlets (${Array.from(outletsFound).join(', ')})`
+      : `at ${itemsFound[0].outlet}`;
+
     return {
       percentage: parseFloat(percentage),
-      summary: `"${itemsFound[0].itemName}" at ${itemsFound[0].outlet} was OUT OF STOCK for ${totalOOSHours.toFixed(1)} hours (aggregated from ${itemsFound.length} entry/entries) out of ${totalOperatingHours} operating hours in the last ${daysBack} days (${percentage}%)`,
+      summary: `"${itemsFound[0].itemName}" ${outletList} was OUT OF STOCK for ${totalOOSHours.toFixed(1)} hours (aggregated from ${itemsFound.length} entry/entries) out of ${totalOperatingHours} operating hours in the last ${daysBack} days (${percentage}%)`,
       details: {
         itemName: itemsFound[0].itemName,
-        outlet: itemsFound[0].outlet,
+        outlet: isAllOutlets ? `All Outlets (${outletsFound.size})` : itemsFound[0].outlet,
+        outlets: Array.from(outletsFound),
         totalOOSHours: parseFloat(totalOOSHours.toFixed(1)),
         totalOperatingHours,
         daysAnalyzed: daysBack,
-        outletHoursPerDay,
+        outletBreakdown,
         entriesCount: itemsFound.length,
         events: itemsFound
       }
@@ -8413,17 +8444,14 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
         outletQuery = filters.branch;
       }
 
-      // Try to fetch the data if we have both item and outlet
-      if (itemQuery && outletQuery) {
-        console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" at "${outletQuery}" (${daysBack} days)`);
+      // Try to fetch the data if we have the item
+      if (itemQuery) {
+        if (outletQuery) {
+          console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" at "${outletQuery}" (${daysBack} days)`);
+        } else {
+          console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" across ALL outlets (${daysBack} days)`);
+        }
         durationPercentageData = await getStockOutDurationPercentage(itemQuery, outletQuery, daysBack);
-      } else if (itemQuery && !outletQuery) {
-        // If we have item but no outlet, provide helpful message
-        console.log(`📊 Item "${itemQuery}" found but no outlet specified`);
-        durationPercentageData = {
-          error: true,
-          message: `Please specify an outlet for "${itemQuery}". For example: "What is the percentage of out of stock of ${itemQuery} at Jayanagar in the last ${daysBack} days?"`
-        };
       }
     }
 
@@ -8652,7 +8680,9 @@ ${durationPercentageData.summary}
 ⚠️ CRITICAL - USE THESE EXACT VALUES:
 - Item: ${durationPercentageData.details.itemName}
 - Outlet: ${durationPercentageData.details.outlet}
-- Operating hours per day: ${durationPercentageData.details.outletHoursPerDay} hours (NOT 24 hours!)
+${durationPercentageData.details.outlets && durationPercentageData.details.outlets.length > 1 ? `- Outlets included: ${durationPercentageData.details.outlets.join(', ')}
+- Outlet breakdown:
+${durationPercentageData.details.outletBreakdown.map(ob => `  * ${ob.outlet}: ${ob.hoursPerDay} hrs/day × ${durationPercentageData.details.daysAnalyzed} days = ${ob.totalHours} hours`).join('\n')}` : `- Operating hours per day: ${durationPercentageData.details.outletBreakdown[0].hoursPerDay} hours (NOT 24 hours!)`}
 - Days analyzed: ${durationPercentageData.details.daysAnalyzed} days
 - Total operating hours: ${durationPercentageData.details.totalOperatingHours} hours
 - Number of OOS entries found: ${durationPercentageData.details.entriesCount}
@@ -8677,7 +8707,8 @@ ${durationPercentageData.details.entriesCount > 1 ? `\nTotal OOS Hours in Period
 - Operating hours are based on actual outlet working hours:
   * Dine-in outlets (Jayanagar, Sahakarnagar, Residency Road, Koramangala, Electronic City): 14 hrs/day
   * Cloud Kitchens (Rajajinagar, Whitefield, Bellandur, Kalyan Nagar, Indiranagar, Arekere, HSR): 15 hrs/day
-- When explaining, show: "${durationPercentageData.details.totalOOSHours} hours out of ${durationPercentageData.details.totalOperatingHours} hours (${durationPercentageData.details.daysAnalyzed} days × ${durationPercentageData.details.outletHoursPerDay} hrs/day) = ${durationPercentageData.percentage}%"
+- When explaining multi-outlet queries, show breakdown per outlet and total
+- When explaining single-outlet queries, show: "${durationPercentageData.details.totalOOSHours} hours out of ${durationPercentageData.details.totalOperatingHours} hours = ${durationPercentageData.percentage}%"
 `;
     } else if (isDurationPercentageQuery && (!durationPercentageData || durationPercentageData.error)) {
       stockInfo += `\n=== OUT-OF-STOCK DURATION PERCENTAGE ===
