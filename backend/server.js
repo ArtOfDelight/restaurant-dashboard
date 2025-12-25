@@ -8383,20 +8383,26 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       let itemQuery = null;
       let outletQuery = null;
 
+      // Clean up common phrases that might interfere with parsing
+      let cleanMessage = userMessage
+        .replace(/percentage of out of stock of/gi, 'percentage of')
+        .replace(/out of stock of/gi, '')
+        .replace(/being out of stock/gi, '');
+
       // Pattern 1: "item at/in outlet" - extract both
-      const fullMatch = userMessage.match(/(?:for|of|percentage of)\s+(.+?)\s+(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
+      const fullMatch = cleanMessage.match(/(?:for|of|percentage of)\s+(.+?)\s+(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
       if (fullMatch) {
         itemQuery = fullMatch[1].trim();
         outletQuery = fullMatch[2].trim();
       } else {
         // Pattern 2: Try to find outlet separately
-        const outletMatch = userMessage.match(/(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
+        const outletMatch = cleanMessage.match(/(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
         if (outletMatch) {
           outletQuery = outletMatch[1].trim();
         }
 
-        // Pattern 3: Try to find item name
-        const itemMatch = userMessage.match(/(?:for|of|percentage of)\s+([a-zA-Z0-9\s]+?)(?:\s+at|\s+in|\s+being|\s+out|\s+last|\s*$)/i);
+        // Pattern 3: Try to find item name (more flexible, stops at "in the last" or "last")
+        const itemMatch = cleanMessage.match(/(?:for|of|percentage of)\s+([a-zA-Z0-9\s]+?)(?:\s+at|\s+in the last|\s+last|\s*$)/i);
         if (itemMatch) {
           itemQuery = itemMatch[1].trim();
         }
@@ -8411,6 +8417,13 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       if (itemQuery && outletQuery) {
         console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" at "${outletQuery}" (${daysBack} days)`);
         durationPercentageData = await getStockOutDurationPercentage(itemQuery, outletQuery, daysBack);
+      } else if (itemQuery && !outletQuery) {
+        // If we have item but no outlet, provide helpful message
+        console.log(`📊 Item "${itemQuery}" found but no outlet specified`);
+        durationPercentageData = {
+          error: true,
+          message: `Please specify an outlet for "${itemQuery}". For example: "What is the percentage of out of stock of ${itemQuery} at Jayanagar in the last ${daysBack} days?"`
+        };
       }
     }
 
@@ -8668,12 +8681,12 @@ ${durationPercentageData.details.entriesCount > 1 ? `\nTotal OOS Hours in Period
 `;
     } else if (isDurationPercentageQuery && (!durationPercentageData || durationPercentageData.error)) {
       stockInfo += `\n=== OUT-OF-STOCK DURATION PERCENTAGE ===
-Note: To calculate duration percentage, please specify:
-1. The item name or SKU
+${durationPercentageData?.message || 'To calculate duration percentage, please specify:'}
+${!durationPercentageData?.message ? `1. The item name or SKU
 2. The outlet/location
 3. The time period (e.g., last 3 days, last week)
 
-Example: "What percentage of time was Chicken Biryani out of stock at Rajajinagar in the last 3 days?"
+Example: "What percentage of time was Chicken Biryani out of stock at Rajajinagar in the last 3 days?"` : ''}
 
 IMPORTANT: Calculations are based on ACTUAL OPERATING HOURS, not 24-hour days:
 - Dine-in outlets (Jayanagar, Sahakarnagar, Residency Road, Koramangala, Electronic City): 14 hours/day
