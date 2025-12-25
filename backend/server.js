@@ -8416,38 +8416,63 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       }
 
       // Try to parse item name and outlet from the message
-      // Look for patterns like "item name at outlet" or "item name in outlet"
       let itemQuery = null;
       let outletQuery = null;
 
-      // Clean up common phrases that might interfere with parsing
+      console.log(`🔍 Original query: "${userMessage}"`);
+
+      // Clean up the message - remove filler phrases
       let cleanMessage = userMessage
-        .replace(/percentage of out of stock of/gi, 'percentage of')
-        .replace(/out of stock of/gi, '')
-        .replace(/being out of stock/gi, '');
+        .replace(/what\s+(is|was)\s+the\s+percentage\s+of\s+time\s+(was|is)\s+/gi, '')
+        .replace(/what\s+percentage\s+of\s+time\s+(was|is)\s+/gi, '')
+        .replace(/percentage\s+of\s+time\s+(was|is)\s+/gi, '')
+        .replace(/what\s+(is|was)\s+the\s+/gi, '')
+        .replace(/\s+out\s+of\s+stock\s+/gi, ' ')
+        .replace(/\s+being\s+/gi, ' ')
+        .trim();
 
-      // Pattern 1: "item at/in outlet" - extract both
-      const fullMatch = cleanMessage.match(/(?:for|of|percentage of)\s+(.+?)\s+(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
-      if (fullMatch) {
-        itemQuery = fullMatch[1].trim();
-        outletQuery = fullMatch[2].trim();
-      } else {
-        // Pattern 2: Try to find outlet separately (but not common words)
-        const outletMatch = cleanMessage.match(/(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
-        if (outletMatch) {
-          const potentialOutlet = outletMatch[1].trim();
-          // Filter out common words that aren't outlets
-          if (!['the', 'a', 'an', 'this', 'that'].includes(potentialOutlet.toLowerCase())) {
-            outletQuery = potentialOutlet;
-          }
-        }
+      console.log(`🔍 Cleaned: "${cleanMessage}"`);
 
-        // Pattern 3: Try to find item name (more flexible, stops at "in the last" or "last")
-        const itemMatch = cleanMessage.match(/(?:for|of|percentage of)\s+([a-zA-Z0-9\s]+?)(?:\s+at|\s+in the last|\s+last|\s*$)/i);
-        if (itemMatch) {
-          itemQuery = itemMatch[1].trim();
+      // Pattern 1: "ITEM at/in OUTLET in/last X days"
+      let match1 = cleanMessage.match(/^([a-zA-Z0-9\s]+?)\s+(?:at|in)\s+([a-zA-Z0-9\s]+?)\s+(?:in\s+the\s+)?last/i);
+      if (match1) {
+        itemQuery = match1[1].trim();
+        outletQuery = match1[2].trim();
+        console.log(`✅ Pattern 1: Item="${itemQuery}", Outlet="${outletQuery}"`);
+      }
+
+      // Pattern 2: "ITEM in/last X days" (no outlet specified)
+      if (!itemQuery) {
+        let match2 = cleanMessage.match(/^([a-zA-Z0-9\s]+?)\s+(?:in\s+the\s+)?last/i);
+        if (match2) {
+          itemQuery = match2[1].trim();
+          console.log(`✅ Pattern 2: Item="${itemQuery}" (no outlet)`);
         }
       }
+
+      // Pattern 3: Remove common prefixes/suffixes
+      if (itemQuery) {
+        itemQuery = itemQuery
+          .replace(/^(for|of|the|percentage)\s+/i, '')
+          .replace(/\s+(for|of|the|percentage)$/i, '')
+          .trim();
+      }
+
+      if (outletQuery) {
+        outletQuery = outletQuery
+          .replace(/^(the|a|an)\s+/i, '')
+          .replace(/\s+(the|a|an)$/i, '')
+          .trim();
+
+        // Filter out non-outlet words
+        if (['the', 'a', 'an', 'last', 'this', 'that'].includes(outletQuery.toLowerCase())) {
+          console.log(`❌ Filtered out invalid outlet: "${outletQuery}"`);
+          outletQuery = null;
+        }
+      }
+
+      console.log(`🎯 Final parse: Item="${itemQuery}", Outlet="${outletQuery || 'ALL OUTLETS'}"`);
+
 
       // Use filters.branch if outlet not found in message
       if (!outletQuery && filters.branch) {
