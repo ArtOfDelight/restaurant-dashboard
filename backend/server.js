@@ -7896,9 +7896,15 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
         percentage: 0,
         summary: `No out-of-stock events found for "${itemQuery}" ${isAllOutlets ? 'across all outlets' : `at "${outletQuery}"`} in the last ${daysBack} days`,
         details: {
+          itemName: itemQuery,
+          outlet: isAllOutlets ? 'All Outlets' : outletQuery,
+          outlets: [],
           totalOOSHours: 0,
           totalOperatingHours: 0,
-          daysAnalyzed: daysBack
+          daysAnalyzed: daysBack,
+          outletBreakdown: [],
+          entriesCount: 0,
+          events: []
         }
       };
     }
@@ -8426,10 +8432,14 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
         itemQuery = fullMatch[1].trim();
         outletQuery = fullMatch[2].trim();
       } else {
-        // Pattern 2: Try to find outlet separately
+        // Pattern 2: Try to find outlet separately (but not common words)
         const outletMatch = cleanMessage.match(/(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
         if (outletMatch) {
-          outletQuery = outletMatch[1].trim();
+          const potentialOutlet = outletMatch[1].trim();
+          // Filter out common words that aren't outlets
+          if (!['the', 'a', 'an', 'this', 'that'].includes(potentialOutlet.toLowerCase())) {
+            outletQuery = potentialOutlet;
+          }
         }
 
         // Pattern 3: Try to find item name (more flexible, stops at "in the last" or "last")
