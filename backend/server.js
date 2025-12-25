@@ -7897,8 +7897,7 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
       };
     }
 
-    // Get operating hours for the outlet
-    const outletHoursPerDay = getOutletOperatingHours(itemsFound[0].outlet);
+    // Calculate total operating hours using the outlet hours already determined
     const totalOperatingHours = daysBack * outletHoursPerDay;
 
     // Calculate percentage
