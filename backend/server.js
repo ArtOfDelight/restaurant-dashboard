@@ -147,6 +147,45 @@ let ticketBot = null; // Separate bot instance for ticket management
 // Add this line
 const USER_MAPPING_TAB = 'UserTelegramMapping';
 
+// Outlet Operating Hours Mapping
+// Note: Any outlet with 24 hrs/day is treated as 15 hrs/day for stock calculations
+const OUTLET_OPERATING_HOURS = {
+  'AOD-6': { name: 'Sahakarnagar', type: 'Dine-in', hoursPerDay: 14 },
+  'AOD-01': { name: 'Residency Road', type: 'Dine-in', hoursPerDay: 14 },
+  'AOD-4': { name: 'Whitefield', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-02': { name: 'Koramangala', type: 'Dine-in', hoursPerDay: 14 },
+  'AOD-5': { name: 'Kalyan Nagar', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-3': { name: 'Bellandur', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-IND': { name: 'Indiranagar', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-ARK': { name: 'Arekere', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-JAY': { name: 'Jayanagar', type: 'Dine-in', hoursPerDay: 14 },
+  'HSR': { name: 'HSR Layout', type: 'Cloud Kitchen', hoursPerDay: 15 }, // Converted from 24
+  'AOD-7': { name: 'Electronic City', type: 'Dine-in', hoursPerDay: 14 },
+  'RAJ': { name: 'Rajajinagar', type: 'Cloud Kitchen', hoursPerDay: 15 } // Converted from 24
+};
+
+// Helper function to get operating hours for an outlet
+function getOutletOperatingHours(outletCode) {
+  // Try exact match first
+  if (OUTLET_OPERATING_HOURS[outletCode]) {
+    return OUTLET_OPERATING_HOURS[outletCode].hoursPerDay;
+  }
+
+  // Try case-insensitive match
+  const upperOutlet = outletCode.toUpperCase();
+  const match = Object.keys(OUTLET_OPERATING_HOURS).find(key =>
+    key.toUpperCase() === upperOutlet ||
+    OUTLET_OPERATING_HOURS[key].name.toUpperCase() === upperOutlet
+  );
+
+  if (match) {
+    return OUTLET_OPERATING_HOURS[match].hoursPerDay;
+  }
+
+  // Default to 15 hours if unknown
+  console.warn(`⚠️  Unknown outlet "${outletCode}", defaulting to 15 hours/day`);
+  return 15;
+}
 
 let bot = null;
 let isShuttingDown = false;
@@ -7526,7 +7565,7 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
     // Fetch live inventory data
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${LIVE_INVENTORY_TAB}!A:G`, // A=SKU, B=Item, C=Outlet, D=Status, E=LastOut, F=LastIn, G=CurrentSince
+      range: `${LIVE_INVENTORY_TAB}!A:H`, // A=SKU, B=Item, C=Outlet, D=Status, E=LastOut, F=LastIn, G=CurrentSince, H=Duration(hours)
     });
 
     const allData = response.data.values || [];
@@ -7550,6 +7589,7 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
         const lastStockOut = row[4] ? row[4].toString().trim() : '';
         const lastStockIn = row[5] ? row[5].toString().trim() : '';
         const currentSince = row[6] ? row[6].toString().trim() : '';
+        const durationHours = row[7] ? parseFloat(row[7].toString().trim()) : null;
 
         // Skip if missing required fields
         if (!itemName || !itemOutlet || !status) {
@@ -7579,6 +7619,7 @@ async function getLiveInventoryStatus(outlet = null, statusFilter = null) {
           lastStockOutDate: lastStockOut,
           lastStockInDate: lastStockIn,
           currentSince,
+          durationHours, // Duration in hours for out-of-stock items
           deliveryInfo
         });
       }
@@ -7633,7 +7674,7 @@ async function getStockOutDurations(daysBack = 7, outlet = null) {
     // Fetch live inventory data
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${LIVE_INVENTORY_TAB}!A:G`,
+      range: `${LIVE_INVENTORY_TAB}!A:H`, // Include Duration (hours) column
     });
 
     const allData = response.data.values || [];
@@ -7726,6 +7767,163 @@ async function getStockOutDurations(daysBack = 7, outlet = null) {
       stockOutEvents: [],
       summary: `Error: ${error.message}`,
       stats: null
+    };
+  }
+}
+
+/**
+ * Calculate out-of-stock duration percentage for an item at an outlet
+ * Returns the percentage of time an item was out of stock relative to operating hours
+ */
+async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 3) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
+    const LIVE_INVENTORY_TAB = 'Live Inventory';
+
+    console.log(`📊 Calculating OOS percentage for "${itemQuery}" at "${outletQuery}" (last ${daysBack} days)`);
+
+    // Fetch live inventory data
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${LIVE_INVENTORY_TAB}!A:H`,
+    });
+
+    const allData = response.data.values || [];
+    if (allData.length <= 1) {
+      return { error: 'No live inventory data available' };
+    }
+
+    const dataRows = allData.slice(1);
+    let totalOOSHours = 0;
+    let itemsFound = [];
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+
+    // Get operating hours for the outlet (will be used to cap durations)
+    const outletHoursPerDay = getOutletOperatingHours(outletQuery);
+    const maxDurationForPeriod = daysBack * outletHoursPerDay;
+
+    console.log(`📊 Analyzing period: last ${daysBack} days (cutoff: ${cutoffDate.toISOString()})`);
+    console.log(`📊 Max duration for period: ${maxDurationForPeriod} hours (${daysBack} days × ${outletHoursPerDay} hrs/day)`);
+
+    // Find matching items and aggregate their durations within the time period
+    for (const row of dataRows) {
+      if (row && row.length >= 4) {
+        const skuCode = row[0] ? row[0].toString().trim() : '';
+        const itemName = row[1] ? row[1].toString().trim() : '';
+        const itemOutlet = row[2] ? row[2].toString().trim() : '';
+        const status = row[3] ? row[3].toString().trim() : '';
+        const lastStockOut = row[4] ? row[4].toString().trim() : '';
+        const lastStockIn = row[5] ? row[5].toString().trim() : '';
+        const durationHours = row[7] ? parseFloat(row[7].toString().trim()) : 0;
+
+        // Match item (by name or SKU) and outlet
+        const itemMatches = itemName.toLowerCase().includes(itemQuery.toLowerCase()) ||
+                          skuCode.toLowerCase().includes(itemQuery.toLowerCase());
+        const outletMatches = itemOutlet.toLowerCase().includes(outletQuery.toLowerCase());
+
+        if (itemMatches && outletMatches && durationHours > 0) {
+          // Parse the stock-out date to check if it's within the period
+          const stockOutDate = lastStockOut ? parseDate(lastStockOut) : null;
+
+          let durationToCount = durationHours;
+          let note = '';
+
+          if (stockOutDate) {
+            // Check if stock-out happened before the cutoff date
+            if (stockOutDate < cutoffDate) {
+              // Item went out before our analysis period
+              // Only count the portion that falls within the period
+              const now = new Date();
+              const stockInDate = lastStockIn ? parseDate(lastStockIn) : null;
+
+              if (stockInDate && stockInDate > cutoffDate) {
+                // Item came back in stock during the period
+                const durationInPeriod = (stockInDate - cutoffDate) / (1000 * 60 * 60);
+                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
+                note = `(${durationHours}h total, counting ${durationToCount.toFixed(1)}h within period)`;
+              } else if (!stockInDate && status.toLowerCase().includes('out')) {
+                // Item is still out, count from cutoff date to now
+                const durationInPeriod = (now - cutoffDate) / (1000 * 60 * 60);
+                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
+                note = `(${durationHours}h total, counting ${durationToCount.toFixed(1)}h within period)`;
+              } else {
+                // Item came back in before the period started, skip it
+                continue;
+              }
+            } else {
+              // Stock-out happened within the analysis period
+              // Use the full duration, but cap at max for the period
+              durationToCount = Math.min(durationHours, maxDurationForPeriod);
+              if (durationHours > maxDurationForPeriod) {
+                note = `(capped at ${maxDurationForPeriod}h for ${daysBack}-day period)`;
+              }
+            }
+          } else {
+            // No stock-out date, use duration as-is but cap it
+            durationToCount = Math.min(durationHours, maxDurationForPeriod);
+            if (durationHours > maxDurationForPeriod) {
+              note = `(capped at ${maxDurationForPeriod}h for ${daysBack}-day period)`;
+            }
+          }
+
+          totalOOSHours += durationToCount;
+          itemsFound.push({
+            itemName,
+            outlet: itemOutlet,
+            status,
+            durationHours: durationToCount,
+            originalDuration: durationHours,
+            stockOutDate: lastStockOut || 'N/A',
+            note
+          });
+        }
+      }
+    }
+
+    if (itemsFound.length === 0) {
+      return {
+        percentage: 0,
+        summary: `No out-of-stock events found for "${itemQuery}" at "${outletQuery}" in the last ${daysBack} days`,
+        details: {
+          totalOOSHours: 0,
+          totalOperatingHours: 0,
+          daysAnalyzed: daysBack
+        }
+      };
+    }
+
+    // Get operating hours for the outlet
+    const outletHoursPerDay = getOutletOperatingHours(itemsFound[0].outlet);
+    const totalOperatingHours = daysBack * outletHoursPerDay;
+
+    // Calculate percentage
+    const percentage = ((totalOOSHours / totalOperatingHours) * 100).toFixed(2);
+
+    return {
+      percentage: parseFloat(percentage),
+      summary: `"${itemsFound[0].itemName}" at ${itemsFound[0].outlet} was OUT OF STOCK for ${totalOOSHours.toFixed(1)} hours (aggregated from ${itemsFound.length} entry/entries) out of ${totalOperatingHours} operating hours in the last ${daysBack} days (${percentage}%)`,
+      details: {
+        itemName: itemsFound[0].itemName,
+        outlet: itemsFound[0].outlet,
+        totalOOSHours: parseFloat(totalOOSHours.toFixed(1)),
+        totalOperatingHours,
+        daysAnalyzed: daysBack,
+        outletHoursPerDay,
+        entriesCount: itemsFound.length,
+        events: itemsFound
+      }
+    };
+
+  } catch (error) {
+    console.error('Error calculating OOS percentage:', error.message);
+    return {
+      error: `Error: ${error.message}`,
+      percentage: null
     };
   }
 }
@@ -8109,12 +8307,16 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about stock-out durations
     const isDurationQuery = /duration|how long|stock.*out.*for|out.*for.*how|time.*out|hours.*out|days.*out|stock.*out.*time/i.test(userMessage);
 
+    // Check if user is asking about duration percentage (e.g., "percentage of time out of stock")
+    const isDurationPercentageQuery = /percentage.*duration|duration.*percentage|percent.*out|out.*percent|% of time|percentage of time.*out|out of stock.*%|percentage.*being.*out|what.*percentage|give.*percentage/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
     let liveInventoryData = null;
     let salesImpactData = null;
     let durationData = null;
+    let durationPercentageData = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -8162,6 +8364,55 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       else if (dateRangeInfo.includes('last 2 days')) daysBack = 2;
 
       durationData = await getStockOutDurations(daysBack, filters.branch || null);
+    }
+
+    // Get stock-out duration percentage if user is asking about percentage
+    if (isDurationPercentageQuery) {
+      // Parse days from message (e.g., "last 3 days", "last week")
+      let daysBack = 3; // default
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        daysBack = parseInt(daysMatch[1]);
+      } else if (/last\s+week/i.test(userMessage)) {
+        daysBack = 7;
+      } else if (/last\s+month/i.test(userMessage)) {
+        daysBack = 30;
+      }
+
+      // Try to parse item name and outlet from the message
+      // Look for patterns like "item name at outlet" or "item name in outlet"
+      let itemQuery = null;
+      let outletQuery = null;
+
+      // Pattern 1: "item at/in outlet" - extract both
+      const fullMatch = userMessage.match(/(?:for|of|percentage of)\s+(.+?)\s+(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
+      if (fullMatch) {
+        itemQuery = fullMatch[1].trim();
+        outletQuery = fullMatch[2].trim();
+      } else {
+        // Pattern 2: Try to find outlet separately
+        const outletMatch = userMessage.match(/(?:at|in)\s+([a-zA-Z0-9\s-]+?)(?:\s+in the last|\s+last|\s+for|\s*$)/i);
+        if (outletMatch) {
+          outletQuery = outletMatch[1].trim();
+        }
+
+        // Pattern 3: Try to find item name
+        const itemMatch = userMessage.match(/(?:for|of|percentage of)\s+([a-zA-Z0-9\s]+?)(?:\s+at|\s+in|\s+being|\s+out|\s+last|\s*$)/i);
+        if (itemMatch) {
+          itemQuery = itemMatch[1].trim();
+        }
+      }
+
+      // Use filters.branch if outlet not found in message
+      if (!outletQuery && filters.branch) {
+        outletQuery = filters.branch;
+      }
+
+      // Try to fetch the data if we have both item and outlet
+      if (itemQuery && outletQuery) {
+        console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" at "${outletQuery}" (${daysBack} days)`);
+        durationPercentageData = await getStockOutDurationPercentage(itemQuery, outletQuery, daysBack);
+      }
     }
 
     // Prepare stock information for prompt
@@ -8378,6 +8629,62 @@ CRITICAL INSIGHTS:
 - ${durationData.stats.resolved} items resolved
 - When answering duration questions, use these EXACT durations from Live Inventory
 - Prioritize items that are STILL OUT or had longest durations
+`;
+    }
+
+    // Add stock-out duration percentage if available
+    if (durationPercentageData && durationPercentageData.percentage !== null) {
+      stockInfo += `\n=== OUT-OF-STOCK DURATION PERCENTAGE (CALCULATED) ===
+${durationPercentageData.summary}
+
+⚠️ CRITICAL - USE THESE EXACT VALUES:
+- Item: ${durationPercentageData.details.itemName}
+- Outlet: ${durationPercentageData.details.outlet}
+- Operating hours per day: ${durationPercentageData.details.outletHoursPerDay} hours (NOT 24 hours!)
+- Days analyzed: ${durationPercentageData.details.daysAnalyzed} days
+- Total operating hours: ${durationPercentageData.details.totalOperatingHours} hours
+- Number of OOS entries found: ${durationPercentageData.details.entriesCount}
+- Total out-of-stock hours (AGGREGATED): ${durationPercentageData.details.totalOOSHours} hours
+- CALCULATED PERCENTAGE: ${durationPercentageData.percentage}%
+
+BREAKDOWN OF ALL ENTRIES (PERIOD-AWARE AGGREGATION):
+${durationPercentageData.details.events.map((event, idx) =>
+  `${idx + 1}. Duration counted: ${event.durationHours.toFixed(1)} hours${event.note ? ' ' + event.note : ''}
+   - Status: ${event.status}
+   - Stock-out date: ${event.stockOutDate}`
+).join('\n')}
+${durationPercentageData.details.entriesCount > 1 ? `\nTotal OOS Hours in Period: ${durationPercentageData.details.totalOOSHours} hours (aggregated from ${durationPercentageData.details.entriesCount} entries)` : ''}
+
+⚠️ MANDATORY INSTRUCTIONS FOR PERCENTAGE CALCULATIONS:
+- ALWAYS use the EXACT percentage shown above: ${durationPercentageData.percentage}%
+- DO NOT recalculate using 24 hours/day - the calculation already uses correct operating hours
+- The calculation is PERIOD-AWARE: only counts OOS hours within the requested time period (${durationPercentageData.details.daysAnalyzed} days)
+- If an item was out longer than the period, only the portion within the period is counted
+- The total OOS hours (${durationPercentageData.details.totalOOSHours}) is the AGGREGATE of ALL duration entries within the ${durationPercentageData.details.daysAnalyzed}-day period
+- Formula used: (${durationPercentageData.details.totalOOSHours} hours ÷ ${durationPercentageData.details.totalOperatingHours} hours) × 100 = ${durationPercentageData.percentage}%
+- Operating hours are based on actual outlet working hours:
+  * Dine-in outlets (Jayanagar, Sahakarnagar, Residency Road, Koramangala, Electronic City): 14 hrs/day
+  * Cloud Kitchens (Rajajinagar, Whitefield, Bellandur, Kalyan Nagar, Indiranagar, Arekere, HSR): 15 hrs/day
+- When explaining, show: "${durationPercentageData.details.totalOOSHours} hours out of ${durationPercentageData.details.totalOperatingHours} hours (${durationPercentageData.details.daysAnalyzed} days × ${durationPercentageData.details.outletHoursPerDay} hrs/day) = ${durationPercentageData.percentage}%"
+`;
+    } else if (isDurationPercentageQuery && (!durationPercentageData || durationPercentageData.error)) {
+      stockInfo += `\n=== OUT-OF-STOCK DURATION PERCENTAGE ===
+Note: To calculate duration percentage, please specify:
+1. The item name or SKU
+2. The outlet/location
+3. The time period (e.g., last 3 days, last week)
+
+Example: "What percentage of time was Chicken Biryani out of stock at Rajajinagar in the last 3 days?"
+
+IMPORTANT: Calculations are based on ACTUAL OPERATING HOURS, not 24-hour days:
+- Dine-in outlets (Jayanagar, Sahakarnagar, Residency Road, Koramangala, Electronic City): 14 hours/day
+- Cloud Kitchens (Rajajinagar, Whitefield, Bellandur, Kalyan Nagar, Indiranagar, Arekere, HSR): 15 hours/day
+- Any 24 hrs/day outlets are calculated as 15 hours/day
+
+So for 3 days:
+- Dine-in: 3 × 14 = 42 operating hours
+- Cloud Kitchen: 3 × 15 = 45 operating hours
+NOT 3 × 24 = 72 hours!
 `;
     }
 
