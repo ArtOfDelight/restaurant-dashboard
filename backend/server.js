@@ -5799,8 +5799,25 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
     );
 
     // Step 5: Determine which products to return based on ratingsRequired flag
-    const productsToReturn = ratingsRequired ? matchedProducts : productDetails;
-    const productsForCalculation = ratingsRequired ? matchedProducts : productDetails;
+    let productsToReturn, productsForCalculation;
+
+    if (ratingsRequired) {
+      productsToReturn = matchedProducts;
+      productsForCalculation = matchedProducts;
+    } else {
+      // When ratings are not required, use all products from productDetails
+      // but add default rating properties to prevent errors in response generation
+      productsToReturn = productDetails.map(p => ({
+        ...p,
+        name: p.itemName, // Add name alias
+        avgRating: 0,
+        highRated: 0,
+        lowRated: 0,
+        highRatedPercentage: 0,
+        lowRatedPercentage: 0
+      }));
+      productsForCalculation = productsToReturn;
+    }
 
     // Step 6: Calculate summary
     const summary = {
