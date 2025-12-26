@@ -5740,13 +5740,14 @@ function getCellValue(row, index) {
  * Main function to process product analysis data from Google Sheets
  * NO RISTA API - Uses ProductDetails aggregation only
  */
-async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS, additionalFilters = {}) {
+async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS, additionalFilters = {}, ratingsRequired = true) {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('PRODUCT ANALYSIS - NO RISTA API VERSION');
   console.log('Using ProductDetails Sheet Aggregation + 100% Fuzzy Matching');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}`);
   console.log(`Date Filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  console.log(`Ratings Required: ${ratingsRequired}`);
   if (additionalFilters.branch) console.log(`Branch Filter: ${additionalFilters.branch}`);
   if (additionalFilters.channel) console.log(`Channel Filter: ${additionalFilters.channel}`);
   console.log('');
@@ -5797,27 +5798,32 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       swiggyItems
     );
 
-    // Step 5: Calculate summary
+    // Step 5: Determine which products to return based on ratingsRequired flag
+    const productsToReturn = ratingsRequired ? matchedProducts : productDetails;
+    const productsForCalculation = ratingsRequired ? matchedProducts : productDetails;
+
+    // Step 6: Calculate summary
     const summary = {
       totalProductsInSheet: productDetails.length,
       matchedProducts: matchedProducts.length,
       unmatchedProducts: unmatchedProducts.length,
-      totalOrders: matchedProducts.reduce((sum, p) => sum + p.totalOrders, 0),
-      totalHighRated: matchedProducts.reduce((sum, p) => sum + p.highRated, 0),
-      totalLowRated: matchedProducts.reduce((sum, p) => sum + p.lowRated, 0),
-      totalRevenue: matchedProducts.reduce((sum, p) => sum + (p.totalRevenue || 0), 0),
+      totalOrders: productsForCalculation.reduce((sum, p) => sum + p.totalOrders, 0),
+      totalHighRated: productsForCalculation.reduce((sum, p) => sum + (p.highRated || 0), 0),
+      totalLowRated: productsForCalculation.reduce((sum, p) => sum + (p.lowRated || 0), 0),
+      totalRevenue: productsForCalculation.reduce((sum, p) => sum + (p.totalRevenue || 0), 0),
       avgRating: 0,
       avgLowRatedPercentage: 0,
-      dateFilter: daysFilter ? `Last ${daysFilter} days` : 'All dates'
+      dateFilter: daysFilter ? `Last ${daysFilter} days` : 'All dates',
+      ratingsRequired: ratingsRequired
     };
 
     // Calculate averages
-    if (matchedProducts.length > 0) {
-      const validRatings = matchedProducts.filter(p => p.avgRating > 0);
+    if (productsForCalculation.length > 0) {
+      const validRatings = productsForCalculation.filter(p => p.avgRating && p.avgRating > 0);
       summary.avgRating = validRatings.length > 0
         ? validRatings.reduce((sum, p) => sum + p.avgRating, 0) / validRatings.length
         : 0;
-      
+
       summary.avgLowRatedPercentage = summary.totalOrders > 0
         ? (summary.totalLowRated / summary.totalOrders * 100)
         : 0;
@@ -5829,6 +5835,7 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
     console.log(`Total Products in Sheet: ${summary.totalProductsInSheet}`);
     console.log(`Matched Products (100%): ${summary.matchedProducts}`);
     console.log(`Unmatched Products: ${summary.unmatchedProducts}`);
+    console.log(`Products Returned: ${productsToReturn.length} (${ratingsRequired ? 'matched only' : 'all products'})`);
     console.log(`Total Orders: ${summary.totalOrders}`);
     console.log(`Total Revenue: ₹${summary.totalRevenue.toFixed(2)}`);
     console.log(`High Rated: ${summary.totalHighRated} (${summary.totalOrders > 0 ? ((summary.totalHighRated / summary.totalOrders) * 100).toFixed(2) : 0}%)`);
@@ -5837,7 +5844,7 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
     console.log('═'.repeat(60) + '\n');
 
     return {
-      products: matchedProducts,
+      products: productsToReturn,
       unmatchedProducts: unmatchedProducts,
       summary: summary
     };
@@ -6779,6 +6786,11 @@ app.post('/api/product-chat', async (req, res) => {
     // Check if user wants channel-wise breakdown
     const wantsChannelBreakdown = /channel[-\s]?wise|by channel|breakdown by channel|each channel|per channel|split by channel/i.test(message);
 
+    // Detect if query requires ratings data
+    const isRatingsQuery = /rating|rated|review|quality|feedback|complaint|star|satisfaction|best.*quality|worst.*quality/i.test(message);
+    const ratingsRequired = isRatingsQuery;
+    console.log(`Ratings Required: ${ratingsRequired}`);
+
     // Handle comparison queries
     if (dateQuery && dateQuery.type === 'comparison') {
       // If user wants channel-wise breakdown, fetch data for each channel separately
@@ -6790,8 +6802,8 @@ app.post('/api/product-chat', async (req, res) => {
         for (const channel of channels) {
           const channelFilters = { ...filters, channel };
           const [data1, data2] = await Promise.all([
-            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, channelFilters),
-            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, channelFilters)
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, channelFilters, ratingsRequired),
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, channelFilters, ratingsRequired)
           ]);
           channelData[channel] = { period1: data1, period2: data2 };
         }
@@ -6817,8 +6829,8 @@ app.post('/api/product-chat', async (req, res) => {
 
       // Regular comparison (not channel-wise)
       const [productData1, productData2] = await Promise.all([
-        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, filters),
-        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, filters)
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period1, filters, ratingsRequired),
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, dateQuery.period2, filters, ratingsRequired)
       ]);
 
       // Generate AI response with comparison
@@ -6854,7 +6866,7 @@ app.post('/api/product-chat', async (req, res) => {
         ? { startDate: dateQuery.startDate, endDate: dateQuery.endDate }
         : dateQuery?.days || dateFilter || null;
 
-      const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, filterOrRange, filters);
+      const productData = await processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, filterOrRange, filters, ratingsRequired);
 
       const dateRangeInfo = dateQuery
         ? dateQuery.label
