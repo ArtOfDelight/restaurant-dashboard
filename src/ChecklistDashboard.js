@@ -721,8 +721,12 @@ const MissingSubmissionsReportGenerator = () => {
                   </h3>
 
                   {dayReport.outlets.map((outlet, outletIdx) => {
-                    const hasMissing = outlet.timeSlots.some(slot => slot.missingStaff.length > 0);
-                    if (!hasMissing) return null;
+                    // Only show outlets with completely unfilled slots (no submissions at all)
+                    const hasCompletelyMissing = outlet.timeSlots.some(slot =>
+                      slot.submittedStaff && slot.submittedStaff.length === 0 &&
+                      slot.scheduledStaff && slot.scheduledStaff.length > 0
+                    );
+                    if (!hasCompletelyMissing) return null;
 
                     return (
                       <div key={outletIdx} style={{
@@ -742,7 +746,10 @@ const MissingSubmissionsReportGenerator = () => {
                         </h4>
 
                         {outlet.timeSlots.map((slot, slotIdx) => {
-                          if (slot.missingStaff.length === 0) return null;
+                          // Only show if NO ONE submitted (completely unfilled)
+                          const isCompletelyUnfilled = slot.submittedStaff && slot.submittedStaff.length === 0 &&
+                                                       slot.scheduledStaff && slot.scheduledStaff.length > 0;
+                          if (!isCompletelyUnfilled) return null;
 
                           return (
                             <div key={slotIdx} style={{
@@ -758,23 +765,22 @@ const MissingSubmissionsReportGenerator = () => {
                                 color: '#991b1b',
                                 marginBottom: '4px'
                               }}>
-                                {slot.timeSlot}
+                                {slot.timeSlot} - NOT FILLED
                               </div>
                               <div style={{
                                 fontSize: '12px',
                                 color: '#7f1d1d'
                               }}>
-                                <strong>Not Submitted:</strong> {slot.missingStaff.join(', ')}
+                                <strong>Scheduled Staff:</strong> {slot.scheduledStaff.join(', ')}
                               </div>
-                              {slot.submittedStaff.length > 0 && (
-                                <div style={{
-                                  fontSize: '11px',
-                                  color: '#16a34a',
-                                  marginTop: '4px'
-                                }}>
-                                  Submitted: {slot.submittedStaff.join(', ')}
-                                </div>
-                              )}
+                              <div style={{
+                                fontSize: '11px',
+                                color: '#991b1b',
+                                marginTop: '4px',
+                                fontStyle: 'italic'
+                              }}>
+                                No submissions received from any staff
+                              </div>
                             </div>
                           );
                         })}
@@ -782,14 +788,17 @@ const MissingSubmissionsReportGenerator = () => {
                     );
                   })}
 
-                  {!dayReport.outlets.some(o => o.timeSlots.some(s => s.missingStaff.length > 0)) && (
+                  {!dayReport.outlets.some(o => o.timeSlots.some(s =>
+                    s.submittedStaff && s.submittedStaff.length === 0 &&
+                    s.scheduledStaff && s.scheduledStaff.length > 0
+                  )) && (
                     <div style={{
                       textAlign: 'center',
                       padding: '12px',
                       color: '#16a34a',
                       fontSize: '14px'
                     }}>
-                      All scheduled staff submitted their checklists
+                      All time slots have at least one submission
                     </div>
                   )}
                 </div>
