@@ -486,9 +486,9 @@ const MissingSubmissionsReportGenerator = () => {
       reportData.dailyReports.forEach(day => {
         day.outlets.forEach(outlet => {
           outlet.timeSlots.forEach(slot => {
-            if (slot.isCompletelyMissing) {
-              csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${slot.scheduledStaff.join(', ')}",Not Filled\n`;
-            }
+            slot.missingStaff.forEach(staff => {
+              csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${staff}",Not Submitted\n`;
+            });
           });
         });
       });
@@ -721,7 +721,7 @@ const MissingSubmissionsReportGenerator = () => {
                   </h3>
 
                   {dayReport.outlets.map((outlet, outletIdx) => {
-                    const hasMissing = outlet.timeSlots.some(slot => slot.isCompletelyMissing);
+                    const hasMissing = outlet.timeSlots.some(slot => slot.missingStaff.length > 0);
                     if (!hasMissing) return null;
 
                     return (
@@ -742,7 +742,7 @@ const MissingSubmissionsReportGenerator = () => {
                         </h4>
 
                         {outlet.timeSlots.map((slot, slotIdx) => {
-                          if (!slot.isCompletelyMissing) return null;
+                          if (slot.missingStaff.length === 0) return null;
 
                           return (
                             <div key={slotIdx} style={{
@@ -758,22 +758,23 @@ const MissingSubmissionsReportGenerator = () => {
                                 color: '#991b1b',
                                 marginBottom: '4px'
                               }}>
-                                {slot.timeSlot} - NOT FILLED
+                                {slot.timeSlot}
                               </div>
                               <div style={{
                                 fontSize: '12px',
                                 color: '#7f1d1d'
                               }}>
-                                <strong>Scheduled Staff:</strong> {slot.scheduledStaff.join(', ')}
+                                <strong>Not Submitted:</strong> {slot.missingStaff.join(', ')}
                               </div>
-                              <div style={{
-                                fontSize: '11px',
-                                color: '#991b1b',
-                                marginTop: '4px',
-                                fontStyle: 'italic'
-                              }}>
-                                No submissions received from any staff
-                              </div>
+                              {slot.submittedStaff.length > 0 && (
+                                <div style={{
+                                  fontSize: '11px',
+                                  color: '#16a34a',
+                                  marginTop: '4px'
+                                }}>
+                                  Submitted: {slot.submittedStaff.join(', ')}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -781,14 +782,14 @@ const MissingSubmissionsReportGenerator = () => {
                     );
                   })}
 
-                  {!dayReport.outlets.some(o => o.timeSlots.some(s => s.isCompletelyMissing)) && (
+                  {!dayReport.outlets.some(o => o.timeSlots.some(s => s.missingStaff.length > 0)) && (
                     <div style={{
                       textAlign: 'center',
                       padding: '12px',
                       color: '#16a34a',
                       fontSize: '14px'
                     }}>
-                      All time slots have at least one submission
+                      All scheduled staff submitted their checklists
                     </div>
                   )}
                 </div>

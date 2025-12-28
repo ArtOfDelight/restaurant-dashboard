@@ -3596,19 +3596,19 @@ app.get('/api/checklist-missing-submissions-report', async (req, res) => {
           const scheduledEmployees = await getScheduledEmployees(outletCode, timeSlot, date);
           const scheduledNames = scheduledEmployees.map(emp => emp.name);
 
-          // A slot is missing ONLY if NO ONE submitted (not if just some didn't submit)
-          const isCompletelyMissing = scheduledNames.length > 0 && submittedStaff.length === 0;
+          // Find who didn't submit
+          const missingStaff = scheduledNames.filter(name => !submittedStaff.includes(name));
 
-          if (isCompletelyMissing) {
-            dayReport.totalMissing++;
-            totalMissing++;
+          if (missingStaff.length > 0) {
+            dayReport.totalMissing += missingStaff.length;
+            totalMissing += missingStaff.length;
           }
 
           outletReport.timeSlots.push({
             timeSlot: timeSlot,
             scheduledStaff: scheduledNames,
             submittedStaff: submittedStaff,
-            isCompletelyMissing: isCompletelyMissing
+            missingStaff: missingStaff
           });
         }
 
