@@ -3596,8 +3596,19 @@ app.get('/api/checklist-missing-submissions-report', async (req, res) => {
           const scheduledEmployees = await getScheduledEmployees(outletCode, timeSlot, date);
           const scheduledNames = scheduledEmployees.map(emp => emp.name);
 
-          // Find who didn't submit
-          const missingStaff = scheduledNames.filter(name => !submittedStaff.includes(name));
+          // Helper function to check if a name matches any submitted name
+          // Handles both short names (Jonathan) and full names (JONATHAN SEIMINTHANG HAOKIP)
+          const hasSubmitted = (scheduledName) => {
+            const lowerScheduled = scheduledName.toLowerCase().trim();
+            return submittedStaff.some(submittedName => {
+              const lowerSubmitted = submittedName.toLowerCase().trim();
+              // Match if scheduled name is contained in submitted name or vice versa
+              return lowerSubmitted.includes(lowerScheduled) || lowerScheduled.includes(lowerSubmitted);
+            });
+          };
+
+          // Find who didn't submit (using fuzzy name matching)
+          const missingStaff = scheduledNames.filter(name => !hasSubmitted(name));
 
           if (missingStaff.length > 0) {
             dayReport.totalMissing += missingStaff.length;
