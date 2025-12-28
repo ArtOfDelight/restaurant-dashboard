@@ -434,6 +434,420 @@ const ChecklistReportGenerator = ({ selectedDate }) => {
 
 // Add this new component after ChecklistReportGenerator component
 
+// NEW: Missing Submissions Report Generator (Date Range)
+const MissingSubmissionsReportGenerator = () => {
+  const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [reportData, setReportData] = useState(null);
+
+  // Initialize with last 7 days
+  const today = new Date().toISOString().split('T')[0];
+  const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const [startDate, setStartDate] = useState(sevenDaysAgo);
+  const [endDate, setEndDate] = useState(today);
+
+  const generateReport = async () => {
+    if (!startDate || !endDate) {
+      alert('Please select both start and end dates');
+      return;
+    }
+
+    if (new Date(startDate) > new Date(endDate)) {
+      alert('Start date must be before end date');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/checklist-missing-submissions-report`,
+        { params: { startDate, endDate } }
+      );
+
+      if (response.data.success) {
+        setReportData(response.data.report);
+        setShowModal(true);
+      }
+    } catch (error) {
+      console.error('Error generating missing submissions report:', error);
+      alert('Failed to generate report. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadReport = (format = 'csv') => {
+    if (!reportData) return;
+
+    if (format === 'csv') {
+      let csvContent = 'Date,Outlet,Time Slot,Scheduled Staff,Status\n';
+
+      reportData.dailyReports.forEach(day => {
+        day.outlets.forEach(outlet => {
+          outlet.timeSlots.forEach(slot => {
+            slot.missingStaff.forEach(staff => {
+              csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${staff}",Not Submitted\n`;
+            });
+          });
+        });
+      });
+
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `missing-submissions-${startDate}-to-${endDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } else {
+      const dataStr = JSON.stringify(reportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = window.URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `missing-submissions-${startDate}-to-${endDate}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
+  return (
+    <>
+      {/* Date Range Selection */}
+      <div style={{
+        backgroundColor: 'white',
+        padding: '20px',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        marginBottom: '20px'
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#1f2937' }}>
+          Missing Submissions Report (Date Range)
+        </h3>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#6b7280', marginBottom: '4px' }}>
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '14px',
+                color: '#1f2937'
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', color: '#6b7280', marginBottom: '4px' }}>
+              End Date
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '14px',
+                color: '#1f2937'
+              }}
+            />
+          </div>
+          <button
+            onClick={generateReport}
+            disabled={loading}
+            style={{
+              padding: '8px 20px',
+              backgroundColor: loading ? '#9ca3af' : '#dc2626',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            {loading ? 'Generating...' : 'Generate Missing Report'}
+          </button>
+        </div>
+      </div>
+
+      {/* Report Modal */}
+      {showModal && reportData && (
+        <div
+          className="report-modal-overlay"
+          onClick={() => setShowModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px'
+          }}
+        >
+          <div
+            className="report-modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              maxWidth: '1400px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(to right, #dc2626, #b91c1c)',
+              color: 'white',
+              padding: '24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0 }}>
+                  Missing Submissions Report
+                </h2>
+                <p style={{ fontSize: '14px', opacity: 0.9, marginTop: '4px' }}>
+                  {new Date(startDate).toLocaleDateString('en-IN')} to {new Date(endDate).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  cursor: 'pointer',
+                  fontSize: '24px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {/* Summary */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px',
+                marginBottom: '24px'
+              }}>
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #fee2e2, #fecaca)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #fca5a5'
+                }}>
+                  <div style={{ color: '#dc2626', fontSize: '12px', fontWeight: '500' }}>Total Missing</div>
+                  <div style={{ color: '#b91c1c', fontSize: '32px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.totalMissing}
+                  </div>
+                  <div style={{ color: '#dc2626', fontSize: '11px', marginTop: '4px' }}>Submissions not filled</div>
+                </div>
+
+                <div style={{
+                  background: 'linear-gradient(to bottom right, #dbeafe, #bfdbfe)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #93c5fd'
+                }}>
+                  <div style={{ color: '#2563eb', fontSize: '12px', fontWeight: '500' }}>Date Range</div>
+                  <div style={{ color: '#1d4ed8', fontSize: '20px', fontWeight: 'bold', marginTop: '4px' }}>
+                    {reportData.summary.totalDays} days
+                  </div>
+                  <div style={{ color: '#2563eb', fontSize: '11px', marginTop: '4px' }}>
+                    {reportData.summary.totalOutlets} outlets tracked
+                  </div>
+                </div>
+              </div>
+
+              {/* Day by Day Report */}
+              {reportData.dailyReports.map((dayReport, dayIdx) => (
+                <div key={dayIdx} style={{
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span>{new Date(dayReport.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    <span style={{
+                      backgroundColor: dayReport.totalMissing > 0 ? '#fee2e2' : '#dcfce7',
+                      color: dayReport.totalMissing > 0 ? '#dc2626' : '#16a34a',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: '500'
+                    }}>
+                      {dayReport.totalMissing} missing
+                    </span>
+                  </h3>
+
+                  {dayReport.outlets.map((outlet, outletIdx) => {
+                    const hasMissing = outlet.timeSlots.some(slot => slot.missingStaff.length > 0);
+                    if (!hasMissing) return null;
+
+                    return (
+                      <div key={outletIdx} style={{
+                        backgroundColor: 'white',
+                        borderRadius: '6px',
+                        padding: '12px',
+                        marginBottom: '8px',
+                        border: '1px solid #e5e7eb'
+                      }}>
+                        <h4 style={{
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          marginBottom: '8px'
+                        }}>
+                          {outlet.outletName}
+                        </h4>
+
+                        {outlet.timeSlots.map((slot, slotIdx) => {
+                          if (slot.missingStaff.length === 0) return null;
+
+                          return (
+                            <div key={slotIdx} style={{
+                              backgroundColor: '#fef2f2',
+                              borderLeft: '3px solid #dc2626',
+                              padding: '8px 12px',
+                              marginBottom: '6px',
+                              borderRadius: '4px'
+                            }}>
+                              <div style={{
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: '#991b1b',
+                                marginBottom: '4px'
+                              }}>
+                                {slot.timeSlot}
+                              </div>
+                              <div style={{
+                                fontSize: '12px',
+                                color: '#7f1d1d'
+                              }}>
+                                <strong>Not Submitted:</strong> {slot.missingStaff.join(', ')}
+                              </div>
+                              {slot.submittedStaff.length > 0 && (
+                                <div style={{
+                                  fontSize: '11px',
+                                  color: '#16a34a',
+                                  marginTop: '4px'
+                                }}>
+                                  Submitted: {slot.submittedStaff.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+
+                  {!dayReport.outlets.some(o => o.timeSlots.some(s => s.missingStaff.length > 0)) && (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '12px',
+                      color: '#16a34a',
+                      fontSize: '14px'
+                    }}>
+                      All scheduled staff submitted their checklists
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              backgroundColor: '#f9fafb',
+              padding: '16px 24px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                Generated: {new Date().toLocaleString('en-IN')}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => downloadReport('csv')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#16a34a',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  Download CSV
+                </button>
+                <button
+                  onClick={() => downloadReport('json')}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  Download JSON
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 // NEW: Weekly Report Generator Component
 const WeeklyReportGenerator = () => {
   const [loading, setLoading] = useState(false);
@@ -1585,15 +1999,24 @@ const ChecklistCompletionTracker = ({ REACT_APP_API_BASE_URL }) => {
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Daily Report Button */}
           <ChecklistReportGenerator selectedDate={selectedDate} />
-          
+
           {/* Weekly Report Button */}
           <WeeklyReportGenerator />
-          
+
           {/* Refresh Button */}
           <button onClick={loadCompletionData} className="refresh-btn">
             🔄 Refresh
           </button>
         </div>
+      </div>
+
+      {/* Missing Submissions Report Section */}
+      <div style={{ marginTop: '20px' }}>
+        <MissingSubmissionsReportGenerator />
+      </div>
+
+      <div className="completion-header" style={{ marginTop: '20px' }}>
+        <div style={{ borderBottom: '1px solid #e5e7eb', marginBottom: '12px' }}></div>
       </div>
 
       {error && (

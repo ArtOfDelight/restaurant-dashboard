@@ -3495,6 +3495,159 @@ app.get('/api/checklist-generate-report', async (req, res) => {
   }
 });
 
+// Generate missing submissions report (date range)
+app.get('/api/checklist-missing-submissions-report', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Both startDate and endDate are required',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log(`Generating missing submissions report from ${startDate} to ${endDate}`);
+
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google APIs');
+      }
+    }
+
+    // Fetch all submissions data
+    const submissionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+      range: `${SUBMISSIONS_TAB}!A:Z`,
+    });
+
+    const submissionsData = submissionsResponse.data.values || [];
+    const ALLOWED_OUTLET_CODES = ['RR', 'KOR', 'JAY', 'SKN', 'RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND', 'CK'];
+    const CLOUD_KITCHEN_CODES = ['RAJ', 'KLN', 'BLN', 'WF', 'HSR', 'ARK', 'IND'];
+
+    // Generate list of dates in range
+    const dates = [];
+    const currentDate = new Date(startDate);
+    const lastDate = new Date(endDate);
+
+    while (currentDate <= lastDate) {
+      dates.push(currentDate.toISOString().split('T')[0]);
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    console.log(`Processing ${dates.length} days for ${ALLOWED_OUTLET_CODES.length} outlets`);
+
+    // Build a map of submissions by date, outlet, and time slot
+    const submissionsMap = new Map();
+
+    if (submissionsData.length > 1) {
+      for (let i = 1; i < submissionsData.length; i++) {
+        const row = submissionsData[i];
+        if (!row || row.length === 0) continue;
+
+        const submissionDate = formatDate(getCellValue(row, 1));
+        const timeSlot = getCellValue(row, 2);
+        const outlet = getCellValue(row, 3);
+        const submittedBy = getCellValue(row, 4);
+        const timestamp = getCellValue(row, 5);
+
+        const effectiveDate = getEffectiveSubmissionDate(submissionDate, timeSlot, timestamp);
+
+        if (dates.includes(effectiveDate) && outlet && timeSlot) {
+          const key = `${effectiveDate}|${outlet}|${timeSlot}`;
+          if (!submissionsMap.has(key)) {
+            submissionsMap.set(key, []);
+          }
+          submissionsMap.get(key).push(submittedBy);
+        }
+      }
+    }
+
+    // Generate daily reports
+    const dailyReports = [];
+    let totalMissing = 0;
+
+    for (const date of dates) {
+      const dayReport = {
+        date: date,
+        outlets: [],
+        totalMissing: 0
+      };
+
+      // Process each outlet
+      for (const outletCode of ALLOWED_OUTLET_CODES) {
+        const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
+        const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : ['Morning', 'Mid Day', 'Closing'];
+
+        const outletReport = {
+          outletCode: outletCode,
+          outletName: getOutletFullName(outletCode),
+          timeSlots: []
+        };
+
+        // Process each time slot
+        for (const timeSlot of timeSlots) {
+          const key = `${date}|${outletCode}|${timeSlot}`;
+          const submittedStaff = submissionsMap.get(key) || [];
+
+          // Get scheduled employees for this outlet, time slot, and date
+          const scheduledEmployees = await getScheduledEmployees(outletCode, timeSlot, date);
+          const scheduledNames = scheduledEmployees.map(emp => emp.name);
+
+          // Find who didn't submit
+          const missingStaff = scheduledNames.filter(name => !submittedStaff.includes(name));
+
+          if (missingStaff.length > 0) {
+            dayReport.totalMissing += missingStaff.length;
+            totalMissing += missingStaff.length;
+          }
+
+          outletReport.timeSlots.push({
+            timeSlot: timeSlot,
+            scheduledStaff: scheduledNames,
+            submittedStaff: submittedStaff,
+            missingStaff: missingStaff
+          });
+        }
+
+        dayReport.outlets.push(outletReport);
+      }
+
+      dailyReports.push(dayReport);
+    }
+
+    const summary = {
+      startDate: startDate,
+      endDate: endDate,
+      totalDays: dates.length,
+      totalOutlets: ALLOWED_OUTLET_CODES.length,
+      totalMissing: totalMissing,
+      reportGeneratedAt: new Date().toISOString()
+    };
+
+    console.log(`Missing submissions report generated: ${totalMissing} total missing across ${dates.length} days`);
+
+    res.json({
+      success: true,
+      report: {
+        summary: summary,
+        dailyReports: dailyReports
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error generating missing submissions report:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Generate downloadable CSV report
 // === WEEKLY REPORT GENERATION ENDPOINTS ===
 
