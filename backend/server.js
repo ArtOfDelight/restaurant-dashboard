@@ -8295,11 +8295,15 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
       ? results.reduce((sum, p) => sum + p.oosPercentage, 0) / totalProducts
       : 0;
 
-    // Calculate outlet-level statistics
+    // Calculate outlet-level statistics and group products by outlet
     const outletStats = new Map();
+    const productsByOutlet = new Map();
+
     for (const [normalizedName, data] of productMap.entries()) {
       for (const entry of data.entries) {
         const outlet = entry.outlet;
+
+        // Initialize outlet stats
         if (!outletStats.has(outlet)) {
           outletStats.set(outlet, {
             outletName: outlet,
@@ -8308,11 +8312,36 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
             eventsCount: 0,
             totalOperatingHours: daysBack * getOutletOperatingHours(outlet)
           });
+          productsByOutlet.set(outlet, []);
         }
+
         const stats = outletStats.get(outlet);
         stats.totalOOSHours += entry.duration;
         stats.productsAffected.add(data.productName);
         stats.eventsCount += 1;
+
+        // Add product details for this outlet
+        const outletProducts = productsByOutlet.get(outlet);
+        const existingProduct = outletProducts.find(p => p.productName === data.productName);
+
+        if (!existingProduct) {
+          // Calculate OOS hours and percentage for this product at this specific outlet
+          const productOOSHoursAtOutlet = data.entries
+            .filter(e => e.outlet === outlet)
+            .reduce((sum, e) => sum + e.duration, 0);
+
+          const outletOperatingHours = daysBack * getOutletOperatingHours(outlet);
+          const productOOSPercentageAtOutlet = outletOperatingHours > 0
+            ? (productOOSHoursAtOutlet / outletOperatingHours) * 100
+            : 0;
+
+          outletProducts.push({
+            productName: data.productName,
+            oosPercentage: parseFloat(productOOSPercentageAtOutlet.toFixed(2)),
+            totalOOSHours: parseFloat(productOOSHoursAtOutlet.toFixed(1)),
+            eventsCount: data.entries.filter(e => e.outlet === outlet).length
+          });
+        }
       }
     }
 
@@ -8323,14 +8352,18 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
         ? (stats.totalOOSHours / stats.totalOperatingHours) * 100
         : 0;
 
+      // Get products for this outlet and sort by OOS percentage
+      const outletProductList = productsByOutlet.get(outlet) || [];
+      outletProductList.sort((a, b) => b.oosPercentage - a.oosPercentage);
+
       outletResults.push({
         outletName: stats.outletName,
         oosPercentage: parseFloat(oosPercentage.toFixed(2)),
         totalOOSHours: parseFloat(stats.totalOOSHours.toFixed(1)),
         totalOperatingHours: stats.totalOperatingHours,
         productsAffected: stats.productsAffected.size,
-        productsList: Array.from(stats.productsAffected),
-        eventsCount: stats.eventsCount
+        eventsCount: stats.eventsCount,
+        products: outletProductList
       });
     }
 
@@ -14151,19 +14184,20 @@ function formatOOSEmailHTML(productData, outletData) {
     .header { background-color: #d32f2f; color: white; padding: 20px; text-align: center; }
     .content { padding: 20px; }
     .summary { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
-    .section-header { margin-top: 30px; margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    th { background-color: #d32f2f; color: white; padding: 12px; text-align: left; font-weight: bold; }
-    td { padding: 10px; border-bottom: 1px solid #dee2e6; }
+    .outlet-section { margin: 30px 0; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden; }
+    .outlet-header { background-color: #f8f9fa; padding: 15px; border-bottom: 2px solid #d32f2f; }
+    .outlet-name { font-size: 20px; font-weight: bold; color: #d32f2f; margin: 0; }
+    .outlet-stats { font-size: 14px; color: #666; margin-top: 5px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background-color: #e9ecef; color: #333; padding: 10px; text-align: left; font-weight: bold; font-size: 13px; }
+    td { padding: 10px; border-bottom: 1px solid #f0f0f0; }
     tr:hover { background-color: #f8f9fa; }
     .critical { color: #d32f2f; font-weight: bold; }
     .warning { color: #ff9800; font-weight: bold; }
     .normal { color: #666; }
-    .outlets-cell { font-size: 12px; color: #666; max-width: 300px; }
-    .products-cell { font-size: 12px; color: #666; }
     .footer { background-color: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #666; margin-top: 30px; }
     .text-center { text-align: center; }
-    .text-right { text-align: right; }
+    .no-products { padding: 20px; text-align: center; color: #999; font-style: italic; }
   </style>
 </head>
 <body>
@@ -14176,118 +14210,85 @@ function formatOOSEmailHTML(productData, outletData) {
     <div class="summary">
       <h2>📋 Summary</h2>
       <p><strong>Analysis Period:</strong> Last 7 Days</p>
-      <p><strong>Total Outlets Analyzed:</strong> ${outletData.length}</p>
-      <p><strong>Total Products Analyzed:</strong> ${productData.length}</p>
-      <p><strong>Products with Stock Issues:</strong> ${productData.filter(p => p.oosPercentage > 0).length}</p>
-      <p><strong>Critical Products (>30% OOS):</strong> ${productData.filter(p => p.oosPercentage > 30).length}</p>
+      <p><strong>Total Outlets with Stock Issues:</strong> ${outletData.length}</p>
+      <p><strong>Total Products Affected:</strong> ${productData.length}</p>
+      <p><strong>Critical Outlets (>30% OOS):</strong> ${outletData.filter(o => o.oosPercentage > 30).length}</p>
     </div>
 
-    <h2 class="section-header">🏪 Outlet-Level Analysis</h2>
-    <p style="color: #666; font-size: 14px;">Stock-out performance by outlet, sorted by severity.</p>
-
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 5%;">#</th>
-          <th style="width: 20%;">Outlet Name</th>
-          <th class="text-center" style="width: 10%;">OOS %</th>
-          <th class="text-center" style="width: 12%;">OOS Hours</th>
-          <th class="text-center" style="width: 12%;">Operating Hours</th>
-          <th class="text-center" style="width: 10%;">Products Affected</th>
-          <th class="text-center" style="width: 8%;">Events</th>
-          <th style="width: 23%;">Affected Products</th>
-        </tr>
-      </thead>
-      <tbody>
+    <h2 style="margin-top: 30px; color: #d32f2f;">🏪 Stock-Out Details by Outlet</h2>
+    <p style="color: #666; font-size: 14px; margin-bottom: 20px;">Outlets sorted by severity. Each outlet shows products that went out of stock.</p>
 `;
 
-  // Add each outlet as a table row
-  outletData.forEach((outlet, index) => {
-    const percentage = outlet.oosPercentage || 0;
-    const totalOOSHours = outlet.totalOOSHours || 0;
-    const totalOperatingHours = outlet.totalOperatingHours || 0;
-    const productsAffected = outlet.productsAffected || 0;
-    const eventsCount = outlet.eventsCount || 0;
-    const productsList = outlet.productsList || [];
-
-    const severityClass = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : 'normal';
-    const emoji = percentage > 30 ? '🔴' : percentage > 15 ? '🟠' : '🟡';
+  // Iterate through each outlet and show its products
+  outletData.forEach((outlet, outletIndex) => {
+    const outletPercentage = outlet.oosPercentage || 0;
+    const severityClass = outletPercentage > 30 ? 'critical' : outletPercentage > 15 ? 'warning' : 'normal';
+    const emoji = outletPercentage > 30 ? '🔴' : outletPercentage > 15 ? '🟠' : '🟡';
 
     html += `
-        <tr>
-          <td class="text-center">${emoji}</td>
-          <td><strong>${outlet.outletName}</strong></td>
-          <td class="text-center ${severityClass}"><strong>${percentage.toFixed(2)}%</strong></td>
-          <td class="text-center">${totalOOSHours.toFixed(1)}</td>
-          <td class="text-center">${totalOperatingHours.toFixed(0)}</td>
-          <td class="text-center">${productsAffected}</td>
-          <td class="text-center">${eventsCount}</td>
-          <td class="products-cell">${productsList.length > 0 ? productsList.join(', ') : 'N/A'}</td>
-        </tr>
-`;
-  });
-
-  html += `
-      </tbody>
-    </table>
-
-    <h2 class="section-header">🔴 Product-Level Analysis</h2>
-    <p style="color: #666; font-size: 14px;">Stock-out performance by product, sorted by severity.</p>
-
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 5%;">#</th>
-          <th style="width: 25%;">Product Name</th>
-          <th class="text-center" style="width: 10%;">OOS %</th>
-          <th class="text-center" style="width: 10%;">OOS Hours</th>
-          <th class="text-center" style="width: 10%;">Operating Hours</th>
-          <th class="text-center" style="width: 8%;">Outlets</th>
-          <th class="text-center" style="width: 8%;">Events</th>
-          <th style="width: 24%;">Affected Outlets</th>
-        </tr>
-      </thead>
-      <tbody>
+    <div class="outlet-section">
+      <div class="outlet-header">
+        <h3 class="outlet-name">${emoji} ${outlet.outletName}</h3>
+        <div class="outlet-stats">
+          <span class="${severityClass}"><strong>OOS: ${outletPercentage.toFixed(2)}%</strong></span> |
+          <strong>${outlet.totalOOSHours.toFixed(1)} hrs</strong> out of ${outlet.totalOperatingHours} hrs |
+          <strong>${outlet.productsAffected}</strong> products affected |
+          <strong>${outlet.eventsCount}</strong> stock-out events
+        </div>
+      </div>
 `;
 
-  // Add each product as a table row
-  productData.forEach((product, index) => {
-    // Safe defaults for undefined values - using correct property names
-    const percentage = product.oosPercentage || 0;
-    const totalOOSHours = product.totalOOSHours || 0;
-    const totalOperatingHours = product.totalOperatingHours || 0;
-    const outletCount = product.outletsAffected || 0;
-    const stockOutEvents = product.eventsCount || 0;
-    const outlets = product.outlets || [];
-    const itemName = product.productName || 'Unknown Product';
+    const products = outlet.products || [];
 
-    const severityClass = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : 'normal';
-    const emoji = percentage > 30 ? '🔴' : percentage > 15 ? '🟠' : '🟡';
+    if (products.length > 0) {
+      html += `
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 5%;">#</th>
+            <th style="width: 55%;">Product Name</th>
+            <th class="text-center" style="width: 15%;">OOS %</th>
+            <th class="text-center" style="width: 15%;">OOS Hours</th>
+            <th class="text-center" style="width: 10%;">Events</th>
+          </tr>
+        </thead>
+        <tbody>
+`;
+
+      products.forEach((product, productIndex) => {
+        const productPercentage = product.oosPercentage || 0;
+        const productSeverityClass = productPercentage > 30 ? 'critical' : productPercentage > 15 ? 'warning' : 'normal';
+        const productEmoji = productPercentage > 30 ? '🔴' : productPercentage > 15 ? '🟠' : '🟡';
+
+        html += `
+          <tr>
+            <td class="text-center">${productEmoji}</td>
+            <td><strong>${product.productName}</strong></td>
+            <td class="text-center ${productSeverityClass}"><strong>${productPercentage.toFixed(2)}%</strong></td>
+            <td class="text-center">${product.totalOOSHours.toFixed(1)}</td>
+            <td class="text-center">${product.eventsCount}</td>
+          </tr>
+`;
+      });
+
+      html += `
+        </tbody>
+      </table>
+`;
+    } else {
+      html += `<div class="no-products">No products out of stock</div>`;
+    }
 
     html += `
-        <tr>
-          <td class="text-center">${emoji}</td>
-          <td><strong>${itemName}</strong></td>
-          <td class="text-center ${severityClass}"><strong>${percentage.toFixed(2)}%</strong></td>
-          <td class="text-center">${totalOOSHours.toFixed(1)}</td>
-          <td class="text-center">${totalOperatingHours.toFixed(0)}</td>
-          <td class="text-center">${outletCount}</td>
-          <td class="text-center">${stockOutEvents}</td>
-          <td class="outlets-cell">${outlets.length > 0 ? outlets.join(', ') : 'N/A'}</td>
-        </tr>
+    </div>
 `;
   });
-
-  html += `
-      </tbody>
-    </table>
-`;
 
   html += `
   </div>
 
   <div class="footer">
-    <p><strong>Action Required:</strong> Please review products with high out-of-stock percentages and take necessary action to improve inventory management.</p>
+    <p><strong>Action Required:</strong> Please review outlets and products with high out-of-stock percentages and take necessary action to improve inventory management.</p>
     <p>This is an automated weekly report generated every Tuesday.</p>
     <p>Art of Delight - Restaurant Dashboard System</p>
   </div>
