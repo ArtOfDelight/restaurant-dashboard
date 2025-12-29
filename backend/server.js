@@ -9436,18 +9436,30 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
         .replace(/what\s+percentage\s+of\s+time\s+(was|is)\s+/gi, '')
         .replace(/percentage\s+of\s+time\s+(was|is)\s+/gi, '')
         .replace(/what\s+(is|was)\s+the\s+/gi, '')
-        .replace(/\s+out\s+of\s+stock\s+/gi, ' ')
+        .replace(/give\s+me\s+(the\s+)?/gi, '')
+        .replace(/duration\s+percentage\s+of\s+/gi, '')
+        .replace(/percentage\s+of\s+/gi, '')
+        .replace(/\s+out\s+of\s+stock(\s+|$)/gi, ' ')  // Fixed: allow end of string
         .replace(/\s+being\s+/gi, ' ')
         .trim();
 
       console.log(`🔍 Cleaned: "${cleanMessage}"`);
 
+      // Pattern 0: "in the last X days, ITEM" or "last X days, ITEM" (time period comes first)
+      let match0 = cleanMessage.match(/(?:in\s+the\s+)?last\s+\d+\s+days?,?\s+(.+?)$/i);
+      if (match0) {
+        itemQuery = match0[1].trim();
+        console.log(`✅ Pattern 0 (time first): Item="${itemQuery}"`);
+      }
+
       // Pattern 1: "ITEM at/in OUTLET in/last X days"
-      let match1 = cleanMessage.match(/^([a-zA-Z0-9\s]+?)\s+(?:at|in)\s+([a-zA-Z0-9\s]+?)\s+(?:in\s+the\s+)?last/i);
-      if (match1) {
-        itemQuery = match1[1].trim();
-        outletQuery = match1[2].trim();
-        console.log(`✅ Pattern 1: Item="${itemQuery}", Outlet="${outletQuery}"`);
+      if (!itemQuery) {
+        let match1 = cleanMessage.match(/^([a-zA-Z0-9\s]+?)\s+(?:at|in)\s+([a-zA-Z0-9\s]+?)\s+(?:in\s+the\s+)?last/i);
+        if (match1) {
+          itemQuery = match1[1].trim();
+          outletQuery = match1[2].trim();
+          console.log(`✅ Pattern 1: Item="${itemQuery}", Outlet="${outletQuery}"`);
+        }
       }
 
       // Pattern 2: "ITEM in/last X days" (no outlet specified)
