@@ -14357,7 +14357,10 @@ app.listen(PORT, async () => {
   console.log('🚀 Initializing services...');
   await initializeServicesWithTickets();
 
-  // --- AUTO START CRITICAL STOCK SCHEDULER EVERY 1 HOUR ---
+  // --- AUTO START CRITICAL STOCK SCHEDULER DISABLED ---
+  // Critical stock bot auto-start is disabled
+  // To re-enable, uncomment the code below:
+  /*
   if (criticalStockBot) {
     if (global.criticalStockInterval) {
       clearInterval(global.criticalStockInterval);
@@ -14373,6 +14376,7 @@ app.listen(PORT, async () => {
     }, 6 * 60 * 60 * 1000); // 1 hour in milliseconds
     console.log('✅ Critical stock alert scheduler started (every 1 hour)');
   }
+  */
 
   console.log('✅ Service initialization complete');
   console.log('');
