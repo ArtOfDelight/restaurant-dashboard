@@ -3578,6 +3578,9 @@ app.get('/api/checklist-missing-submissions-report', async (req, res) => {
 
       // Process each outlet
       for (const outletCode of ALLOWED_OUTLET_CODES) {
+        // Skip Central Kitchen (CK) as checklist is not active yet
+        if (outletCode === 'CK') continue;
+
         const isCloudKitchen = CLOUD_KITCHEN_CODES.includes(outletCode);
         const timeSlots = isCloudKitchen ? ['Morning', 'Closing'] : ['Morning', 'Mid Day', 'Closing'];
 
