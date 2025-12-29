@@ -5,6 +5,8 @@ const { google } = require('googleapis');
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 const Groq = require('groq-sdk');
+const cron = require('node-cron');
+const nodemailer = require('nodemailer');
 const CRITICAL_STOCK_BOT_TOKEN = process.env.CRITICAL_STOCK_BOT_TOKEN;
 const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
@@ -12347,6 +12349,36 @@ app.get('/api/bot-status', async (req, res) => {
   });
 });
 
+// === TEST ENDPOINT FOR WEEKLY OOS EMAIL ===
+app.post('/api/test-weekly-oos-email', async (req, res) => {
+  try {
+    console.log('🧪 Manual test of weekly OOS email triggered');
+
+    // Check if email is configured
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email not configured. Please set EMAIL_USER and EMAIL_PASSWORD in .env file'
+      });
+    }
+
+    // Send the report
+    await sendWeeklyOOSReport();
+
+    res.json({
+      success: true,
+      message: 'Weekly OOS report sent successfully. Check the console for details.',
+      recipients: process.env.EMAIL_TO
+    });
+  } catch (error) {
+    console.error('Error in test email:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 app.get('/api/stock-data', async (req, res) => {
   try {
     const outlet = req.query.outlet;
@@ -14052,6 +14084,174 @@ app.get('/api/critical-stock-status', (req, res) => {
   });
 });
 
+// === EMAIL CONFIGURATION FOR WEEKLY OOS REPORTS ===
+
+// Configure email transporter
+const emailTransporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.EMAIL_PORT || '587'),
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
+
+// Function to format OOS data into HTML email
+function formatOOSEmailHTML(oosData) {
+  const date = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  let html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .header { background-color: #d32f2f; color: white; padding: 20px; text-align: center; }
+    .content { padding: 20px; }
+    .summary { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+    .product { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 15px 0; }
+    .product-name { font-size: 18px; font-weight: bold; color: #d32f2f; margin-bottom: 10px; }
+    .metric { display: inline-block; margin: 5px 15px 5px 0; }
+    .metric-label { font-weight: bold; color: #666; }
+    .metric-value { color: #000; }
+    .critical { color: #d32f2f; font-weight: bold; }
+    .warning { color: #ff9800; font-weight: bold; }
+    .footer { background-color: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #666; margin-top: 30px; }
+    .outlets { font-size: 14px; color: #555; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📊 Weekly Out-of-Stock Report</h1>
+    <p>${date}</p>
+  </div>
+
+  <div class="content">
+    <div class="summary">
+      <h2>📋 Summary</h2>
+      <p><strong>Analysis Period:</strong> Last 7 Days</p>
+      <p><strong>Total Products Analyzed:</strong> ${oosData.length}</p>
+      <p><strong>Products with Stock Issues:</strong> ${oosData.filter(p => p.percentage > 0).length}</p>
+      <p><strong>Critical Products (>30% OOS):</strong> ${oosData.filter(p => p.percentage > 30).length}</p>
+    </div>
+
+    <h2>🔴 Products by Out-of-Stock Percentage</h2>
+    <p style="color: #666; font-size: 14px;">Showing all products that went out of stock in the last 7 days, sorted by severity.</p>
+`;
+
+  // Add each product
+  oosData.forEach((product, index) => {
+    const severity = product.percentage > 30 ? 'critical' : product.percentage > 15 ? 'warning' : '';
+    const emoji = product.percentage > 30 ? '🔴' : product.percentage > 15 ? '🟠' : '🟡';
+
+    html += `
+    <div class="product">
+      <div class="product-name">${emoji} ${index + 1}. ${product.itemName}</div>
+      <div>
+        <div class="metric">
+          <span class="metric-label">OUT OF STOCK:</span>
+          <span class="metric-value ${severity}">${product.percentage.toFixed(2)}%</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Total OOS Hours:</span>
+          <span class="metric-value">${product.totalOOSHours.toFixed(1)} hrs</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Operating Hours:</span>
+          <span class="metric-value">${product.totalOperatingHours.toFixed(0)} hrs</span>
+        </div>
+      </div>
+      <div>
+        <div class="metric">
+          <span class="metric-label">Outlets Affected:</span>
+          <span class="metric-value">${product.outletCount}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Stock-Out Events:</span>
+          <span class="metric-value">${product.stockOutEvents}</span>
+        </div>
+      </div>
+      <div class="outlets">
+        <strong>Affected Outlets:</strong> ${product.outlets.join(', ')}
+      </div>
+    </div>
+`;
+  });
+
+  html += `
+  </div>
+
+  <div class="footer">
+    <p><strong>Action Required:</strong> Please review products with high out-of-stock percentages and take necessary action to improve inventory management.</p>
+    <p>This is an automated weekly report generated every Tuesday.</p>
+    <p>Art of Delight - Restaurant Dashboard System</p>
+  </div>
+</body>
+</html>
+`;
+
+  return html;
+}
+
+// Function to send weekly OOS report
+async function sendWeeklyOOSReport() {
+  try {
+    console.log('📧 Starting weekly OOS report generation...');
+
+    // Get OOS data for all products in the last 7 days across all outlets
+    const oosData = await getAllProductsStockOutPercentages(7, null);
+
+    if (!oosData || oosData.products.length === 0) {
+      console.log('ℹ️ No out-of-stock data found for the last 7 days. Email not sent.');
+      return;
+    }
+
+    // Sort products by percentage (highest first)
+    const sortedProducts = oosData.products.sort((a, b) => b.percentage - a.percentage);
+
+    // Format email
+    const htmlContent = formatOOSEmailHTML(sortedProducts);
+
+    // Email options
+    const mailOptions = {
+      from: `"Art of Delight Dashboard" <${process.env.EMAIL_FROM}>`,
+      to: process.env.EMAIL_TO,
+      subject: `Weekly Out-of-Stock Report - ${new Date().toLocaleDateString('en-IN')}`,
+      html: htmlContent
+    };
+
+    // Send email
+    const info = await emailTransporter.sendMail(mailOptions);
+    console.log('✅ Weekly OOS report sent successfully!');
+    console.log(`   Message ID: ${info.messageId}`);
+    console.log(`   Recipients: ${process.env.EMAIL_TO}`);
+    console.log(`   Products included: ${sortedProducts.length}`);
+
+  } catch (error) {
+    console.error('❌ Error sending weekly OOS report:', error.message);
+    console.error(error);
+  }
+}
+
+// Schedule weekly OOS report - Every Tuesday at 9:00 AM
+// Cron format: second minute hour day month weekday
+// 0 9 * * 2 = At 9:00 AM on Tuesday
+cron.schedule('0 9 * * 2', async () => {
+  console.log('🕐 Scheduled weekly OOS report triggered (Tuesday 9:00 AM)');
+  await sendWeeklyOOSReport();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
+
+console.log('✅ Weekly OOS report scheduler initialized (Every Tuesday at 9:00 AM IST)');
+
 // Start server
 // Start server with bot initialization
 app.listen(PORT, async () => {
@@ -14131,6 +14331,9 @@ app.listen(PORT, async () => {
   console.log(`   GET  /                                              - API info`);
   console.log(`   GET  /api/image-proxy/:fileId                       - Image proxy`);
   console.log('');
+  console.log('Email & Reporting endpoints:');
+  console.log(`   POST /api/test-weekly-oos-email                     - Test weekly OOS report email`);
+  console.log('');
   console.log('Environment:');
   console.log(`   Dashboard Sheet: ${DASHBOARD_SPREADSHEET_ID ? 'Configured' : 'Missing'}`);
   console.log(`   Checklist Sheet: ${CHECKLIST_SPREADSHEET_ID ? 'Configured' : 'Missing'}`);
@@ -14141,6 +14344,8 @@ app.listen(PORT, async () => {
   console.log(`   Bot Status: ${bot ? 'Connected' : 'Not Connected'}`);
   console.log(`   Ticket Bot Status: ${ticketBot ? 'Connected' : 'Not Connected'}`);
   console.log(`   Service Account: ${authClient ? 'Connected' : 'Not Connected'}`);
+  console.log(`   Email Service: ${process.env.EMAIL_USER && process.env.EMAIL_PASSWORD ? 'Configured' : 'Not Configured'}`);
+  console.log(`   Weekly OOS Report: ${process.env.EMAIL_USER && process.env.EMAIL_PASSWORD ? 'Enabled (Every Tuesday 9:00 AM IST)' : 'Disabled (Email not configured)'}`);
   console.log('');
   console.log('Telegram Bot Updates (FIXED):');
   console.log('   FIXED: 409 Conflict error with proper shutdown');
