@@ -8499,7 +8499,12 @@ function parseDate(dateStr) {
  */
 async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, additionalFilters = {}) {
   try {
-    const sheets = google.sheets({ version: 'v4', auth: await getAuthClient() });
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
 
     // Fetch ProductDetails sheet
     const response = await sheets.spreadsheets.values.get({
