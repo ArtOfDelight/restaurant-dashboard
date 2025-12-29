@@ -8236,25 +8236,17 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
           const stockOutDate = lastStockOut ? parseDate(lastStockOut) : null;
           let durationToCount = durationHours;
 
+          // For weekly reports: Only include stock-out events that started within the last 7 days
           if (stockOutDate) {
+            // Skip stock-out events that started before the cutoff date (older than 7 days)
             if (stockOutDate < cutoffDate) {
-              const now = new Date();
-              const stockInDate = lastStockIn ? parseDate(lastStockIn) : null;
-
-              if (stockInDate && stockInDate > cutoffDate) {
-                const durationInPeriod = (stockInDate - cutoffDate) / (1000 * 60 * 60);
-                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
-              } else if (!stockInDate && status.toLowerCase().includes('out')) {
-                const durationInPeriod = (now - cutoffDate) / (1000 * 60 * 60);
-                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
-              } else {
-                continue;
-              }
-            } else {
-              durationToCount = Math.min(durationHours, maxDurationForPeriod);
+              continue;
             }
-          } else {
+            // Stock-out event is within the 7-day period
             durationToCount = Math.min(durationHours, maxDurationForPeriod);
+          } else {
+            // No stock-out date available - skip this entry
+            continue;
           }
 
           productData.totalOOSHours += durationToCount;
@@ -14115,15 +14107,17 @@ function formatOOSEmailHTML(oosData) {
     .header { background-color: #d32f2f; color: white; padding: 20px; text-align: center; }
     .content { padding: 20px; }
     .summary { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
-    .product { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 15px 0; }
-    .product-name { font-size: 18px; font-weight: bold; color: #d32f2f; margin-bottom: 10px; }
-    .metric { display: inline-block; margin: 5px 15px 5px 0; }
-    .metric-label { font-weight: bold; color: #666; }
-    .metric-value { color: #000; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th { background-color: #d32f2f; color: white; padding: 12px; text-align: left; font-weight: bold; }
+    td { padding: 10px; border-bottom: 1px solid #dee2e6; }
+    tr:hover { background-color: #f8f9fa; }
     .critical { color: #d32f2f; font-weight: bold; }
     .warning { color: #ff9800; font-weight: bold; }
+    .normal { color: #666; }
+    .outlets-cell { font-size: 12px; color: #666; max-width: 300px; }
     .footer { background-color: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #666; margin-top: 30px; }
-    .outlets { font-size: 14px; color: #555; margin-top: 5px; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
   </style>
 </head>
 <body>
@@ -14137,61 +14131,61 @@ function formatOOSEmailHTML(oosData) {
       <h2>📋 Summary</h2>
       <p><strong>Analysis Period:</strong> Last 7 Days</p>
       <p><strong>Total Products Analyzed:</strong> ${oosData.length}</p>
-      <p><strong>Products with Stock Issues:</strong> ${oosData.filter(p => p.percentage > 0).length}</p>
-      <p><strong>Critical Products (>30% OOS):</strong> ${oosData.filter(p => p.percentage > 30).length}</p>
+      <p><strong>Products with Stock Issues:</strong> ${oosData.filter(p => p.oosPercentage > 0).length}</p>
+      <p><strong>Critical Products (>30% OOS):</strong> ${oosData.filter(p => p.oosPercentage > 30).length}</p>
     </div>
 
     <h2>🔴 Products by Out-of-Stock Percentage</h2>
     <p style="color: #666; font-size: 14px;">Showing all products that went out of stock in the last 7 days, sorted by severity.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 5%;">#</th>
+          <th style="width: 25%;">Product Name</th>
+          <th class="text-center" style="width: 10%;">OOS %</th>
+          <th class="text-center" style="width: 10%;">OOS Hours</th>
+          <th class="text-center" style="width: 10%;">Operating Hours</th>
+          <th class="text-center" style="width: 8%;">Outlets</th>
+          <th class="text-center" style="width: 8%;">Events</th>
+          <th style="width: 24%;">Affected Outlets</th>
+        </tr>
+      </thead>
+      <tbody>
 `;
 
-  // Add each product
+  // Add each product as a table row
   oosData.forEach((product, index) => {
-    // Safe defaults for undefined values
-    const percentage = product.percentage || 0;
+    // Safe defaults for undefined values - using correct property names
+    const percentage = product.oosPercentage || 0;
     const totalOOSHours = product.totalOOSHours || 0;
     const totalOperatingHours = product.totalOperatingHours || 0;
-    const outletCount = product.outletCount || 0;
-    const stockOutEvents = product.stockOutEvents || 0;
+    const outletCount = product.outletsAffected || 0;
+    const stockOutEvents = product.eventsCount || 0;
     const outlets = product.outlets || [];
-    const itemName = product.itemName || 'Unknown Product';
+    const itemName = product.productName || 'Unknown Product';
 
-    const severity = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : '';
+    const severityClass = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : 'normal';
     const emoji = percentage > 30 ? '🔴' : percentage > 15 ? '🟠' : '🟡';
 
     html += `
-    <div class="product">
-      <div class="product-name">${emoji} ${index + 1}. ${itemName}</div>
-      <div>
-        <div class="metric">
-          <span class="metric-label">OUT OF STOCK:</span>
-          <span class="metric-value ${severity}">${percentage.toFixed(2)}%</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Total OOS Hours:</span>
-          <span class="metric-value">${totalOOSHours.toFixed(1)} hrs</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Operating Hours:</span>
-          <span class="metric-value">${totalOperatingHours.toFixed(0)} hrs</span>
-        </div>
-      </div>
-      <div>
-        <div class="metric">
-          <span class="metric-label">Outlets Affected:</span>
-          <span class="metric-value">${outletCount}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Stock-Out Events:</span>
-          <span class="metric-value">${stockOutEvents}</span>
-        </div>
-      </div>
-      <div class="outlets">
-        <strong>Affected Outlets:</strong> ${outlets.length > 0 ? outlets.join(', ') : 'N/A'}
-      </div>
-    </div>
+        <tr>
+          <td class="text-center">${emoji}</td>
+          <td><strong>${itemName}</strong></td>
+          <td class="text-center ${severityClass}"><strong>${percentage.toFixed(2)}%</strong></td>
+          <td class="text-center">${totalOOSHours.toFixed(1)}</td>
+          <td class="text-center">${totalOperatingHours.toFixed(0)}</td>
+          <td class="text-center">${outletCount}</td>
+          <td class="text-center">${stockOutEvents}</td>
+          <td class="outlets-cell">${outlets.length > 0 ? outlets.join(', ') : 'N/A'}</td>
+        </tr>
 `;
   });
+
+  html += `
+      </tbody>
+    </table>
+`;
 
   html += `
   </div>
@@ -14221,8 +14215,8 @@ async function sendWeeklyOOSReport() {
       return;
     }
 
-    // Sort products by percentage (highest first)
-    const sortedProducts = oosData.products.sort((a, b) => b.percentage - a.percentage);
+    // Sort products by OOS percentage (highest first)
+    const sortedProducts = oosData.products.sort((a, b) => b.oosPercentage - a.oosPercentage);
 
     // Format email
     const htmlContent = formatOOSEmailHTML(sortedProducts);
