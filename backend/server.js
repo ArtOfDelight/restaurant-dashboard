@@ -14229,12 +14229,6 @@ function formatOOSEmailHTML(productData, outletData) {
     <div class="outlet-section">
       <div class="outlet-header">
         <h3 class="outlet-name">${emoji} ${outlet.outletName}</h3>
-        <div class="outlet-stats">
-          <span class="${severityClass}"><strong>OOS: ${outletPercentage.toFixed(2)}%</strong></span> |
-          <strong>${outlet.totalOOSHours.toFixed(1)} hrs</strong> out of ${outlet.totalOperatingHours} hrs |
-          <strong>${outlet.productsAffected}</strong> products affected |
-          <strong>${outlet.eventsCount}</strong> stock-out events
-        </div>
       </div>
 `;
 
