@@ -8664,6 +8664,217 @@ async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, addition
   }
 }
 
+/**
+ * Predict optimal stock levels based on historical demand patterns
+ * Calculates safety stock and reorder quantities to prevent stock-outs
+ * @param {Number} daysBack - Historical data period to analyze
+ * @param {Object} additionalFilters - Branch and channel filters
+ * @param {Number} serviceLevel - Target service level (default 95% = 1.65 std dev)
+ * @param {Number} leadTimeDays - Supplier lead time in days (default 0.5)
+ * @returns {Object} Stock recommendations by product and outlet
+ */
+async function predictOptimalStockLevels(daysBack = 30, additionalFilters = {}, serviceLevel = 0.95, leadTimeDays = 0.5) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    // Fetch ProductDetails sheet for historical sales
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) {
+      return { error: 'No data available' };
+    }
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+
+    if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    const { branch, channel } = additionalFilters;
+
+    // Group data by product, outlet, and date
+    const productOutletDateMap = new Map();
+    const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const itemName = row[itemNameIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+      const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+
+      if (!dateStr || !itemName || !branchName) continue;
+
+      // Apply date filter
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate || parsedDate < cutoffDate) continue;
+
+      // Apply filters
+      if (branch && !branchesMatch(branchName, branch)) continue;
+      if (channel && channelName.toLowerCase() !== channel.toLowerCase()) continue;
+
+      // Create unique key for product-outlet-date
+      const normalizedName = normalizeProductName(itemName);
+      const dateKey = parsedDate.toISOString().split('T')[0];
+      const key = `${normalizedName}|||${branchName}|||${dateKey}`;
+
+      if (productOutletDateMap.has(key)) {
+        productOutletDateMap.get(key).orders += orderCount;
+      } else {
+        productOutletDateMap.set(key, {
+          productName: itemName,
+          normalizedName,
+          outlet: branchName,
+          date: dateKey,
+          orders: orderCount
+        });
+      }
+    }
+
+    // Aggregate by product and outlet
+    const productOutletStats = new Map();
+
+    for (const entry of productOutletDateMap.values()) {
+      const key = `${entry.normalizedName}|||${entry.outlet}`;
+
+      if (!productOutletStats.has(key)) {
+        productOutletStats.set(key, {
+          productName: entry.productName,
+          normalizedName: entry.normalizedName,
+          outlet: entry.outlet,
+          dailyDemands: [],
+          totalDays: 0
+        });
+      }
+
+      productOutletStats.get(key).dailyDemands.push(entry.orders);
+    }
+
+    // Calculate statistics and optimal stock levels
+    const recommendations = [];
+    const zScore = serviceLevel === 0.95 ? 1.65 : (serviceLevel === 0.99 ? 2.33 : 1.65); // Z-score for service level
+
+    for (const [key, stats] of productOutletStats.entries()) {
+      const dailyDemands = stats.dailyDemands;
+      const n = dailyDemands.length;
+
+      if (n === 0) continue;
+
+      // Calculate average daily demand
+      const avgDailyDemand = dailyDemands.reduce((sum, d) => sum + d, 0) / n;
+
+      // Calculate standard deviation of demand
+      const variance = dailyDemands.reduce((sum, d) => sum + Math.pow(d - avgDailyDemand, 2), 0) / n;
+      const stdDev = Math.sqrt(variance);
+
+      // Calculate coefficient of variation (demand variability indicator)
+      const coefficientOfVariation = avgDailyDemand > 0 ? (stdDev / avgDailyDemand) * 100 : 0;
+
+      // Safety stock formula: Z-score × StdDev × √(Lead Time)
+      const safetyStock = Math.ceil(zScore * stdDev * Math.sqrt(leadTimeDays));
+
+      // Reorder point: (Average Daily Demand × Lead Time) + Safety Stock
+      const reorderPoint = Math.ceil((avgDailyDemand * leadTimeDays) + safetyStock);
+
+      // Economic Order Quantity (simplified) - order for 1 day + safety stock
+      const recommendedOrderQty = Math.ceil(avgDailyDemand + safetyStock);
+
+      // Maximum inventory level (for 1.5 days with safety stock)
+      const maxInventory = Math.ceil((avgDailyDemand * 1.5) + safetyStock);
+
+      // Stock-out risk assessment
+      const maxDemand = Math.max(...dailyDemands);
+      const stockOutRisk = maxDemand > reorderPoint ? 'High' : (maxDemand > safetyStock ? 'Medium' : 'Low');
+
+      // Demand pattern classification
+      let demandPattern = 'Stable';
+      if (coefficientOfVariation > 50) demandPattern = 'Highly Variable';
+      else if (coefficientOfVariation > 25) demandPattern = 'Variable';
+
+      recommendations.push({
+        productName: stats.productName,
+        outlet: stats.outlet,
+        avgDailyDemand: parseFloat(avgDailyDemand.toFixed(2)),
+        stdDev: parseFloat(stdDev.toFixed(2)),
+        coefficientOfVariation: parseFloat(coefficientOfVariation.toFixed(1)),
+        demandPattern,
+        safetyStock,
+        reorderPoint,
+        recommendedOrderQty,
+        maxInventory,
+        maxDemandObserved: maxDemand,
+        stockOutRisk,
+        daysAnalyzed: n,
+        serviceLevel: `${(serviceLevel * 100).toFixed(0)}%`
+      });
+    }
+
+    // Sort by stock-out risk (High first) then by average demand (highest first)
+    recommendations.sort((a, b) => {
+      const riskOrder = { 'High': 0, 'Medium': 1, 'Low': 2 };
+      if (riskOrder[a.stockOutRisk] !== riskOrder[b.stockOutRisk]) {
+        return riskOrder[a.stockOutRisk] - riskOrder[b.stockOutRisk];
+      }
+      return b.avgDailyDemand - a.avgDailyDemand;
+    });
+
+    // Calculate summary statistics
+    const totalProducts = recommendations.length;
+    const highRiskProducts = recommendations.filter(r => r.stockOutRisk === 'High').length;
+    const mediumRiskProducts = recommendations.filter(r => r.stockOutRisk === 'Medium').length;
+    const lowRiskProducts = recommendations.filter(r => r.stockOutRisk === 'Low').length;
+    const highVariabilityProducts = recommendations.filter(r => r.demandPattern === 'Highly Variable').length;
+
+    return {
+      success: true,
+      summary: {
+        totalProducts,
+        highRiskProducts,
+        mediumRiskProducts,
+        lowRiskProducts,
+        highVariabilityProducts,
+        daysAnalyzed: daysBack,
+        serviceLevel: `${(serviceLevel * 100).toFixed(0)}%`,
+        leadTimeDays,
+        currentBufferDays: 0.5,
+        recommendedApproach: 'Dynamic safety stock based on demand variability'
+      },
+      recommendations,
+      methodology: {
+        description: 'Statistical inventory optimization using safety stock calculation',
+        safetyStockFormula: `Z-score (${zScore}) × Standard Deviation × √(Lead Time Days)`,
+        reorderPointFormula: '(Avg Daily Demand × Lead Time) + Safety Stock',
+        serviceLevel: `${(serviceLevel * 100).toFixed(0)}% (${zScore} standard deviations)`,
+        notes: [
+          'Safety stock varies by product based on demand variability',
+          'Higher variability = higher safety stock needed',
+          'Reorder point triggers when to order more stock',
+          'Max inventory prevents overstocking'
+        ]
+      },
+      filters: additionalFilters
+    };
+  } catch (error) {
+    console.error('Error predicting optimal stock levels:', error);
+    return { error: error.message };
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -8718,6 +8929,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about daily sales drops/comparison
     const isDailySalesDropQuery = /daily.*sales.*drop|sales.*drop.*daily|which.*day.*sales.*drop|day.*sales.*dropped|sales.*below.*average|average.*daily.*sales|daily.*comparison|day.*by.*day|daily.*performance|worst.*day|best.*day.*sales/i.test(userMessage);
 
+    // Check if user is asking about inventory optimization / stock predictions
+    const isInventoryOptimizationQuery = /optimal.*stock|stock.*prediction|predict.*demand|how much.*stock|inventory.*optimization|safety.*stock|reorder.*point|stock.*level|prevent.*stock.*out|buffer.*stock|recommend.*stock|forecast.*demand|demand.*forecast|stock.*recommendation/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
@@ -8726,6 +8940,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     let durationData = null;
     let durationPercentageData = null;
     let dailySalesAnalysis = null;
+    let inventoryOptimization = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -8886,6 +9101,27 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       };
 
       dailySalesAnalysis = await analyzeDailySalesDrops(filterOrRange, filters);
+    }
+
+    // Get inventory optimization recommendations if user is asking
+    if (isInventoryOptimizationQuery) {
+      // Parse days from message or use 30 days default for better accuracy
+      let daysBack = 30; // default for inventory analysis
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        daysBack = parseInt(daysMatch[1]);
+      }
+
+      // Parse service level if mentioned (e.g., "95% service level")
+      let serviceLevel = 0.95; // default 95%
+      const serviceLevelMatch = userMessage.match(/(\d+)%?\s*service\s*level/i);
+      if (serviceLevelMatch) {
+        serviceLevel = parseInt(serviceLevelMatch[1]) / 100;
+      }
+
+      console.log(`📦 Analyzing inventory optimization for last ${daysBack} days (${(serviceLevel * 100).toFixed(0)}% service level)`);
+
+      inventoryOptimization = await predictOptimalStockLevels(daysBack, filters, serviceLevel);
     }
 
     // Prepare stock information for prompt
@@ -9210,6 +9446,59 @@ INSTRUCTIONS FOR ANSWERING:
     } else if (isDailySalesDropQuery && dailySalesAnalysis && dailySalesAnalysis.error) {
       stockInfo += `\n=== DAILY SALES ANALYSIS ===
 Error: ${dailySalesAnalysis.error}
+`;
+    }
+
+    // Add inventory optimization recommendations if available
+    if (inventoryOptimization && inventoryOptimization.success) {
+      stockInfo += `\n=== INVENTORY OPTIMIZATION & DEMAND FORECASTING ===
+ANALYSIS PERIOD: ${inventoryOptimization.summary.daysAnalyzed} days of historical data
+SERVICE LEVEL TARGET: ${inventoryOptimization.summary.serviceLevel} (reduces stock-out probability)
+CURRENT APPROACH: ${inventoryOptimization.summary.currentBufferDays} day buffer (uniform for all products)
+RECOMMENDED APPROACH: ${inventoryOptimization.summary.recommendedApproach}
+
+SUMMARY:
+- Total Products Analyzed: ${inventoryOptimization.summary.totalProducts}
+- High Stock-Out Risk: ${inventoryOptimization.summary.highRiskProducts} products ⚠️
+- Medium Stock-Out Risk: ${inventoryOptimization.summary.mediumRiskProducts} products
+- Low Stock-Out Risk: ${inventoryOptimization.summary.lowRiskProducts} products ✓
+- High Demand Variability: ${inventoryOptimization.summary.highVariabilityProducts} products (need larger buffer)
+
+TOP 20 PRIORITY PRODUCTS (by stock-out risk):
+${inventoryOptimization.recommendations.slice(0, 20).map((rec, idx) =>
+  `${idx + 1}. ${rec.productName} at ${rec.outlet}
+   - Avg Daily Demand: ${rec.avgDailyDemand.toFixed(1)} orders/day
+   - Demand Pattern: ${rec.demandPattern} (CV: ${rec.coefficientOfVariation}%)
+   - Stock-Out Risk: ${rec.stockOutRisk} ${rec.stockOutRisk === 'High' ? '⚠️' : rec.stockOutRisk === 'Medium' ? '⚡' : '✓'}
+   - RECOMMENDED SAFETY STOCK: ${rec.safetyStock} units
+   - REORDER POINT: ${rec.reorderPoint} units (order when stock hits this level)
+   - DAILY ORDER QUANTITY: ${rec.recommendedOrderQty} units
+   - Max Inventory Needed: ${rec.maxInventory} units (to handle peak demand)
+   - Max Demand Observed: ${rec.maxDemandObserved} orders in a day`
+).join('\n\n')}
+
+METHODOLOGY:
+${inventoryOptimization.methodology.description}
+- Safety Stock Formula: ${inventoryOptimization.methodology.safetyStockFormula}
+- Reorder Point Formula: ${inventoryOptimization.methodology.reorderPointFormula}
+- Service Level: ${inventoryOptimization.methodology.serviceLevel}
+
+KEY INSIGHTS:
+${inventoryOptimization.methodology.notes.map(note => `- ${note}`).join('\n')}
+
+INSTRUCTIONS FOR ANSWERING:
+- Focus on HIGH RISK products first - these need immediate attention
+- Explain that products with "Highly Variable" demand need LARGER safety stock than stable products
+- Current 0.5 day buffer is TOO SMALL for high-variability products
+- REORDER POINT tells when to order more stock (not how much to order)
+- RECOMMENDED ORDER QTY tells how much to order each time
+- Safety stock varies by product - one-size-fits-all approach causes either stock-outs or waste
+- Products with low variability can use smaller buffers, saving on inventory costs
+- Use specific numbers from the recommendations when providing advice
+`;
+    } else if (isInventoryOptimizationQuery && inventoryOptimization && inventoryOptimization.error) {
+      stockInfo += `\n=== INVENTORY OPTIMIZATION ===
+Error: ${inventoryOptimization.error}
 `;
     }
 
