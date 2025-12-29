@@ -486,9 +486,13 @@ const MissingSubmissionsReportGenerator = () => {
       reportData.dailyReports.forEach(day => {
         day.outlets.forEach(outlet => {
           outlet.timeSlots.forEach(slot => {
-            slot.missingStaff.forEach(staff => {
-              csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${staff}",Not Submitted\n`;
-            });
+            // Only include slots where NO ONE has submitted (completely unfilled)
+            if (slot.submittedStaff && slot.submittedStaff.length === 0 &&
+                slot.scheduledStaff && slot.scheduledStaff.length > 0) {
+              slot.missingStaff.forEach(staff => {
+                csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${staff}",Not Submitted\n`;
+              });
+            }
           });
         });
       });
