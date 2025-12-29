@@ -14147,38 +14147,47 @@ function formatOOSEmailHTML(oosData) {
 
   // Add each product
   oosData.forEach((product, index) => {
-    const severity = product.percentage > 30 ? 'critical' : product.percentage > 15 ? 'warning' : '';
-    const emoji = product.percentage > 30 ? '🔴' : product.percentage > 15 ? '🟠' : '🟡';
+    // Safe defaults for undefined values
+    const percentage = product.percentage || 0;
+    const totalOOSHours = product.totalOOSHours || 0;
+    const totalOperatingHours = product.totalOperatingHours || 0;
+    const outletCount = product.outletCount || 0;
+    const stockOutEvents = product.stockOutEvents || 0;
+    const outlets = product.outlets || [];
+    const itemName = product.itemName || 'Unknown Product';
+
+    const severity = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : '';
+    const emoji = percentage > 30 ? '🔴' : percentage > 15 ? '🟠' : '🟡';
 
     html += `
     <div class="product">
-      <div class="product-name">${emoji} ${index + 1}. ${product.itemName}</div>
+      <div class="product-name">${emoji} ${index + 1}. ${itemName}</div>
       <div>
         <div class="metric">
           <span class="metric-label">OUT OF STOCK:</span>
-          <span class="metric-value ${severity}">${product.percentage.toFixed(2)}%</span>
+          <span class="metric-value ${severity}">${percentage.toFixed(2)}%</span>
         </div>
         <div class="metric">
           <span class="metric-label">Total OOS Hours:</span>
-          <span class="metric-value">${product.totalOOSHours.toFixed(1)} hrs</span>
+          <span class="metric-value">${totalOOSHours.toFixed(1)} hrs</span>
         </div>
         <div class="metric">
           <span class="metric-label">Operating Hours:</span>
-          <span class="metric-value">${product.totalOperatingHours.toFixed(0)} hrs</span>
+          <span class="metric-value">${totalOperatingHours.toFixed(0)} hrs</span>
         </div>
       </div>
       <div>
         <div class="metric">
           <span class="metric-label">Outlets Affected:</span>
-          <span class="metric-value">${product.outletCount}</span>
+          <span class="metric-value">${outletCount}</span>
         </div>
         <div class="metric">
           <span class="metric-label">Stock-Out Events:</span>
-          <span class="metric-value">${product.stockOutEvents}</span>
+          <span class="metric-value">${stockOutEvents}</span>
         </div>
       </div>
       <div class="outlets">
-        <strong>Affected Outlets:</strong> ${product.outlets.join(', ')}
+        <strong>Affected Outlets:</strong> ${outlets.length > 0 ? outlets.join(', ') : 'N/A'}
       </div>
     </div>
 `;
