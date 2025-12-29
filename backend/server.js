@@ -8161,6 +8161,165 @@ async function getStockOutDurationPercentage(itemQuery, outletQuery, daysBack = 
 }
 
 /**
+ * Get stock-out duration percentages for ALL products
+ * @param {Number} daysBack - Period to analyze
+ * @param {String} outletQuery - Specific outlet or null for all
+ * @returns {Object} All products with their OOS percentages
+ */
+async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = null) {
+  try {
+    if (!sheets) {
+      await initializeGoogleServices();
+    }
+
+    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
+    const LIVE_INVENTORY_TAB = 'Live Inventory';
+
+    const isAllOutlets = !outletQuery || outletQuery.toLowerCase() === 'all';
+    console.log(`📊 Calculating OOS percentage for ALL products ${isAllOutlets ? 'across all outlets' : `at "${outletQuery}"`} (last ${daysBack} days)`);
+
+    // Fetch live inventory data
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: STOCK_SPREADSHEET_ID,
+      range: `${LIVE_INVENTORY_TAB}!A:H`,
+    });
+
+    const allData = response.data.values || [];
+    if (allData.length <= 1) {
+      return { error: 'No live inventory data available' };
+    }
+
+    const dataRows = allData.slice(1);
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+
+    // Group by product
+    const productMap = new Map();
+    const outletsByProduct = new Map();
+
+    for (const row of dataRows) {
+      if (row && row.length >= 4) {
+        const itemName = row[1] ? row[1].toString().trim() : '';
+        const itemOutlet = row[2] ? row[2].toString().trim() : '';
+        const status = row[3] ? row[3].toString().trim() : '';
+        const lastStockOut = row[4] ? row[4].toString().trim() : '';
+        const lastStockIn = row[5] ? row[5].toString().trim() : '';
+        const durationHours = row[7] ? parseFloat(row[7].toString().trim()) : 0;
+
+        if (!itemName) continue;
+
+        // Check outlet filter
+        const outletMatches = isAllOutlets || itemOutlet.toLowerCase().includes(outletQuery.toLowerCase());
+        if (!outletMatches) continue;
+
+        const normalizedName = itemName.toLowerCase();
+
+        if (!productMap.has(normalizedName)) {
+          productMap.set(normalizedName, {
+            productName: itemName,
+            totalOOSHours: 0,
+            outlets: new Set(),
+            entries: []
+          });
+          outletsByProduct.set(normalizedName, new Set());
+        }
+
+        const productData = productMap.get(normalizedName);
+        productData.outlets.add(itemOutlet);
+
+        if (durationHours > 0) {
+          const outletHoursPerDay = getOutletOperatingHours(itemOutlet);
+          const maxDurationForPeriod = daysBack * outletHoursPerDay;
+
+          const stockOutDate = lastStockOut ? parseDate(lastStockOut) : null;
+          let durationToCount = durationHours;
+
+          if (stockOutDate) {
+            if (stockOutDate < cutoffDate) {
+              const now = new Date();
+              const stockInDate = lastStockIn ? parseDate(lastStockIn) : null;
+
+              if (stockInDate && stockInDate > cutoffDate) {
+                const durationInPeriod = (stockInDate - cutoffDate) / (1000 * 60 * 60);
+                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
+              } else if (!stockInDate && status.toLowerCase().includes('out')) {
+                const durationInPeriod = (now - cutoffDate) / (1000 * 60 * 60);
+                durationToCount = Math.min(durationInPeriod, maxDurationForPeriod);
+              } else {
+                continue;
+              }
+            } else {
+              durationToCount = Math.min(durationHours, maxDurationForPeriod);
+            }
+          } else {
+            durationToCount = Math.min(durationHours, maxDurationForPeriod);
+          }
+
+          productData.totalOOSHours += durationToCount;
+          productData.entries.push({
+            outlet: itemOutlet,
+            duration: durationToCount,
+            stockOutDate: lastStockOut || 'N/A'
+          });
+        }
+      }
+    }
+
+    // Calculate percentages
+    const results = [];
+    for (const [normalizedName, data] of productMap.entries()) {
+      if (data.entries.length === 0) continue; // Skip products with no OOS events
+
+      // Calculate total operating hours for all outlets this product is in
+      let totalOperatingHours = 0;
+      for (const outlet of data.outlets) {
+        const hours = getOutletOperatingHours(outlet);
+        totalOperatingHours += daysBack * hours;
+      }
+
+      const percentage = totalOperatingHours > 0
+        ? (data.totalOOSHours / totalOperatingHours) * 100
+        : 0;
+
+      results.push({
+        productName: data.productName,
+        oosPercentage: parseFloat(percentage.toFixed(2)),
+        totalOOSHours: parseFloat(data.totalOOSHours.toFixed(1)),
+        totalOperatingHours,
+        outletsAffected: data.outlets.size,
+        outlets: Array.from(data.outlets),
+        eventsCount: data.entries.length
+      });
+    }
+
+    // Sort by OOS percentage (highest first)
+    results.sort((a, b) => b.oosPercentage - a.oosPercentage);
+
+    const totalProducts = results.length;
+    const productsWithOOS = results.filter(p => p.oosPercentage > 0).length;
+    const avgOOSPercentage = totalProducts > 0
+      ? results.reduce((sum, p) => sum + p.oosPercentage, 0) / totalProducts
+      : 0;
+
+    return {
+      success: true,
+      summary: {
+        totalProducts,
+        productsWithOOS,
+        avgOOSPercentage: parseFloat(avgOOSPercentage.toFixed(2)),
+        daysAnalyzed: daysBack,
+        outletFilter: isAllOutlets ? 'All Outlets' : outletQuery
+      },
+      products: results
+    };
+
+  } catch (error) {
+    console.error('Error getting all products OOS percentages:', error.message);
+    return { error: error.message };
+  }
+}
+
+/**
  * Correlate sales deprecation with stock availability
  * Analyzes if sales decrease is due to stock issues
  */
@@ -9335,6 +9494,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about duration percentage (e.g., "percentage of time out of stock")
     const isDurationPercentageQuery = /percentage.*duration|duration.*percentage|percent.*out|out.*percent|% of time|percentage of time.*out|out of stock.*%|percentage.*being.*out|what.*percentage|give.*percentage/i.test(userMessage);
 
+    // Check if asking for ALL products
+    const isAllProductsOOSQuery = isDurationPercentageQuery && /all.*product|every.*product|all.*item|each.*product/i.test(userMessage);
+
     // Check if user is asking about daily sales drops/comparison
     const isDailySalesDropQuery = /daily.*sales.*drop|sales.*drop.*daily|which.*day.*sales.*drop|day.*sales.*dropped|sales.*below.*average|average.*daily.*sales|daily.*comparison|day.*by.*day|daily.*performance|worst.*day|best.*day.*sales/i.test(userMessage);
 
@@ -9357,6 +9519,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     let salesImpactData = null;
     let durationData = null;
     let durationPercentageData = null;
+    let allProductsOOSData = null;
     let dailySalesAnalysis = null;
     let inventoryOptimization = null;
     let productTrends = null;
@@ -9424,9 +9587,14 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
         daysBack = 30;
       }
 
-      // Try to parse item name and outlet from the message
-      let itemQuery = null;
-      let outletQuery = null;
+      // Check if user wants ALL products
+      if (isAllProductsOOSQuery) {
+        console.log(`📊 Getting OOS% for ALL products (last ${daysBack} days)`);
+        allProductsOOSData = await getAllProductsStockOutPercentages(daysBack, filters.branch || null);
+      } else {
+        // Try to parse item name and outlet from the message
+        let itemQuery = null;
+        let outletQuery = null;
 
       console.log(`🔍 Original query: "${userMessage}"`);
 
@@ -9508,6 +9676,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
           console.log(`📊 Attempting to calculate OOS% for "${itemQuery}" across ALL outlets (${daysBack} days)`);
         }
         durationPercentageData = await getStockOutDurationPercentage(itemQuery, outletQuery, daysBack);
+        }
       }
     }
 
@@ -9872,6 +10041,38 @@ So for 3 days:
 - Dine-in: 3 × 14 = 42 operating hours
 - Cloud Kitchen: 3 × 15 = 45 operating hours
 NOT 3 × 24 = 72 hours!
+`;
+    }
+
+    // Add all products OOS percentages if requested
+    if (allProductsOOSData && allProductsOOSData.success) {
+      stockInfo += `\n=== ALL PRODUCTS OUT-OF-STOCK DURATION PERCENTAGES ===
+ANALYSIS PERIOD: ${allProductsOOSData.summary.daysAnalyzed} days
+OUTLET FILTER: ${allProductsOOSData.summary.outletFilter}
+
+SUMMARY:
+- Total Products Analyzed: ${allProductsOOSData.summary.totalProducts}
+- Products with Stock-Outs: ${allProductsOOSData.summary.productsWithOOS}
+- Average OOS Percentage: ${allProductsOOSData.summary.avgOOSPercentage}%
+
+TOP 20 PRODUCTS BY OUT-OF-STOCK PERCENTAGE (Highest First):
+${allProductsOOSData.products.slice(0, 20).map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - OUT OF STOCK: ${p.oosPercentage}% of time
+   - Total OOS Hours: ${p.totalOOSHours} hours
+   - Total Operating Hours: ${p.totalOperatingHours} hours
+   - Outlets Affected: ${p.outletsAffected} (${p.outlets.join(', ')})
+   - Stock-Out Events: ${p.eventsCount}`
+).join('\n\n')}
+
+${allProductsOOSData.products.length > 20 ? `\n... and ${allProductsOOSData.products.length - 20} more products (showing top 20)` : ''}
+
+INSTRUCTIONS FOR ANSWERING:
+- Highlight products with high OOS% (>10%) as critical issues
+- Products with 0% had no stock-outs in this period
+- Focus on products that are frequently out of stock across multiple outlets
+- Recommend addressing high OOS% products immediately to prevent revenue loss
+- Products not shown had 0% out-of-stock time
 `;
     }
 
