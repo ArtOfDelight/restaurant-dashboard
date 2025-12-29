@@ -483,6 +483,8 @@ const MissingSubmissionsReportGenerator = () => {
     if (format === 'csv') {
       let csvContent = 'Date,Outlet,Time Slot,Scheduled Staff,Status\n';
 
+      const allMissingStaff = new Set();
+
       reportData.dailyReports.forEach(day => {
         day.outlets.forEach(outlet => {
           outlet.timeSlots.forEach(slot => {
@@ -491,10 +493,18 @@ const MissingSubmissionsReportGenerator = () => {
                 slot.scheduledStaff && slot.scheduledStaff.length > 0) {
               slot.missingStaff.forEach(staff => {
                 csvContent += `${day.date},${outlet.outletName},${slot.timeSlot},"${staff}",Not Submitted\n`;
+                allMissingStaff.add(staff);
               });
             }
           });
         });
+      });
+
+      // Add summary section with unique staff names who haven't submitted
+      csvContent += '\n\nSummary - Staff Who Have Not Filled\n';
+      csvContent += 'Staff Name\n';
+      Array.from(allMissingStaff).sort().forEach(staff => {
+        csvContent += `"${staff}"\n`;
       });
 
       const blob = new Blob([csvContent], { type: 'text/csv' });
