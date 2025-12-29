@@ -8491,6 +8491,174 @@ function parseDate(dateStr) {
   }
 }
 
+/**
+ * Analyze daily sales to find days where sales dropped below average
+ * @param {Number|Object} filterOrRange - Either daysFilter (number) or dateRange {startDate, endDate}
+ * @param {Object} additionalFilters - Branch and channel filters
+ * @returns {Object} Analysis of daily sales with days below average
+ */
+async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, additionalFilters = {}) {
+  try {
+    const sheets = google.sheets({ version: 'v4', auth: await getAuthClient() });
+
+    // Fetch ProductDetails sheet
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) {
+      return { error: 'No data available' };
+    }
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+
+    if (dateIndex === -1 || orderCountIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    // Determine filter type
+    const isRangeFilter = filterOrRange && typeof filterOrRange === 'object' && filterOrRange.startDate;
+    const daysFilter = !isRangeFilter ? filterOrRange : null;
+    const dateRange = isRangeFilter ? filterOrRange : null;
+
+    const { branch, channel } = additionalFilters;
+
+    // Group data by date
+    const dailySalesMap = new Map();
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+      const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+
+      if (!dateStr) continue;
+
+      // Apply date filter
+      let includeRow = true;
+      if (dateRange) {
+        includeRow = isDateInRange(dateStr, dateRange.startDate, dateRange.endDate);
+      } else if (daysFilter) {
+        includeRow = isDateWithinRange(dateStr, daysFilter);
+      }
+
+      if (!includeRow) continue;
+
+      // Apply branch filter
+      if (branch && !branchesMatch(branchName, branch)) continue;
+
+      // Apply channel filter
+      if (channel && channelName.toLowerCase() !== channel.toLowerCase()) continue;
+
+      // Aggregate by date
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate) continue;
+
+      const dateKey = parsedDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      if (dailySalesMap.has(dateKey)) {
+        const existing = dailySalesMap.get(dateKey);
+        existing.totalOrders += orderCount;
+        existing.totalRevenue += revenue;
+      } else {
+        dailySalesMap.set(dateKey, {
+          date: dateKey,
+          displayDate: dateStr,
+          totalOrders: orderCount,
+          totalRevenue: revenue
+        });
+      }
+    }
+
+    // Convert to array and sort by date
+    const dailySales = Array.from(dailySalesMap.values()).sort((a, b) =>
+      new Date(a.date) - new Date(b.date)
+    );
+
+    if (dailySales.length === 0) {
+      return { error: 'No sales data found for the specified period' };
+    }
+
+    // Calculate average daily sales
+    const totalOrders = dailySales.reduce((sum, day) => sum + day.totalOrders, 0);
+    const totalRevenue = dailySales.reduce((sum, day) => sum + day.totalRevenue, 0);
+    const avgDailyOrders = totalOrders / dailySales.length;
+    const avgDailyRevenue = totalRevenue / dailySales.length;
+
+    // Find days below average
+    const daysWithDrops = dailySales
+      .map(day => {
+        const orderDrop = avgDailyOrders - day.totalOrders;
+        const revenueDrop = avgDailyRevenue - day.totalRevenue;
+        const orderDropPercentage = (orderDrop / avgDailyOrders) * 100;
+        const revenueDropPercentage = (revenueDrop / avgDailyRevenue) * 100;
+
+        return {
+          ...day,
+          orderDrop,
+          revenueDrop,
+          orderDropPercentage,
+          revenueDropPercentage,
+          isBelowAverage: day.totalOrders < avgDailyOrders || day.totalRevenue < avgDailyRevenue
+        };
+      })
+      .filter(day => day.isBelowAverage)
+      .sort((a, b) => b.orderDropPercentage - a.orderDropPercentage); // Sort by biggest drop first
+
+    // Get day of week distribution
+    const dayOfWeekSales = new Map();
+    dailySales.forEach(day => {
+      const date = new Date(day.date);
+      const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+
+      if (!dayOfWeekSales.has(dayOfWeek)) {
+        dayOfWeekSales.set(dayOfWeek, { orders: 0, revenue: 0, count: 0 });
+      }
+
+      const existing = dayOfWeekSales.get(dayOfWeek);
+      existing.orders += day.totalOrders;
+      existing.revenue += day.totalRevenue;
+      existing.count += 1;
+    });
+
+    const dayOfWeekAnalysis = Array.from(dayOfWeekSales.entries()).map(([day, data]) => ({
+      dayOfWeek: day,
+      avgOrders: data.orders / data.count,
+      avgRevenue: data.revenue / data.count,
+      totalDays: data.count
+    })).sort((a, b) => a.avgOrders - b.avgOrders);
+
+    return {
+      success: true,
+      periodSummary: {
+        totalDays: dailySales.length,
+        avgDailyOrders: Math.round(avgDailyOrders * 100) / 100,
+        avgDailyRevenue: Math.round(avgDailyRevenue * 100) / 100,
+        totalOrders,
+        totalRevenue,
+        daysAboveAverage: dailySales.filter(d => d.totalOrders >= avgDailyOrders).length,
+        daysBelowAverage: daysWithDrops.length
+      },
+      daysWithDrops,
+      allDailySales: dailySales,
+      dayOfWeekAnalysis,
+      filters: additionalFilters
+    };
+  } catch (error) {
+    console.error('Error analyzing daily sales drops:', error);
+    return { error: error.message };
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -8542,6 +8710,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about duration percentage (e.g., "percentage of time out of stock")
     const isDurationPercentageQuery = /percentage.*duration|duration.*percentage|percent.*out|out.*percent|% of time|percentage of time.*out|out of stock.*%|percentage.*being.*out|what.*percentage|give.*percentage/i.test(userMessage);
 
+    // Check if user is asking about daily sales drops/comparison
+    const isDailySalesDropQuery = /daily.*sales.*drop|sales.*drop.*daily|which.*day.*sales.*drop|day.*sales.*dropped|sales.*below.*average|average.*daily.*sales|daily.*comparison|day.*by.*day|daily.*performance|worst.*day|best.*day.*sales/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
@@ -8549,6 +8720,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     let salesImpactData = null;
     let durationData = null;
     let durationPercentageData = null;
+    let dailySalesAnalysis = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -8684,6 +8856,31 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
         }
         durationPercentageData = await getStockOutDurationPercentage(itemQuery, outletQuery, daysBack);
       }
+    }
+
+    // Get daily sales analysis if user is asking about daily drops
+    if (isDailySalesDropQuery) {
+      // Parse days from dateRangeInfo
+      let daysBack = 7; // default
+      if (dateRangeInfo.includes('last 7 days') || dateRangeInfo.includes('Last 7 days')) daysBack = 7;
+      else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+      else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+      else if (dateRangeInfo.includes('last 28 days')) daysBack = 28;
+
+      // Parse days from message if specified
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        daysBack = parseInt(daysMatch[1]);
+      }
+
+      console.log(`📊 Analyzing daily sales drops for last ${daysBack} days`);
+
+      const filterOrRange = {
+        startDate: new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
+        endDate: new Date()
+      };
+
+      dailySalesAnalysis = await analyzeDailySalesDrops(filterOrRange, filters);
     }
 
     // Prepare stock information for prompt
@@ -8959,6 +9156,55 @@ So for 3 days:
 - Dine-in: 3 × 14 = 42 operating hours
 - Cloud Kitchen: 3 × 15 = 45 operating hours
 NOT 3 × 24 = 72 hours!
+`;
+    }
+
+    // Add daily sales analysis if available
+    if (dailySalesAnalysis && dailySalesAnalysis.success) {
+      stockInfo += `\n=== DAILY SALES ANALYSIS ===
+${dailySalesAnalysis.periodSummary.totalDays} days analyzed
+- Average daily orders: ${dailySalesAnalysis.periodSummary.avgDailyOrders.toFixed(0)} orders/day
+- Average daily revenue: ₹${dailySalesAnalysis.periodSummary.avgDailyRevenue.toFixed(2)}/day
+- Total orders: ${dailySalesAnalysis.periodSummary.totalOrders}
+- Total revenue: ₹${dailySalesAnalysis.periodSummary.totalRevenue.toFixed(2)}
+- Days above average: ${dailySalesAnalysis.periodSummary.daysAboveAverage}
+- Days below average: ${dailySalesAnalysis.periodSummary.daysBelowAverage}
+
+TOP 10 DAYS WITH BIGGEST SALES DROPS (Below Average):
+${dailySalesAnalysis.daysWithDrops.slice(0, 10).map((day, idx) => {
+  const date = new Date(day.date);
+  const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+  return `${idx + 1}. ${day.date} (${dayOfWeek})
+   - Orders: ${day.totalOrders} (${day.orderDrop > 0 ? '-' : '+'}${Math.abs(day.orderDrop).toFixed(0)} from avg)
+   - Revenue: ₹${day.totalRevenue.toFixed(2)} (${day.revenueDrop > 0 ? '-' : '+'}₹${Math.abs(day.revenueDrop).toFixed(2)} from avg)
+   - Order drop: ${day.orderDropPercentage.toFixed(1)}% below average
+   - Revenue drop: ${day.revenueDropPercentage.toFixed(1)}% below average`;
+}).join('\n')}
+${dailySalesAnalysis.daysWithDrops.length === 0 ? 'No days had sales below average!' : ''}
+
+DAY OF WEEK PERFORMANCE (Avg orders per day):
+${dailySalesAnalysis.dayOfWeekAnalysis.map((day, idx) =>
+  `${idx + 1}. ${day.dayOfWeek}: ${day.avgOrders.toFixed(0)} orders/day, ₹${day.avgRevenue.toFixed(2)}/day (${day.totalDays} days sampled)`
+).join('\n')}
+
+COMPLETE DAILY BREAKDOWN:
+${dailySalesAnalysis.allDailySales.map((day, idx) => {
+  const date = new Date(day.date);
+  const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const isAboveAvg = day.totalOrders >= dailySalesAnalysis.periodSummary.avgDailyOrders;
+  return `${day.date} (${dayOfWeek}): ${day.totalOrders} orders, ₹${day.totalRevenue.toFixed(2)} ${isAboveAvg ? '✓' : '✗ Below avg'}`;
+}).join('\n')}
+
+INSTRUCTIONS FOR ANSWERING:
+- When asked "which day dropped the most", refer to the TOP DAYS WITH BIGGEST DROPS section above
+- Show the specific date, day of week, actual values, and percentage drop
+- Compare to the average to explain how much it dropped
+- Use the DAY OF WEEK PERFORMANCE to identify patterns (e.g., "Mondays typically have lower sales")
+- Reference the COMPLETE DAILY BREAKDOWN for day-by-day analysis
+`;
+    } else if (isDailySalesDropQuery && dailySalesAnalysis && dailySalesAnalysis.error) {
+      stockInfo += `\n=== DAILY SALES ANALYSIS ===
+Error: ${dailySalesAnalysis.error}
 `;
     }
 
