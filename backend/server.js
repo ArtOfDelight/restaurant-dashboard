@@ -8875,6 +8875,415 @@ async function predictOptimalStockLevels(daysBack = 30, additionalFilters = {}, 
   }
 }
 
+/**
+ * Analyze product performance trends - identify growing, stable, and declining products
+ * Compares recent period vs previous period to detect trends
+ * @param {Number} recentDays - Recent period to analyze (default 14 days)
+ * @param {Number} previousDays - Previous period to compare against (default 14 days)
+ * @param {Object} additionalFilters - Branch and channel filters
+ * @returns {Object} Product trend analysis with growth rates
+ */
+async function analyzeProductTrends(recentDays = 14, previousDays = 14, additionalFilters = {}) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) return { error: 'No data available' };
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+
+    if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    const { branch, channel } = additionalFilters;
+
+    const recentStart = new Date(Date.now() - recentDays * 24 * 60 * 60 * 1000);
+    const previousStart = new Date(Date.now() - (recentDays + previousDays) * 24 * 60 * 60 * 1000);
+    const previousEnd = recentStart;
+
+    const recentPeriod = new Map();
+    const previousPeriod = new Map();
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const itemName = row[itemNameIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+      const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+
+      if (!dateStr || !itemName) continue;
+
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate) continue;
+
+      // Apply filters
+      if (branch && !branchesMatch(branchName, branch)) continue;
+      if (channel && channelName.toLowerCase() !== channel.toLowerCase()) continue;
+
+      const normalizedName = normalizeProductName(itemName);
+
+      // Categorize into recent or previous period
+      if (parsedDate >= recentStart) {
+        if (!recentPeriod.has(normalizedName)) {
+          recentPeriod.set(normalizedName, { name: itemName, orders: 0, revenue: 0 });
+        }
+        const entry = recentPeriod.get(normalizedName);
+        entry.orders += orderCount;
+        entry.revenue += revenue;
+      } else if (parsedDate >= previousStart && parsedDate < previousEnd) {
+        if (!previousPeriod.has(normalizedName)) {
+          previousPeriod.set(normalizedName, { name: itemName, orders: 0, revenue: 0 });
+        }
+        const entry = previousPeriod.get(normalizedName);
+        entry.orders += orderCount;
+        entry.revenue += revenue;
+      }
+    }
+
+    // Calculate trends
+    const trends = [];
+    const allProducts = new Set([...recentPeriod.keys(), ...previousPeriod.keys()]);
+
+    for (const normalizedName of allProducts) {
+      const recent = recentPeriod.get(normalizedName) || { name: '', orders: 0, revenue: 0 };
+      const previous = previousPeriod.get(normalizedName) || { name: '', orders: 0, revenue: 0 };
+      const name = recent.name || previous.name;
+
+      const orderGrowth = previous.orders > 0
+        ? ((recent.orders - previous.orders) / previous.orders) * 100
+        : (recent.orders > 0 ? 100 : 0);
+
+      const revenueGrowth = previous.revenue > 0
+        ? ((recent.revenue - previous.revenue) / previous.revenue) * 100
+        : (recent.revenue > 0 ? 100 : 0);
+
+      let trend = 'Stable';
+      if (orderGrowth > 20) trend = 'Rapidly Growing';
+      else if (orderGrowth > 10) trend = 'Growing';
+      else if (orderGrowth < -20) trend = 'Rapidly Declining';
+      else if (orderGrowth < -10) trend = 'Declining';
+
+      let lifecycle = 'Mature';
+      if (previous.orders === 0 && recent.orders > 0) lifecycle = 'New Product';
+      else if (recent.orders === 0 && previous.orders > 0) lifecycle = 'Discontinued';
+      else if (orderGrowth > 50) lifecycle = 'Star (High Growth)';
+      else if (orderGrowth < -30 && recent.orders < 10) lifecycle = 'Dying';
+
+      trends.push({
+        productName: name,
+        recentOrders: recent.orders,
+        previousOrders: previous.orders,
+        recentRevenue: recent.revenue,
+        previousRevenue: previous.revenue,
+        orderGrowth: parseFloat(orderGrowth.toFixed(1)),
+        revenueGrowth: parseFloat(revenueGrowth.toFixed(1)),
+        trend,
+        lifecycle,
+        avgDailyOrders: parseFloat((recent.orders / recentDays).toFixed(2))
+      });
+    }
+
+    trends.sort((a, b) => b.orderGrowth - a.orderGrowth);
+
+    const growing = trends.filter(t => t.orderGrowth > 10);
+    const declining = trends.filter(t => t.orderGrowth < -10);
+    const stable = trends.filter(t => t.orderGrowth >= -10 && t.orderGrowth <= 10);
+    const newProducts = trends.filter(t => t.lifecycle === 'New Product');
+    const stars = trends.filter(t => t.lifecycle === 'Star (High Growth)');
+
+    return {
+      success: true,
+      summary: {
+        totalProducts: trends.length,
+        growing: growing.length,
+        declining: declining.length,
+        stable: stable.length,
+        newProducts: newProducts.length,
+        stars: stars.length,
+        recentPeriod: `Last ${recentDays} days`,
+        comparedTo: `Previous ${previousDays} days`
+      },
+      trends,
+      growing,
+      declining,
+      stable,
+      newProducts,
+      stars
+    };
+  } catch (error) {
+    console.error('Error analyzing product trends:', error);
+    return { error: error.message };
+  }
+}
+
+/**
+ * Compare outlet performance across all metrics
+ * @param {Number} daysBack - Period to analyze
+ * @returns {Object} Outlet comparison with rankings
+ */
+async function compareOutletPerformance(daysBack = 30) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) return { error: 'No data available' };
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+
+    if (dateIndex === -1 || orderCountIndex === -1 || branchIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+    const outletStats = new Map();
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+
+      if (!dateStr || !branchName) continue;
+
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate || parsedDate < cutoffDate) continue;
+
+      if (!outletStats.has(branchName)) {
+        outletStats.set(branchName, { orders: 0, revenue: 0, days: new Set() });
+      }
+
+      const stats = outletStats.get(branchName);
+      stats.orders += orderCount;
+      stats.revenue += revenue;
+      stats.days.add(parsedDate.toISOString().split('T')[0]);
+    }
+
+    const outletPerformance = [];
+    for (const [outlet, stats] of outletStats.entries()) {
+      const activeDays = stats.days.size;
+      const avgDailyOrders = activeDays > 0 ? stats.orders / activeDays : 0;
+      const avgDailyRevenue = activeDays > 0 ? stats.revenue / activeDays : 0;
+
+      outletPerformance.push({
+        outlet,
+        totalOrders: stats.orders,
+        totalRevenue: stats.revenue,
+        avgDailyOrders: parseFloat(avgDailyOrders.toFixed(2)),
+        avgDailyRevenue: parseFloat(avgDailyRevenue.toFixed(2)),
+        activeDays
+      });
+    }
+
+    // Rankings
+    const byRevenue = [...outletPerformance].sort((a, b) => b.totalRevenue - a.totalRevenue);
+    const byOrders = [...outletPerformance].sort((a, b) => b.totalOrders - a.totalOrders);
+    const byAvgRevenue = [...outletPerformance].sort((a, b) => b.avgDailyRevenue - a.avgDailyRevenue);
+
+    const totalRevenue = outletPerformance.reduce((sum, o) => sum + o.totalRevenue, 0);
+    const totalOrders = outletPerformance.reduce((sum, o) => sum + o.totalOrders, 0);
+
+    return {
+      success: true,
+      summary: {
+        totalOutlets: outletPerformance.length,
+        totalRevenue,
+        totalOrders,
+        avgRevenuePerOutlet: parseFloat((totalRevenue / outletPerformance.length).toFixed(2)),
+        avgOrdersPerOutlet: parseFloat((totalOrders / outletPerformance.length).toFixed(2)),
+        daysAnalyzed: daysBack
+      },
+      outletPerformance,
+      rankings: {
+        byRevenue,
+        byOrders,
+        byAvgDailyRevenue: byAvgRevenue
+      }
+    };
+  } catch (error) {
+    console.error('Error comparing outlet performance:', error);
+    return { error: error.message };
+  }
+}
+
+/**
+ * Analyze product profitability and identify high-value items
+ * @param {Number} daysBack - Period to analyze
+ * @param {Object} additionalFilters - Branch and channel filters
+ * @returns {Object} Profitability analysis
+ */
+async function analyzeProductProfitability(daysBack = 30, additionalFilters = {}) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) return { error: 'No data available' };
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+
+    if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1 || revenueIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    const { branch, channel } = additionalFilters;
+    const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+    const productStats = new Map();
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const itemName = row[itemNameIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const revenue = parseCurrencyValue(row[revenueIndex]);
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+      const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+
+      if (!dateStr || !itemName || revenue === 0) continue;
+
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate || parsedDate < cutoffDate) continue;
+
+      if (branch && !branchesMatch(branchName, branch)) continue;
+      if (channel && channelName.toLowerCase() !== channel.toLowerCase()) continue;
+
+      const normalizedName = normalizeProductName(itemName);
+
+      if (!productStats.has(normalizedName)) {
+        productStats.set(normalizedName, { name: itemName, orders: 0, revenue: 0 });
+      }
+
+      const stats = productStats.get(normalizedName);
+      stats.orders += orderCount;
+      stats.revenue += revenue;
+    }
+
+    const products = [];
+    let totalRevenue = 0;
+    let totalOrders = 0;
+
+    for (const [normalizedName, stats] of productStats.entries()) {
+      const revenuePerOrder = stats.orders > 0 ? stats.revenue / stats.orders : 0;
+      totalRevenue += stats.revenue;
+      totalOrders += stats.orders;
+
+      products.push({
+        productName: stats.name,
+        totalOrders: stats.orders,
+        totalRevenue: parseFloat(stats.revenue.toFixed(2)),
+        revenuePerOrder: parseFloat(revenuePerOrder.toFixed(2)),
+        percentOfTotalRevenue: 0, // Will calculate after
+        percentOfTotalOrders: 0
+      });
+    }
+
+    // Calculate percentages and categorize
+    for (const product of products) {
+      product.percentOfTotalRevenue = parseFloat(((product.totalRevenue / totalRevenue) * 100).toFixed(2));
+      product.percentOfTotalOrders = parseFloat(((product.totalOrders / totalOrders) * 100).toFixed(2));
+
+      // Menu Engineering Matrix (simplified)
+      const isHighRevenue = product.percentOfTotalRevenue > (100 / products.length);
+      const isHighVolume = product.percentOfTotalOrders > (100 / products.length);
+
+      if (isHighRevenue && isHighVolume) product.category = 'Star (High Value + High Volume)';
+      else if (isHighRevenue && !isHighVolume) product.category = 'Premium (High Value, Low Volume)';
+      else if (!isHighRevenue && isHighVolume) product.category = 'Workhorse (Low Value, High Volume)';
+      else product.category = 'Dog (Consider Removing)';
+    }
+
+    products.sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+    // Calculate Pareto (80/20 rule)
+    let cumulativeRevenue = 0;
+    let paretoProducts = 0;
+    for (const product of products) {
+      cumulativeRevenue += product.totalRevenue;
+      paretoProducts++;
+      if (cumulativeRevenue >= totalRevenue * 0.8) break;
+    }
+
+    const stars = products.filter(p => p.category === 'Star (High Value + High Volume)');
+    const premium = products.filter(p => p.category === 'Premium (High Value, Low Volume)');
+    const workhorses = products.filter(p => p.category === 'Workhorse (Low Value, High Volume)');
+    const dogs = products.filter(p => p.category === 'Dog (Consider Removing)');
+
+    return {
+      success: true,
+      summary: {
+        totalProducts: products.length,
+        totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+        totalOrders,
+        avgRevenuePerProduct: parseFloat((totalRevenue / products.length).toFixed(2)),
+        avgRevenuePerOrder: parseFloat((totalRevenue / totalOrders).toFixed(2)),
+        paretoProducts, // Products that generate 80% of revenue
+        paretoPercentage: parseFloat(((paretoProducts / products.length) * 100).toFixed(1)),
+        stars: stars.length,
+        premium: premium.length,
+        workhorses: workhorses.length,
+        dogs: dogs.length,
+        daysAnalyzed: daysBack
+      },
+      products,
+      stars,
+      premium,
+      workhorses,
+      dogs
+    };
+  } catch (error) {
+    console.error('Error analyzing product profitability:', error);
+    return { error: error.message };
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -8932,6 +9341,15 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about inventory optimization / stock predictions
     const isInventoryOptimizationQuery = /optimal.*stock|stock.*prediction|predict.*demand|how much.*stock|inventory.*optimization|safety.*stock|reorder.*point|stock.*level|prevent.*stock.*out|buffer.*stock|recommend.*stock|forecast.*demand|demand.*forecast|stock.*recommendation/i.test(userMessage);
 
+    // Check if user is asking about product trends (growing/declining)
+    const isProductTrendsQuery = /product.*trend|growing.*product|declining.*product|which.*growing|which.*declining|product.*lifecycle|new.*product|star.*product|trend.*analysis|growth.*rate|sales.*trend/i.test(userMessage);
+
+    // Check if user is asking about outlet/branch comparison
+    const isOutletComparisonQuery = /compare.*outlet|outlet.*performance|which.*outlet.*best|best.*performing.*outlet|outlet.*ranking|branch.*comparison|compare.*branch|outlet.*vs.*outlet|top.*outlet|worst.*outlet/i.test(userMessage);
+
+    // Check if user is asking about product profitability / menu engineering
+    const isProfitabilityQuery = /profitability|profit.*margin|high.*value.*product|revenue.*per.*order|menu.*engineering|pareto|80.*20|star.*product|premium.*product|workhorse|dog.*product|which.*product.*most.*profitable|highest.*revenue/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
@@ -8941,6 +9359,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     let durationPercentageData = null;
     let dailySalesAnalysis = null;
     let inventoryOptimization = null;
+    let productTrends = null;
+    let outletComparison = null;
+    let profitabilityAnalysis = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -9122,6 +9543,48 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       console.log(`📦 Analyzing inventory optimization for last ${daysBack} days (${(serviceLevel * 100).toFixed(0)}% service level)`);
 
       inventoryOptimization = await predictOptimalStockLevels(daysBack, filters, serviceLevel);
+    }
+
+    // Get product trends if user is asking
+    if (isProductTrendsQuery) {
+      let recentDays = 14; // default
+      let previousDays = 14; // default
+
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        recentDays = parseInt(daysMatch[1]);
+        previousDays = recentDays; // Compare equal periods
+      }
+
+      console.log(`📈 Analyzing product trends: last ${recentDays} days vs previous ${previousDays} days`);
+
+      productTrends = await analyzeProductTrends(recentDays, previousDays, filters);
+    }
+
+    // Get outlet comparison if user is asking
+    if (isOutletComparisonQuery) {
+      let daysBack = 30; // default
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        daysBack = parseInt(daysMatch[1]);
+      }
+
+      console.log(`🏪 Comparing outlet performance for last ${daysBack} days`);
+
+      outletComparison = await compareOutletPerformance(daysBack);
+    }
+
+    // Get profitability analysis if user is asking
+    if (isProfitabilityQuery) {
+      let daysBack = 30; // default
+      const daysMatch = userMessage.match(/last\s+(\d+)\s+days?/i);
+      if (daysMatch) {
+        daysBack = parseInt(daysMatch[1]);
+      }
+
+      console.log(`💰 Analyzing product profitability for last ${daysBack} days`);
+
+      profitabilityAnalysis = await analyzeProductProfitability(daysBack, filters);
     }
 
     // Prepare stock information for prompt
@@ -9499,6 +9962,133 @@ INSTRUCTIONS FOR ANSWERING:
     } else if (isInventoryOptimizationQuery && inventoryOptimization && inventoryOptimization.error) {
       stockInfo += `\n=== INVENTORY OPTIMIZATION ===
 Error: ${inventoryOptimization.error}
+`;
+    }
+
+    // Add product trends analysis if available
+    if (productTrends && productTrends.success) {
+      stockInfo += `\n=== PRODUCT TREND ANALYSIS ===
+COMPARISON: ${productTrends.summary.recentPeriod} vs ${productTrends.summary.comparedTo}
+
+SUMMARY:
+- Total Products: ${productTrends.summary.totalProducts}
+- Growing Products: ${productTrends.summary.growing} (>10% growth)
+- Declining Products: ${productTrends.summary.declining} (>10% decline)
+- Stable Products: ${productTrends.summary.stable}
+- New Products Launched: ${productTrends.summary.newProducts}
+- Star Products (High Growth): ${productTrends.summary.stars}
+
+TOP 10 GROWING PRODUCTS:
+${productTrends.growing.slice(0, 10).map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Growth: ${p.orderGrowth > 0 ? '+' : ''}${p.orderGrowth}% orders, ${p.revenueGrowth > 0 ? '+' : ''}${p.revenueGrowth}% revenue
+   - Recent Period: ${p.recentOrders} orders, ₹${p.recentRevenue.toFixed(2)}
+   - Previous Period: ${p.previousOrders} orders, ₹${p.previousRevenue.toFixed(2)}
+   - Trend: ${p.trend} | Lifecycle: ${p.lifecycle}`
+).join('\n\n')}
+
+TOP 10 DECLINING PRODUCTS (Need Attention):
+${productTrends.declining.slice(0, 10).map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Decline: ${p.orderGrowth}% orders, ${p.revenueGrowth}% revenue
+   - Recent Period: ${p.recentOrders} orders, ₹${p.recentRevenue.toFixed(2)}
+   - Previous Period: ${p.previousOrders} orders, ₹${p.previousRevenue.toFixed(2)}
+   - Trend: ${p.trend} | Lifecycle: ${p.lifecycle}`
+).join('\n\n')}
+
+INSTRUCTIONS FOR ANSWERING:
+- Highlight growing products as success stories
+- Investigate declining products - check if it's quality issues, stock-outs, or seasonality
+- New products need monitoring to see if they gain traction
+- Star products (>50% growth) deserve special promotion
+- Dying products (<-30% and low volume) should be considered for removal
+`;
+    }
+
+    // Add outlet comparison if available
+    if (outletComparison && outletComparison.success) {
+      stockInfo += `\n=== OUTLET PERFORMANCE COMPARISON ===
+ANALYSIS PERIOD: ${outletComparison.summary.daysAnalyzed} days
+
+SUMMARY:
+- Total Outlets: ${outletComparison.summary.totalOutlets}
+- Total Revenue: ₹${outletComparison.summary.totalRevenue.toFixed(2)}
+- Total Orders: ${outletComparison.summary.totalOrders}
+- Avg Revenue per Outlet: ₹${outletComparison.summary.avgRevenuePerOutlet.toFixed(2)}
+- Avg Orders per Outlet: ${outletComparison.summary.avgOrdersPerOutlet.toFixed(2)}
+
+OUTLET RANKINGS BY REVENUE:
+${outletComparison.rankings.byRevenue.map((o, idx) =>
+  `${idx + 1}. ${o.outlet}
+   - Total Revenue: ₹${o.totalRevenue.toFixed(2)} (${((o.totalRevenue / outletComparison.summary.totalRevenue) * 100).toFixed(1)}% of total)
+   - Total Orders: ${o.totalOrders}
+   - Avg Daily Revenue: ₹${o.avgDailyRevenue.toFixed(2)}
+   - Avg Daily Orders: ${o.avgDailyOrders.toFixed(2)}
+   - Active Days: ${o.activeDays}`
+).join('\n\n')}
+
+OUTLET RANKINGS BY AVERAGE DAILY REVENUE:
+${outletComparison.rankings.byAvgDailyRevenue.slice(0, 5).map((o, idx) =>
+  `${idx + 1}. ${o.outlet}: ₹${o.avgDailyRevenue.toFixed(2)}/day (${o.avgDailyOrders.toFixed(2)} orders/day)`
+).join('\n')}
+
+INSTRUCTIONS FOR ANSWERING:
+- Identify top performers and what makes them successful
+- Highlight underperforming outlets that need support
+- Compare average daily metrics to find efficiency leaders
+- Look for outlets with low active days (potential operational issues)
+`;
+    }
+
+    // Add profitability analysis if available
+    if (profitabilityAnalysis && profitabilityAnalysis.success) {
+      stockInfo += `\n=== PRODUCT PROFITABILITY & MENU ENGINEERING ===
+ANALYSIS PERIOD: ${profitabilityAnalysis.summary.daysAnalyzed} days
+
+SUMMARY:
+- Total Products: ${profitabilityAnalysis.summary.totalProducts}
+- Total Revenue: ₹${profitabilityAnalysis.summary.totalRevenue.toFixed(2)}
+- Total Orders: ${profitabilityAnalysis.summary.totalOrders}
+- Avg Revenue per Order: ₹${profitabilityAnalysis.summary.avgRevenuePerOrder.toFixed(2)}
+- Pareto Rule (80/20): ${profitabilityAnalysis.summary.paretoProducts} products (${profitabilityAnalysis.summary.paretoPercentage}%) generate 80% of revenue
+
+MENU ENGINEERING CATEGORIES:
+- ⭐ Stars (High Value + High Volume): ${profitabilityAnalysis.summary.stars} products
+- 💎 Premium (High Value, Low Volume): ${profitabilityAnalysis.summary.premium} products
+- 🔧 Workhorses (Low Value, High Volume): ${profitabilityAnalysis.summary.workhorses} products
+- 🗑️  Dogs (Consider Removing): ${profitabilityAnalysis.summary.dogs} products
+
+TOP 10 REVENUE GENERATORS (Pareto Products):
+${profitabilityAnalysis.products.slice(0, 10).map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Total Revenue: ₹${p.totalRevenue.toFixed(2)} (${p.percentOfTotalRevenue}% of total)
+   - Total Orders: ${p.totalOrders} (${p.percentOfTotalOrders}% of total)
+   - Revenue per Order: ₹${p.revenuePerOrder.toFixed(2)}
+   - Category: ${p.category}`
+).join('\n\n')}
+
+STAR PRODUCTS (High Value + High Volume):
+${profitabilityAnalysis.stars.slice(0, 5).map(p =>
+  `- ${p.productName}: ₹${p.totalRevenue.toFixed(2)} revenue, ${p.totalOrders} orders, ₹${p.revenuePerOrder.toFixed(2)}/order`
+).join('\n')}
+
+PREMIUM PRODUCTS (High Value, Low Volume):
+${profitabilityAnalysis.premium.slice(0, 5).map(p =>
+  `- ${p.productName}: ₹${p.totalRevenue.toFixed(2)} revenue, ${p.totalOrders} orders, ₹${p.revenuePerOrder.toFixed(2)}/order`
+).join('\n')}
+
+DOGS (Consider Removing):
+${profitabilityAnalysis.dogs.slice(0, 5).map(p =>
+  `- ${p.productName}: ₹${p.totalRevenue.toFixed(2)} revenue, ${p.totalOrders} orders, ₹${p.revenuePerOrder.toFixed(2)}/order`
+).join('\n')}
+
+INSTRUCTIONS FOR ANSWERING:
+- STARS: Promote heavily, ensure always in stock, high priority
+- PREMIUM: Maintain quality, justify premium pricing, target specific customers
+- WORKHORSES: Keep on menu for volume, but don't overpromote
+- DOGS: Analyze if worth keeping - low value and low volume
+- Focus on Pareto products - they drive 80% of revenue
+- Revenue per order shows which products have high ticket value
 `;
     }
 
