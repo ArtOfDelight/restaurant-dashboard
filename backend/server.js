@@ -8295,6 +8295,48 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
       ? results.reduce((sum, p) => sum + p.oosPercentage, 0) / totalProducts
       : 0;
 
+    // Calculate outlet-level statistics
+    const outletStats = new Map();
+    for (const [normalizedName, data] of productMap.entries()) {
+      for (const entry of data.entries) {
+        const outlet = entry.outlet;
+        if (!outletStats.has(outlet)) {
+          outletStats.set(outlet, {
+            outletName: outlet,
+            totalOOSHours: 0,
+            productsAffected: new Set(),
+            eventsCount: 0,
+            totalOperatingHours: daysBack * getOutletOperatingHours(outlet)
+          });
+        }
+        const stats = outletStats.get(outlet);
+        stats.totalOOSHours += entry.duration;
+        stats.productsAffected.add(data.productName);
+        stats.eventsCount += 1;
+      }
+    }
+
+    // Convert outlet stats to array with percentages
+    const outletResults = [];
+    for (const [outlet, stats] of outletStats.entries()) {
+      const oosPercentage = stats.totalOperatingHours > 0
+        ? (stats.totalOOSHours / stats.totalOperatingHours) * 100
+        : 0;
+
+      outletResults.push({
+        outletName: stats.outletName,
+        oosPercentage: parseFloat(oosPercentage.toFixed(2)),
+        totalOOSHours: parseFloat(stats.totalOOSHours.toFixed(1)),
+        totalOperatingHours: stats.totalOperatingHours,
+        productsAffected: stats.productsAffected.size,
+        productsList: Array.from(stats.productsAffected),
+        eventsCount: stats.eventsCount
+      });
+    }
+
+    // Sort outlets by OOS percentage (highest first)
+    outletResults.sort((a, b) => b.oosPercentage - a.oosPercentage);
+
     return {
       success: true,
       summary: {
@@ -8302,9 +8344,11 @@ async function getAllProductsStockOutPercentages(daysBack = 3, outletQuery = nul
         productsWithOOS,
         avgOOSPercentage: parseFloat(avgOOSPercentage.toFixed(2)),
         daysAnalyzed: daysBack,
-        outletFilter: isAllOutlets ? 'All Outlets' : outletQuery
+        outletFilter: isAllOutlets ? 'All Outlets' : outletQuery,
+        totalOutlets: outletResults.length
       },
-      products: results
+      products: results,
+      outlets: outletResults
     };
 
   } catch (error) {
@@ -14090,7 +14134,7 @@ const emailTransporter = nodemailer.createTransport({
 });
 
 // Function to format OOS data into HTML email
-function formatOOSEmailHTML(oosData) {
+function formatOOSEmailHTML(productData, outletData) {
   const date = new Date().toLocaleDateString('en-IN', {
     weekday: 'long',
     year: 'numeric',
@@ -14107,6 +14151,7 @@ function formatOOSEmailHTML(oosData) {
     .header { background-color: #d32f2f; color: white; padding: 20px; text-align: center; }
     .content { padding: 20px; }
     .summary { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+    .section-header { margin-top: 30px; margin-bottom: 10px; }
     table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     th { background-color: #d32f2f; color: white; padding: 12px; text-align: left; font-weight: bold; }
     td { padding: 10px; border-bottom: 1px solid #dee2e6; }
@@ -14115,6 +14160,7 @@ function formatOOSEmailHTML(oosData) {
     .warning { color: #ff9800; font-weight: bold; }
     .normal { color: #666; }
     .outlets-cell { font-size: 12px; color: #666; max-width: 300px; }
+    .products-cell { font-size: 12px; color: #666; }
     .footer { background-color: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #666; margin-top: 30px; }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
@@ -14130,13 +14176,63 @@ function formatOOSEmailHTML(oosData) {
     <div class="summary">
       <h2>📋 Summary</h2>
       <p><strong>Analysis Period:</strong> Last 7 Days</p>
-      <p><strong>Total Products Analyzed:</strong> ${oosData.length}</p>
-      <p><strong>Products with Stock Issues:</strong> ${oosData.filter(p => p.oosPercentage > 0).length}</p>
-      <p><strong>Critical Products (>30% OOS):</strong> ${oosData.filter(p => p.oosPercentage > 30).length}</p>
+      <p><strong>Total Outlets Analyzed:</strong> ${outletData.length}</p>
+      <p><strong>Total Products Analyzed:</strong> ${productData.length}</p>
+      <p><strong>Products with Stock Issues:</strong> ${productData.filter(p => p.oosPercentage > 0).length}</p>
+      <p><strong>Critical Products (>30% OOS):</strong> ${productData.filter(p => p.oosPercentage > 30).length}</p>
     </div>
 
-    <h2>🔴 Products by Out-of-Stock Percentage</h2>
-    <p style="color: #666; font-size: 14px;">Showing all products that went out of stock in the last 7 days, sorted by severity.</p>
+    <h2 class="section-header">🏪 Outlet-Level Analysis</h2>
+    <p style="color: #666; font-size: 14px;">Stock-out performance by outlet, sorted by severity.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 5%;">#</th>
+          <th style="width: 20%;">Outlet Name</th>
+          <th class="text-center" style="width: 10%;">OOS %</th>
+          <th class="text-center" style="width: 12%;">OOS Hours</th>
+          <th class="text-center" style="width: 12%;">Operating Hours</th>
+          <th class="text-center" style="width: 10%;">Products Affected</th>
+          <th class="text-center" style="width: 8%;">Events</th>
+          <th style="width: 23%;">Affected Products</th>
+        </tr>
+      </thead>
+      <tbody>
+`;
+
+  // Add each outlet as a table row
+  outletData.forEach((outlet, index) => {
+    const percentage = outlet.oosPercentage || 0;
+    const totalOOSHours = outlet.totalOOSHours || 0;
+    const totalOperatingHours = outlet.totalOperatingHours || 0;
+    const productsAffected = outlet.productsAffected || 0;
+    const eventsCount = outlet.eventsCount || 0;
+    const productsList = outlet.productsList || [];
+
+    const severityClass = percentage > 30 ? 'critical' : percentage > 15 ? 'warning' : 'normal';
+    const emoji = percentage > 30 ? '🔴' : percentage > 15 ? '🟠' : '🟡';
+
+    html += `
+        <tr>
+          <td class="text-center">${emoji}</td>
+          <td><strong>${outlet.outletName}</strong></td>
+          <td class="text-center ${severityClass}"><strong>${percentage.toFixed(2)}%</strong></td>
+          <td class="text-center">${totalOOSHours.toFixed(1)}</td>
+          <td class="text-center">${totalOperatingHours.toFixed(0)}</td>
+          <td class="text-center">${productsAffected}</td>
+          <td class="text-center">${eventsCount}</td>
+          <td class="products-cell">${productsList.length > 0 ? productsList.join(', ') : 'N/A'}</td>
+        </tr>
+`;
+  });
+
+  html += `
+      </tbody>
+    </table>
+
+    <h2 class="section-header">🔴 Product-Level Analysis</h2>
+    <p style="color: #666; font-size: 14px;">Stock-out performance by product, sorted by severity.</p>
 
     <table>
       <thead>
@@ -14155,7 +14251,7 @@ function formatOOSEmailHTML(oosData) {
 `;
 
   // Add each product as a table row
-  oosData.forEach((product, index) => {
+  productData.forEach((product, index) => {
     // Safe defaults for undefined values - using correct property names
     const percentage = product.oosPercentage || 0;
     const totalOOSHours = product.totalOOSHours || 0;
@@ -14217,9 +14313,10 @@ async function sendWeeklyOOSReport() {
 
     // Sort products by OOS percentage (highest first)
     const sortedProducts = oosData.products.sort((a, b) => b.oosPercentage - a.oosPercentage);
+    const sortedOutlets = oosData.outlets.sort((a, b) => b.oosPercentage - a.oosPercentage);
 
-    // Format email
-    const htmlContent = formatOOSEmailHTML(sortedProducts);
+    // Format email with both product and outlet data
+    const htmlContent = formatOOSEmailHTML(sortedProducts, sortedOutlets);
 
     // Email options
     const mailOptions = {
