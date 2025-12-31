@@ -15035,7 +15035,8 @@ app.get('/', (req, res) => {
 // POST: Manually send growth/degrowth email report
 app.post('/api/send-growth-report', async (req, res) => {
   try {
-    const { topN = 5, period = 'week', email } = req.body;
+    const body = req.body || {};
+    const { topN = 5, period = 'week', email } = body;
 
     console.log(`📧 Manual growth report request: top ${topN}, period: ${period}`);
 
