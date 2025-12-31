@@ -5906,6 +5906,26 @@ function getCellValue(row, index) {
 }
 
 /**
+ * Fetch raw sheet data from Google Sheets
+ * @param {string} spreadsheetId - Spreadsheet ID
+ * @param {string} sheetName - Sheet name/tab
+ * @param {string} range - Optional range (default: A:Z)
+ * @returns {Array} - Raw sheet data
+ */
+async function fetchSheetData(spreadsheetId, sheetName, range = 'A:Z') {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: `${sheetName}!${range}`
+    });
+    return response.data.values || [];
+  } catch (error) {
+    console.error(`Error fetching sheet data from ${sheetName}:`, error.message);
+    return [];
+  }
+}
+
+/**
  * Main function to process product analysis data from Google Sheets
  * NO RISTA API - Uses ProductDetails aggregation only
  */
