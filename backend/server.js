@@ -10935,7 +10935,7 @@ function analyzeChannelGrowth(currentData, previousData) {
  * @param {number} minOrderThreshold - Minimum orders threshold (default: 0, only for products)
  * @returns {Object} - Object with top growing and top degrowning items
  */
-function getTopGrowthDegrowth(growthAnalysis, topN = 3, minOrderThreshold = 0) {
+function getTopGrowthDegrowth(growthAnalysis, topN = 5, minOrderThreshold = 0) {
   // Filter out items with 0 orders in both periods (irrelevant)
   let relevantItems = growthAnalysis.filter(item =>
     item.currentOrders > 0 || item.previousOrders > 0
@@ -10992,7 +10992,7 @@ function detectGrowthDegrowthQuery(message) {
 
   // Extract number of top items requested
   const topNMatch = message.match(/top\s+(\d+)/i);
-  const topN = topNMatch ? parseInt(topNMatch[1]) : 3;
+  const topN = topNMatch ? parseInt(topNMatch[1]) : 5;
 
   // Detect time period
   const isOneDay = /\b(1\s*day|one\s*day|today|yesterday)\b/i.test(message);
@@ -15456,6 +15456,71 @@ async function sendGrowthDegrowthEmail(growthData, dateRanges, analysisType, rec
     console.error(error);
   }
 }
+
+// POST: Manually send growth/degrowth email report
+app.post('/api/send-growth-report', async (req, res) => {
+  try {
+    const { topN = 5, period = 'week', email } = req.body;
+
+    console.log(`📧 Manual growth report request: top ${topN}, period: ${period}`);
+
+    // Get date ranges
+    const targetDate = new Date();
+    const dateRanges = getGrowthDateRanges(targetDate, period);
+
+    // Fetch raw ProductDetails data
+    const rawData = await fetchSheetData(DASHBOARD_SPREADSHEET_ID, 'ProductDetails');
+
+    // Analyze channel-wise product growth
+    const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
+    const channelGrowthData = {};
+
+    for (const channel of channels) {
+      const channelFilters = { channel };
+      const [currentData, previousData] = await Promise.all([
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+          startDate: dateRanges.current.startDate,
+          endDate: dateRanges.current.endDate
+        }, channelFilters, false),
+        processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+          startDate: dateRanges.previous.startDate,
+          endDate: dateRanges.previous.endDate
+        }, channelFilters, false)
+      ]);
+
+      const productGrowth = analyzeProductGrowth(currentData, previousData);
+      channelGrowthData[channel] = getTopGrowthDegrowth(productGrowth, topN, 25);
+    }
+
+    const growthAnalysisData = {
+      byChannel: channelGrowthData,
+      analysisType: 'products-by-channel'
+    };
+
+    // Send email
+    await sendGrowthDegrowthEmail(growthAnalysisData, dateRanges, 'products-by-channel', email);
+
+    res.json({
+      success: true,
+      message: 'Growth/degrowth report email sent successfully',
+      recipient: email || process.env.GROWTH_REPORT_EMAIL_TO || process.env.EMAIL_TO,
+      dateRanges: {
+        current: dateRanges.current.label,
+        previous: dateRanges.previous.label
+      },
+      topN: topN,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error sending growth report:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Schedule weekly OOS report - Every Tuesday at 9:00 AM
 // Cron format: second minute hour day month weekday
