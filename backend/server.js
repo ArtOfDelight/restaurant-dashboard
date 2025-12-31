@@ -7119,12 +7119,24 @@ app.post('/api/product-chat', async (req, res) => {
         conversationHistory
       );
 
+      // Check if user wants to send email
+      const wantsEmail = /send (email|mail|report)|email (me|this|report)|mail (me|this|report)/i.test(message);
+      const emailSent = false;
+
+      if (wantsEmail) {
+        // Send email asynchronously (don't wait for it)
+        sendGrowthDegrowthEmail(growthAnalysisData, dateRanges, analysisType)
+          .then(() => console.log('Growth/degrowth email sent'))
+          .catch(err => console.error('Error sending growth email:', err.message));
+      }
+
       return res.json({
         success: true,
         response: chatResponse.message,
         data: chatResponse.structuredData,
         dateRangeInfo: `Comparing: ${dateRanges.current.label} vs ${dateRanges.previous.label}`,
         analysisType: analysisType,
+        emailSent: wantsEmail,
         timestamp: new Date().toISOString(),
       });
     }
@@ -15241,6 +15253,206 @@ async function sendWeeklyOOSReport() {
 
   } catch (error) {
     console.error('❌ Error sending weekly OOS report:', error.message);
+    console.error(error);
+  }
+}
+
+// ========================================================================
+// GROWTH/DEGROWTH EMAIL REPORT FUNCTIONS
+// ========================================================================
+
+/**
+ * Format growth/degrowth data into HTML email
+ * @param {Object} growthData - Growth analysis data by channel
+ * @param {Object} dateRanges - Current and previous date ranges
+ * @param {string} analysisType - Type of analysis (products-by-channel, products, outlets, channels)
+ * @returns {string} - HTML formatted email
+ */
+function formatGrowthDegrowthEmailHTML(growthData, dateRanges, analysisType) {
+  const date = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  let html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+    .content { padding: 20px; }
+    .summary { background-color: #e8f5e9; border-left: 4px solid #4CAF50; padding: 15px; margin: 20px 0; }
+    .channel-section { margin: 30px 0; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden; }
+    .channel-header { background-color: #f1f8e9; padding: 15px; border-bottom: 2px solid #4CAF50; }
+    .channel-name { font-size: 20px; font-weight: bold; color: #2e7d32; margin: 0; }
+    .section-title { font-size: 16px; font-weight: bold; margin: 20px 0 10px 0; color: #333; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    th { background-color: #e9ecef; color: #333; padding: 10px; text-align: left; font-weight: bold; font-size: 13px; }
+    td { padding: 10px; border-bottom: 1px solid #f0f0f0; }
+    tr:hover { background-color: #f8f9fa; }
+    .growing { color: #2e7d32; font-weight: bold; }
+    .degrowning { color: #c62828; font-weight: bold; }
+    .growth-positive { color: #2e7d32; }
+    .growth-negative { color: #c62828; }
+    .footer { background-color: #f1f1f1; padding: 15px; text-align: center; font-size: 12px; color: #666; margin-top: 30px; }
+    .text-center { text-align: center; }
+    .no-data { padding: 20px; text-align: center; color: #999; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📈 Product Growth/Degrowth Report</h1>
+    <p>${date}</p>
+  </div>
+
+  <div class="content">
+    <div class="summary">
+      <strong>Analysis Period:</strong><br>
+      Current: ${dateRanges.current.label}<br>
+      Previous: ${dateRanges.previous.label}<br>
+      <strong>Minimum Threshold:</strong> 25 orders
+    </div>
+`;
+
+  if (analysisType === 'products-by-channel' && growthData.byChannel) {
+    // Channel-wise breakdown
+    Object.keys(growthData.byChannel).forEach(channel => {
+      const channelData = growthData.byChannel[channel];
+
+      html += `
+    <div class="channel-section">
+      <div class="channel-header">
+        <h2 class="channel-name">${channel.toUpperCase()}</h2>
+        <div style="font-size: 14px; color: #666; margin-top: 5px;">
+          ${channelData.totalAnalyzed} products analyzed
+        </div>
+      </div>
+      <div style="padding: 20px;">
+`;
+
+      // Top Growing
+      if (channelData.topGrowing && channelData.topGrowing.length > 0) {
+        html += `
+        <div class="section-title growing">🚀 Top Growing Products</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>Product Name</th>
+              <th style="width: 120px; text-align: right;">Orders Growth</th>
+              <th style="width: 120px; text-align: right;">Revenue Growth</th>
+              <th style="width: 100px; text-align: right;">Current Orders</th>
+            </tr>
+          </thead>
+          <tbody>
+`;
+        channelData.topGrowing.forEach((item, i) => {
+          html += `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${item.name}</td>
+              <td class="growth-positive" style="text-align: right;">+${item.ordersGrowth.toFixed(1)}%</td>
+              <td class="growth-positive" style="text-align: right;">+${item.revenueGrowth.toFixed(1)}%</td>
+              <td style="text-align: right;">${item.currentOrders}</td>
+            </tr>
+`;
+        });
+        html += `
+          </tbody>
+        </table>
+`;
+      }
+
+      // Top Degrowning
+      if (channelData.topDegrowning && channelData.topDegrowning.length > 0) {
+        html += `
+        <div class="section-title degrowning">📉 Top Degrowning Products</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 50px;">#</th>
+              <th>Product Name</th>
+              <th style="width: 120px; text-align: right;">Orders Growth</th>
+              <th style="width: 120px; text-align: right;">Revenue Growth</th>
+              <th style="width: 100px; text-align: right;">Current Orders</th>
+            </tr>
+          </thead>
+          <tbody>
+`;
+        channelData.topDegrowning.forEach((item, i) => {
+          html += `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${item.name}</td>
+              <td class="growth-negative" style="text-align: right;">${item.ordersGrowth.toFixed(1)}%</td>
+              <td class="growth-negative" style="text-align: right;">${item.revenueGrowth.toFixed(1)}%</td>
+              <td style="text-align: right;">${item.currentOrders}</td>
+            </tr>
+`;
+        });
+        html += `
+          </tbody>
+        </table>
+`;
+      }
+
+      html += `
+      </div>
+    </div>
+`;
+    });
+  }
+
+  html += `
+  </div>
+
+  <div class="footer">
+    <p>This is an automated report generated by the Restaurant Dashboard Analytics System.</p>
+    <p>Report generated on ${date}</p>
+  </div>
+</body>
+</html>
+`;
+
+  return html;
+}
+
+/**
+ * Send growth/degrowth report via email
+ * @param {Object} growthData - Growth analysis data
+ * @param {Object} dateRanges - Date ranges
+ * @param {string} analysisType - Type of analysis
+ * @param {string} recipientEmail - Recipient email address (optional, uses env var if not provided)
+ * @returns {Promise<void>}
+ */
+async function sendGrowthDegrowthEmail(growthData, dateRanges, analysisType, recipientEmail = null) {
+  try {
+    const toEmail = recipientEmail || process.env.GROWTH_REPORT_EMAIL_TO || process.env.EMAIL_TO;
+
+    if (!toEmail) {
+      console.error('❌ No recipient email configured. Set GROWTH_REPORT_EMAIL_TO or EMAIL_TO in .env');
+      return;
+    }
+
+    const emailHTML = formatGrowthDegrowthEmailHTML(growthData, dateRanges, analysisType);
+
+    const mailOptions = {
+      from: `"Restaurant Dashboard" <${process.env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: `📈 Product Growth/Degrowth Report - ${dateRanges.current.label}`,
+      html: emailHTML
+    };
+
+    const info = await emailTransporter.sendMail(mailOptions);
+    console.log('✅ Growth/Degrowth report sent successfully!');
+    console.log(`   Message ID: ${info.messageId}`);
+    console.log(`   Recipients: ${toEmail}`);
+
+  } catch (error) {
+    console.error('❌ Error sending growth/degrowth report:', error.message);
     console.error(error);
   }
 }
