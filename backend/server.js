@@ -1307,9 +1307,9 @@ async function initializeServicesWithTickets() {
   
   // Initialize separate ticket bot
   ticketBot = await initializeTicketBot();
-  
-  // ADD THIS LINE - Initialize critical stock bot
-  criticalStockBot = await initializeCriticalStockBot();
+
+  // DISABLED - Critical stock bot removed to resolve 409 conflicts
+  // criticalStockBot = await initializeCriticalStockBot();
   
   // SET UP CALLBACK HANDLERS ON ALL BOTS
   if (bot) {
@@ -1794,9 +1794,9 @@ async function initializeServicesWithTickets() {
   
   // Initialize separate ticket bot
   ticketBot = await initializeTicketBot();
-  
-  // Initialize critical stock bot
-  criticalStockBot = await initializeCriticalStockBot();
+
+  // DISABLED - Critical stock bot removed to resolve 409 conflicts
+  // criticalStockBot = await initializeCriticalStockBot();
   
   // SET UP CALLBACK HANDLERS ON BOTS
   if (bot) {
