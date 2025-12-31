@@ -7063,7 +7063,7 @@ app.post('/api/product-chat', async (req, res) => {
       // Analyze products (default)
       else {
         // Check if user wants channel-wise breakdown
-        if (wantsChannelBreakdown) {
+        if (growthQuery.wantsChannelBreakdown) {
           console.log('Analyzing PRODUCT growth/degrowth CHANNEL-WISE with filters:', filters);
           const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
           const channelGrowthData = {};
@@ -10968,10 +10968,15 @@ function detectGrowthDegrowthQuery(message) {
 
   if (!isGrowthQuery && !isDegrowthQuery) return null;
 
+  // Check if user wants channel-wise breakdown (not analyzing channels themselves)
+  const wantsChannelBreakdown = /channel[-\s]?wise|by channel|per channel|each channel/i.test(message);
+
   // Determine what to analyze (support both singular and plural forms)
   const analyzeProducts = /\b(products?|items?|dishes?|menus?)\b/i.test(message);
   const analyzeOutlets = /\b(outlets?|branchs?|branches|stores?|locations?)\b/i.test(message);
-  const analyzeChannels = /\b(channels?|platforms?|swiggy|zomato|dine[-\s]?in|ownly|magicpin)\b/i.test(message);
+
+  // Only analyze channels if NOT asking for channel-wise breakdown and mentions channels/platforms
+  const analyzeChannels = !wantsChannelBreakdown && /\b(channels?|platforms?)\b/i.test(message);
 
   // Extract number of top items requested
   const topNMatch = message.match(/top\s+(\d+)/i);
@@ -10987,6 +10992,7 @@ function detectGrowthDegrowthQuery(message) {
     analyzeProducts: analyzeProducts || (!analyzeOutlets && !analyzeChannels), // Default to products
     analyzeOutlets,
     analyzeChannels,
+    wantsChannelBreakdown,
     topN,
     timeperiod: isOneDay ? '1day' : (isWeek ? 'week' : 'auto')
   };
