@@ -11290,21 +11290,22 @@ async function generateChannelWiseGrowthResponse(userMessage, growthData, dateRa
 
     Object.keys(growthData.byChannel).forEach(channel => {
       const channelData = growthData.byChannel[channel];
-      fallbackMessage += `\n📊 ${channel.toUpperCase()}:\n`;
+      fallbackMessage += `**${channel.toUpperCase()}:**\n`;
 
       if (channelData.topGrowing.length > 0) {
-        fallbackMessage += `Top Growing:\n`;
+        fallbackMessage += `**Top Growing:**\n`;
         channelData.topGrowing.forEach((item, i) => {
-          fallbackMessage += `  ${i + 1}. ${item.name}: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+          fallbackMessage += `${i + 1}. ${item.name}: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
         });
       }
 
       if (channelData.topDegrowning.length > 0) {
-        fallbackMessage += `Top Degrowning:\n`;
+        fallbackMessage += `**Top Degrowning:**\n`;
         channelData.topDegrowning.forEach((item, i) => {
-          fallbackMessage += `  ${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+          fallbackMessage += `${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
         });
       }
+      fallbackMessage += `\n`;
     });
 
     return {
@@ -11350,13 +11351,23 @@ Data Analysis:
 CHANNEL-WISE PRODUCT GROWTH/DEGROWTH:
 ${channelSummary}
 
-Provide a concise, insightful analysis. Focus on:
-1. Channel-specific trends and patterns
-2. Products performing differently across channels
-3. Notable outliers or surprises
-4. Actionable insights or recommendations
+IMPORTANT: Format your response EXACTLY as follows for EACH channel:
 
-Keep your response conversational and focused on what matters most.`;
+**CHANNEL NAME:**
+**Top Growing:**
+1. Product Name: +X.X% (N orders)
+2. Product Name: +X.X% (N orders)
+...
+
+**Top Degrowning:**
+1. Product Name: -X.X% (N orders)
+2. Product Name: -X.X% (N orders)
+...
+
+Then provide a brief 2-3 sentence analysis highlighting:
+- Channel-specific trends and patterns
+- Products performing differently across channels
+- Notable insights or recommendations`;
 
     const userPrompt = conversationContext
       ? `${conversationContext}\n\nUser: ${userMessage}`
@@ -11384,13 +11395,22 @@ Keep your response conversational and focused on what matters most.`;
     let fallbackMessage = `Product Growth/Degrowth by Channel (${dateRanges.current.label} vs ${dateRanges.previous.label}):\n\n`;
     Object.keys(growthData.byChannel).forEach(channel => {
       const channelData = growthData.byChannel[channel];
-      fallbackMessage += `\n${channel}:\n`;
+      fallbackMessage += `\n**${channel.toUpperCase()}:**\n`;
+
       if (channelData.topGrowing.length > 0) {
-        fallbackMessage += `Growing: ${channelData.topGrowing.map(p => `${p.name} (+${p.ordersGrowth.toFixed(1)}%)`).join(', ')}\n`;
+        fallbackMessage += `**Top Growing:**\n`;
+        channelData.topGrowing.forEach((item, i) => {
+          fallbackMessage += `${i + 1}. ${item.name}: +${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+        });
       }
+
       if (channelData.topDegrowning.length > 0) {
-        fallbackMessage += `Degrowning: ${channelData.topDegrowning.map(p => `${p.name} (${p.ordersGrowth.toFixed(1)}%)`).join(', ')}\n`;
+        fallbackMessage += `**Top Degrowning:**\n`;
+        channelData.topDegrowning.forEach((item, i) => {
+          fallbackMessage += `${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+        });
       }
+      fallbackMessage += `\n`;
     });
 
     return {
