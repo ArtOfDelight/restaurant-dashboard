@@ -7018,39 +7018,22 @@ app.post('/api/product-chat', async (req, res) => {
       let growthAnalysisData = null;
       let analysisType = 'products';
 
-      // Analyze products
-      if (growthQuery.analyzeProducts) {
-        const [currentData, previousData] = await Promise.all([
-          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
-            startDate: dateRanges.current.startDate,
-            endDate: dateRanges.current.endDate
-          }, filters, false),
-          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
-            startDate: dateRanges.previous.startDate,
-            endDate: dateRanges.previous.endDate
-          }, filters, false)
-        ]);
-
-        const productGrowth = analyzeProductGrowth(currentData, previousData);
-        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN);
-        growthAnalysisData.analysisType = 'products';
-        analysisType = 'products';
-      }
-
-      // Analyze outlets
+      // Analyze outlets (highest priority - most specific)
       if (growthQuery.analyzeOutlets) {
+        console.log('Analyzing OUTLET growth/degrowth with filters:', filters);
         const outletGrowth = analyzeOutletGrowthFromRawData(
           rawData,
           dateRanges.current,
-          dateRanges.previous
+          dateRanges.previous,
+          filters
         );
         growthAnalysisData = getTopGrowthDegrowth(outletGrowth, growthQuery.topN);
         growthAnalysisData.analysisType = 'outlets';
         analysisType = 'outlets';
       }
-
       // Analyze channels
-      if (growthQuery.analyzeChannels) {
+      else if (growthQuery.analyzeChannels) {
+        console.log('Analyzing CHANNEL growth/degrowth with filters:', filters);
         const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
         const currentChannelData = {};
         const previousChannelData = {};
@@ -7076,6 +7059,25 @@ app.post('/api/product-chat', async (req, res) => {
         growthAnalysisData = getTopGrowthDegrowth(channelGrowth, growthQuery.topN);
         growthAnalysisData.analysisType = 'channels';
         analysisType = 'channels';
+      }
+      // Analyze products (default)
+      else {
+        console.log('Analyzing PRODUCT growth/degrowth with filters:', filters);
+        const [currentData, previousData] = await Promise.all([
+          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+            startDate: dateRanges.current.startDate,
+            endDate: dateRanges.current.endDate
+          }, filters, false),
+          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+            startDate: dateRanges.previous.startDate,
+            endDate: dateRanges.previous.endDate
+          }, filters, false)
+        ]);
+
+        const productGrowth = analyzeProductGrowth(currentData, previousData);
+        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN);
+        growthAnalysisData.analysisType = 'products';
+        analysisType = 'products';
       }
 
       // Generate AI response
@@ -11035,9 +11037,10 @@ function getGrowthDateRanges(targetDate = new Date(), period = '1day') {
  * Process raw ProductDetails data grouped by outlet
  * @param {Array} rawData - Raw sheet data
  * @param {Object} dateRange - Date range filter
+ * @param {Object} filters - Optional filters (channel, etc.)
  * @returns {Map} - Map of outlet -> {orders, revenue}
  */
-function processProductDetailsByOutlet(rawData, dateRange) {
+function processProductDetailsByOutlet(rawData, dateRange, filters = {}) {
   if (!rawData || rawData.length < 2) return new Map();
 
   const headers = rawData[0];
@@ -11045,6 +11048,7 @@ function processProductDetailsByOutlet(rawData, dateRange) {
   const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
   const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
   const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+  const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
 
   if (dateIndex === -1 || orderCountIndex === -1 || branchIndex === -1) {
     console.error('ERROR: Required columns not found for outlet analysis');
@@ -11059,9 +11063,15 @@ function processProductDetailsByOutlet(rawData, dateRange) {
     const orderCount = parseInt(row[orderCountIndex]) || 0;
     const branchName = row[branchIndex]?.toString().trim() || 'Unknown';
     const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+    const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
 
     // Apply date filter
     if (dateRange && !isDateInRange(dateStr, dateRange.startDate, dateRange.endDate)) {
+      continue;
+    }
+
+    // Apply channel filter
+    if (filters.channel && channelName.toLowerCase() !== filters.channel.toLowerCase()) {
       continue;
     }
 
@@ -11087,11 +11097,12 @@ function processProductDetailsByOutlet(rawData, dateRange) {
  * @param {Array} rawData - Raw ProductDetails sheet data
  * @param {Object} currentRange - Current period date range
  * @param {Object} previousRange - Previous period date range
+ * @param {Object} filters - Optional filters (channel, etc.)
  * @returns {Array} - Array of outlets with growth metrics
  */
-function analyzeOutletGrowthFromRawData(rawData, currentRange, previousRange) {
-  const currentOutlets = processProductDetailsByOutlet(rawData, currentRange);
-  const previousOutlets = processProductDetailsByOutlet(rawData, previousRange);
+function analyzeOutletGrowthFromRawData(rawData, currentRange, previousRange, filters = {}) {
+  const currentOutlets = processProductDetailsByOutlet(rawData, currentRange, filters);
+  const previousOutlets = processProductDetailsByOutlet(rawData, previousRange, filters);
 
   const growthAnalysis = [];
 
