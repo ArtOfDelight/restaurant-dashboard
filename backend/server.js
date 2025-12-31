@@ -7075,7 +7075,8 @@ app.post('/api/product-chat', async (req, res) => {
         ]);
 
         const productGrowth = analyzeProductGrowth(currentData, previousData);
-        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN);
+        // Apply 25 order minimum threshold for products
+        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN, 25);
         growthAnalysisData.analysisType = 'products';
         analysisType = 'products';
       }
@@ -10889,13 +10890,21 @@ function analyzeChannelGrowth(currentData, previousData) {
  * Get top N growing/degrowning items
  * @param {Array} growthAnalysis - Array of items with growth metrics
  * @param {number} topN - Number of top items to return (default: 3)
+ * @param {number} minOrderThreshold - Minimum orders threshold (default: 0, only for products)
  * @returns {Object} - Object with top growing and top degrowning items
  */
-function getTopGrowthDegrowth(growthAnalysis, topN = 3) {
+function getTopGrowthDegrowth(growthAnalysis, topN = 3, minOrderThreshold = 0) {
   // Filter out items with 0 orders in both periods (irrelevant)
-  const relevantItems = growthAnalysis.filter(item =>
+  let relevantItems = growthAnalysis.filter(item =>
     item.currentOrders > 0 || item.previousOrders > 0
   );
+
+  // Apply minimum order threshold if specified (for products only)
+  if (minOrderThreshold > 0) {
+    relevantItems = relevantItems.filter(item =>
+      item.currentOrders >= minOrderThreshold || item.previousOrders >= minOrderThreshold
+    );
+  }
 
   // Top growing (highest growth percentage)
   const topGrowing = relevantItems
@@ -10929,10 +10938,10 @@ function detectGrowthDegrowthQuery(message) {
 
   if (!isGrowthQuery && !isDegrowthQuery) return null;
 
-  // Determine what to analyze
-  const analyzeProducts = /\b(product|item|dish|menu)\b/i.test(message);
-  const analyzeOutlets = /\b(outlet|branch|store|location)\b/i.test(message);
-  const analyzeChannels = /\b(channel|platform|swiggy|zomato|dine[-\s]?in|ownly|magicpin)\b/i.test(message);
+  // Determine what to analyze (support both singular and plural forms)
+  const analyzeProducts = /\b(products?|items?|dishes?|menus?)\b/i.test(message);
+  const analyzeOutlets = /\b(outlets?|branchs?|branches|stores?|locations?)\b/i.test(message);
+  const analyzeChannels = /\b(channels?|platforms?|swiggy|zomato|dine[-\s]?in|ownly|magicpin)\b/i.test(message);
 
   // Extract number of top items requested
   const topNMatch = message.match(/top\s+(\d+)/i);
