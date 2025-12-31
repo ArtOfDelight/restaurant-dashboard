@@ -6977,6 +6977,105 @@ app.post('/api/product-chat', async (req, res) => {
     const ratingsRequired = isRatingsQuery;
     console.log(`Ratings Required: ${ratingsRequired}`);
 
+    // Detect growth/degrowth queries
+    const growthQuery = detectGrowthDegrowthQuery(message);
+
+    if (growthQuery) {
+      console.log(`Growth/Degrowth Query Detected:`, growthQuery);
+
+      // Determine the date to analyze (default to current date if not specified)
+      let targetDate = new Date();
+      if (dateQuery && dateQuery.type === 'specific') {
+        targetDate = new Date(dateQuery.endDate);
+      }
+
+      // Get date ranges for comparison
+      const dateRanges = getGrowthDateRanges(targetDate, growthQuery.timeperiod);
+
+      // Fetch raw ProductDetails data for detailed analysis
+      const rawData = await fetchSheetData(DASHBOARD_SPREADSHEET_ID, 'ProductDetails');
+
+      let growthAnalysisData = null;
+      let analysisType = 'products';
+
+      // Analyze products
+      if (growthQuery.analyzeProducts) {
+        const [currentData, previousData] = await Promise.all([
+          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+            startDate: dateRanges.current.startDate,
+            endDate: dateRanges.current.endDate
+          }, filters, false),
+          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+            startDate: dateRanges.previous.startDate,
+            endDate: dateRanges.previous.endDate
+          }, filters, false)
+        ]);
+
+        const productGrowth = analyzeProductGrowth(currentData, previousData);
+        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN);
+        growthAnalysisData.analysisType = 'products';
+        analysisType = 'products';
+      }
+
+      // Analyze outlets
+      if (growthQuery.analyzeOutlets) {
+        const outletGrowth = analyzeOutletGrowthFromRawData(
+          rawData,
+          dateRanges.current,
+          dateRanges.previous
+        );
+        growthAnalysisData = getTopGrowthDegrowth(outletGrowth, growthQuery.topN);
+        growthAnalysisData.analysisType = 'outlets';
+        analysisType = 'outlets';
+      }
+
+      // Analyze channels
+      if (growthQuery.analyzeChannels) {
+        const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
+        const currentChannelData = {};
+        const previousChannelData = {};
+
+        for (const channel of channels) {
+          const channelFilters = { ...filters, channel };
+          const [currentData, previousData] = await Promise.all([
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+              startDate: dateRanges.current.startDate,
+              endDate: dateRanges.current.endDate
+            }, channelFilters, false),
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+              startDate: dateRanges.previous.startDate,
+              endDate: dateRanges.previous.endDate
+            }, channelFilters, false)
+          ]);
+
+          currentChannelData[channel] = currentData;
+          previousChannelData[channel] = previousData;
+        }
+
+        const channelGrowth = analyzeChannelGrowth(currentChannelData, previousChannelData);
+        growthAnalysisData = getTopGrowthDegrowth(channelGrowth, growthQuery.topN);
+        growthAnalysisData.analysisType = 'channels';
+        analysisType = 'channels';
+      }
+
+      // Generate AI response
+      const chatResponse = await generateGrowthDegrowthResponse(
+        message,
+        growthAnalysisData,
+        dateRanges,
+        conversationHistory
+      );
+
+      return res.json({
+        success: true,
+        response: chatResponse.message,
+        data: chatResponse.structuredData,
+        dateRangeInfo: `Comparing: ${dateRanges.current.label} vs ${dateRanges.previous.label}`,
+        analysisType: analysisType,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Handle comparison queries
     if (dateQuery && dateQuery.type === 'comparison') {
       // If user wants channel-wise breakdown, fetch data for each channel separately
@@ -10636,6 +10735,591 @@ Response:`;
                `Total Orders: ${productData.summary.totalOrders}\n` +
                `Average Rating: ${productData.summary.avgRating.toFixed(2)}\n\n` +
                `Please try rephrasing your question or ask about specific metrics.`,
+      structuredData: null
+    };
+  }
+}
+
+// ========================================================================
+// GROWTH/DEGROWTH ANALYSIS FUNCTIONS
+// ========================================================================
+
+/**
+ * Calculate growth percentage between two periods
+ * @param {number} currentValue - Current period value
+ * @param {number} previousValue - Previous period value
+ * @returns {number} - Growth percentage
+ */
+function calculateGrowthPercentage(currentValue, previousValue) {
+  if (previousValue === 0 && currentValue === 0) return 0;
+  if (previousValue === 0) return 100; // If previous was 0, show 100% growth
+  return ((currentValue - previousValue) / previousValue) * 100;
+}
+
+/**
+ * Analyze product growth/degrowth between two periods
+ * @param {Object} currentData - Current period product data
+ * @param {Object} previousData - Previous period product data
+ * @returns {Array} - Array of products with growth metrics
+ */
+function analyzeProductGrowth(currentData, previousData) {
+  const currentProducts = currentData.products || [];
+  const previousProducts = previousData.products || [];
+
+  // Create a map of previous products for easy lookup
+  const previousMap = new Map();
+  previousProducts.forEach(p => {
+    const key = (p.name || p.itemName || '').toLowerCase().trim();
+    previousMap.set(key, p);
+  });
+
+  // Calculate growth for each current product
+  const growthAnalysis = [];
+
+  currentProducts.forEach(current => {
+    const productName = current.name || current.itemName || '';
+    const key = productName.toLowerCase().trim();
+    const previous = previousMap.get(key);
+
+    const currentOrders = current.totalOrders || 0;
+    const previousOrders = previous ? (previous.totalOrders || 0) : 0;
+    const currentRevenue = current.totalRevenue || 0;
+    const previousRevenue = previous ? (previous.totalRevenue || 0) : 0;
+
+    const ordersGrowth = calculateGrowthPercentage(currentOrders, previousOrders);
+    const revenueGrowth = calculateGrowthPercentage(currentRevenue, previousRevenue);
+
+    growthAnalysis.push({
+      name: productName,
+      currentOrders,
+      previousOrders,
+      ordersGrowth: ordersGrowth,
+      currentRevenue,
+      previousRevenue,
+      revenueGrowth: revenueGrowth,
+      avgRating: current.avgRating || 0,
+      isNew: !previous // Product didn't exist in previous period
+    });
+  });
+
+  // Sort by orders growth percentage (descending)
+  growthAnalysis.sort((a, b) => b.ordersGrowth - a.ordersGrowth);
+
+  return growthAnalysis;
+}
+
+/**
+ * Analyze outlet growth/degrowth between two periods
+ * DEPRECATED: Use analyzeOutletGrowthFromRawData instead for accurate outlet-level analysis
+ * @param {Object} currentData - Current period product data (contains outlet info in products)
+ * @param {Object} previousData - Previous period product data
+ * @param {string} outletField - Field name for outlet (default: 'branch')
+ * @returns {Array} - Array of outlets with growth metrics
+ */
+function analyzeOutletGrowth(currentData, previousData, outletField = 'branch') {
+  // This function is deprecated. Use analyzeOutletGrowthFromRawData instead
+  // which processes raw data with proper outlet grouping
+  console.warn('analyzeOutletGrowth is deprecated. Use analyzeOutletGrowthFromRawData instead.');
+  return [];
+}
+
+/**
+ * Analyze channel growth/degrowth between two periods
+ * @param {Object} currentData - Current period data by channel
+ * @param {Object} previousData - Previous period data by channel
+ * @returns {Array} - Array of channels with growth metrics
+ */
+function analyzeChannelGrowth(currentData, previousData) {
+  const channels = Object.keys(currentData);
+  const growthAnalysis = [];
+
+  channels.forEach(channel => {
+    const current = currentData[channel];
+    const previous = previousData[channel];
+
+    const currentOrders = current?.summary?.totalOrders || 0;
+    const previousOrders = previous?.summary?.totalOrders || 0;
+    const currentRevenue = current?.summary?.totalRevenue || 0;
+    const previousRevenue = previous?.summary?.totalRevenue || 0;
+
+    const ordersGrowth = calculateGrowthPercentage(currentOrders, previousOrders);
+    const revenueGrowth = calculateGrowthPercentage(currentRevenue, previousRevenue);
+
+    growthAnalysis.push({
+      name: channel, // Add name field for consistency
+      channel,
+      currentOrders,
+      previousOrders,
+      ordersGrowth,
+      currentRevenue,
+      previousRevenue,
+      revenueGrowth
+    });
+  });
+
+  // Sort by orders growth percentage (descending)
+  growthAnalysis.sort((a, b) => b.ordersGrowth - a.ordersGrowth);
+
+  return growthAnalysis;
+}
+
+/**
+ * Get top N growing/degrowning items
+ * @param {Array} growthAnalysis - Array of items with growth metrics
+ * @param {number} topN - Number of top items to return (default: 3)
+ * @returns {Object} - Object with top growing and top degrowning items
+ */
+function getTopGrowthDegrowth(growthAnalysis, topN = 3) {
+  // Filter out items with 0 orders in both periods (irrelevant)
+  const relevantItems = growthAnalysis.filter(item =>
+    item.currentOrders > 0 || item.previousOrders > 0
+  );
+
+  // Top growing (highest growth percentage)
+  const topGrowing = relevantItems
+    .filter(item => item.ordersGrowth > 0)
+    .slice(0, topN);
+
+  // Top degrowning (lowest/most negative growth percentage)
+  const topDegrowning = relevantItems
+    .filter(item => item.ordersGrowth < 0)
+    .sort((a, b) => a.ordersGrowth - b.ordersGrowth)
+    .slice(0, topN);
+
+  return {
+    topGrowing,
+    topDegrowning,
+    totalAnalyzed: relevantItems.length
+  };
+}
+
+/**
+ * Detect if user is asking for growth/degrowth analysis
+ * @param {string} message - User message
+ * @returns {Object|null} - Analysis type and details, or null if not a growth query
+ */
+function detectGrowthDegrowthQuery(message) {
+  const lowerMessage = message.toLowerCase();
+
+  // Check for growth/degrowth keywords
+  const isGrowthQuery = /\b(grow(th|ing)?|increas(e|ing)?|rising|upward|trending up)\b/i.test(message);
+  const isDegrowthQuery = /\b(degrow(th|ing)?|decreas(e|ing)?|declin(e|ing)?|dropping|falling|downward|trending down)\b/i.test(message);
+
+  if (!isGrowthQuery && !isDegrowthQuery) return null;
+
+  // Determine what to analyze
+  const analyzeProducts = /\b(product|item|dish|menu)\b/i.test(message);
+  const analyzeOutlets = /\b(outlet|branch|store|location)\b/i.test(message);
+  const analyzeChannels = /\b(channel|platform|swiggy|zomato|dine[-\s]?in|ownly|magicpin)\b/i.test(message);
+
+  // Extract number of top items requested
+  const topNMatch = message.match(/top\s+(\d+)/i);
+  const topN = topNMatch ? parseInt(topNMatch[1]) : 3;
+
+  // Detect time period
+  const isOneDay = /\b(1\s*day|one\s*day|today|yesterday)\b/i.test(message);
+  const isWeek = /\b(week|7\s*day(s)?|seven\s*day(s)?)\b/i.test(message);
+
+  return {
+    wantsGrowth: isGrowthQuery,
+    wantsDegrowth: isDegrowthQuery,
+    analyzeProducts: analyzeProducts || (!analyzeOutlets && !analyzeChannels), // Default to products
+    analyzeOutlets,
+    analyzeChannels,
+    topN,
+    timeperiod: isOneDay ? '1day' : (isWeek ? 'week' : 'auto')
+  };
+}
+
+/**
+ * Get date range for growth analysis (day vs same day 1 week ago)
+ * @param {Date} targetDate - Target date to analyze
+ * @returns {Object} - Current and comparison date ranges
+ */
+function getGrowthDateRanges(targetDate = new Date(), period = '1day') {
+  const currentDate = new Date(targetDate);
+  currentDate.setHours(0, 0, 0, 0);
+
+  if (period === '1day') {
+    // Compare single day with same day 1 week ago
+    const currentStart = new Date(currentDate);
+    const currentEnd = new Date(currentDate);
+    currentEnd.setDate(currentEnd.getDate() + 1); // Next day
+
+    const previousStart = new Date(currentDate);
+    previousStart.setDate(previousStart.getDate() - 7);
+    const previousEnd = new Date(previousStart);
+    previousEnd.setDate(previousEnd.getDate() + 1);
+
+    return {
+      current: {
+        startDate: currentStart,
+        endDate: currentEnd,
+        label: currentStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      },
+      previous: {
+        startDate: previousStart,
+        endDate: previousEnd,
+        label: previousStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      }
+    };
+  } else if (period === 'week') {
+    // Compare this week with last week
+    const currentEnd = new Date(currentDate);
+    const currentStart = new Date(currentDate);
+    currentStart.setDate(currentStart.getDate() - 7);
+
+    const previousEnd = new Date(currentStart);
+    previousEnd.setDate(previousEnd.getDate() - 1); // Day before current week starts
+    const previousStart = new Date(previousEnd);
+    previousStart.setDate(previousStart.getDate() - 7);
+
+    return {
+      current: {
+        startDate: currentStart,
+        endDate: currentEnd,
+        label: `${currentStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${currentEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+      },
+      previous: {
+        startDate: previousStart,
+        endDate: previousEnd,
+        label: `${previousStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${previousEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+      }
+    };
+  }
+
+  // Default: compare last 7 days with previous 7 days
+  const currentEnd = new Date(currentDate);
+  const currentStart = new Date(currentDate);
+  currentStart.setDate(currentStart.getDate() - 7);
+
+  const previousEnd = new Date(currentStart);
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - 7);
+
+  return {
+    current: {
+      startDate: currentStart,
+      endDate: currentEnd,
+      label: 'Last 7 days'
+    },
+    previous: {
+      startDate: previousStart,
+      endDate: previousEnd,
+      label: 'Previous 7 days'
+    }
+  };
+}
+
+/**
+ * Process raw ProductDetails data grouped by outlet
+ * @param {Array} rawData - Raw sheet data
+ * @param {Object} dateRange - Date range filter
+ * @returns {Map} - Map of outlet -> {orders, revenue}
+ */
+function processProductDetailsByOutlet(rawData, dateRange) {
+  if (!rawData || rawData.length < 2) return new Map();
+
+  const headers = rawData[0];
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+  const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+  const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+
+  if (dateIndex === -1 || orderCountIndex === -1 || branchIndex === -1) {
+    console.error('ERROR: Required columns not found for outlet analysis');
+    return new Map();
+  }
+
+  const outletsMap = new Map();
+
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const dateStr = row[dateIndex]?.toString().trim();
+    const orderCount = parseInt(row[orderCountIndex]) || 0;
+    const branchName = row[branchIndex]?.toString().trim() || 'Unknown';
+    const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+
+    // Apply date filter
+    if (dateRange && !isDateInRange(dateStr, dateRange.startDate, dateRange.endDate)) {
+      continue;
+    }
+
+    // Aggregate by outlet
+    if (outletsMap.has(branchName)) {
+      const existing = outletsMap.get(branchName);
+      existing.orders += orderCount;
+      existing.revenue += revenue;
+    } else {
+      outletsMap.set(branchName, {
+        outlet: branchName,
+        orders: orderCount,
+        revenue: revenue
+      });
+    }
+  }
+
+  return outletsMap;
+}
+
+/**
+ * Analyze outlet growth/degrowth using raw data
+ * @param {Array} rawData - Raw ProductDetails sheet data
+ * @param {Object} currentRange - Current period date range
+ * @param {Object} previousRange - Previous period date range
+ * @returns {Array} - Array of outlets with growth metrics
+ */
+function analyzeOutletGrowthFromRawData(rawData, currentRange, previousRange) {
+  const currentOutlets = processProductDetailsByOutlet(rawData, currentRange);
+  const previousOutlets = processProductDetailsByOutlet(rawData, previousRange);
+
+  const growthAnalysis = [];
+
+  // Analyze all outlets from current period
+  currentOutlets.forEach((currentData, outletName) => {
+    const previousData = previousOutlets.get(outletName) || { orders: 0, revenue: 0 };
+
+    const currentOrders = currentData.orders;
+    const previousOrders = previousData.orders;
+    const currentRevenue = currentData.revenue;
+    const previousRevenue = previousData.revenue;
+
+    const ordersGrowth = calculateGrowthPercentage(currentOrders, previousOrders);
+    const revenueGrowth = calculateGrowthPercentage(currentRevenue, previousRevenue);
+
+    growthAnalysis.push({
+      name: outletName,
+      outlet: outletName,
+      currentOrders,
+      previousOrders,
+      ordersGrowth,
+      currentRevenue,
+      previousRevenue,
+      revenueGrowth
+    });
+  });
+
+  // Sort by orders growth percentage (descending)
+  growthAnalysis.sort((a, b) => b.ordersGrowth - a.ordersGrowth);
+
+  return growthAnalysis;
+}
+
+/**
+ * Process raw ProductDetails data grouped by channel
+ * @param {Array} rawData - Raw sheet data
+ * @param {Object} dateRange - Date range filter
+ * @returns {Map} - Map of channel -> {orders, revenue}
+ */
+function processProductDetailsByChannel(rawData, dateRange) {
+  if (!rawData || rawData.length < 2) return new Map();
+
+  const headers = rawData[0];
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+  const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+  const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+  const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+
+  if (dateIndex === -1 || orderCountIndex === -1 || channelIndex === -1) {
+    console.error('ERROR: Required columns not found for channel analysis');
+    return new Map();
+  }
+
+  const channelsMap = new Map();
+
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const dateStr = row[dateIndex]?.toString().trim();
+    const orderCount = parseInt(row[orderCountIndex]) || 0;
+    const channelName = row[channelIndex]?.toString().trim() || 'Unknown';
+    const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+
+    // Apply date filter
+    if (dateRange && !isDateInRange(dateStr, dateRange.startDate, dateRange.endDate)) {
+      continue;
+    }
+
+    // Aggregate by channel
+    if (channelsMap.has(channelName)) {
+      const existing = channelsMap.get(channelName);
+      existing.orders += orderCount;
+      existing.revenue += revenue;
+    } else {
+      channelsMap.set(channelName, {
+        channel: channelName,
+        orders: orderCount,
+        revenue: revenue
+      });
+    }
+  }
+
+  return channelsMap;
+}
+
+/**
+ * Analyze channel growth/degrowth using raw data
+ * @param {Array} rawData - Raw ProductDetails sheet data
+ * @param {Object} currentRange - Current period date range
+ * @param {Object} previousRange - Previous period date range
+ * @returns {Array} - Array of channels with growth metrics
+ */
+function analyzeChannelGrowthFromRawData(rawData, currentRange, previousRange) {
+  const currentChannels = processProductDetailsByChannel(rawData, currentRange);
+  const previousChannels = processProductDetailsByChannel(rawData, previousRange);
+
+  const growthAnalysis = [];
+
+  // Analyze all channels from current period
+  currentChannels.forEach((currentData, channelName) => {
+    const previousData = previousChannels.get(channelName) || { orders: 0, revenue: 0 };
+
+    const currentOrders = currentData.orders;
+    const previousOrders = previousData.orders;
+    const currentRevenue = currentData.revenue;
+    const previousRevenue = previousData.revenue;
+
+    const ordersGrowth = calculateGrowthPercentage(currentOrders, previousOrders);
+    const revenueGrowth = calculateGrowthPercentage(currentRevenue, previousRevenue);
+
+    growthAnalysis.push({
+      name: channelName,
+      channel: channelName,
+      currentOrders,
+      previousOrders,
+      ordersGrowth,
+      currentRevenue,
+      previousRevenue,
+      revenueGrowth
+    });
+  });
+
+  // Sort by orders growth percentage (descending)
+  growthAnalysis.sort((a, b) => b.ordersGrowth - a.ordersGrowth);
+
+  return growthAnalysis;
+}
+
+/**
+ * Generate AI response for growth/degrowth queries
+ * @param {string} userMessage - User query
+ * @param {Object} growthData - Growth analysis data
+ * @param {Object} dateRanges - Current and previous date ranges
+ * @param {Array} conversationHistory - Conversation history
+ * @returns {Object} - AI response with message and structured data
+ */
+async function generateGrowthDegrowthResponse(userMessage, growthData, dateRanges, conversationHistory = []) {
+  if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
+    return {
+      message: "AI service is not configured. Add GEMINI_API_KEY or GROQ_API_KEY to .env file.",
+      structuredData: null
+    };
+  }
+
+  try {
+    const { topGrowing, topDegrowning, totalAnalyzed } = growthData;
+    const analysisType = growthData.analysisType || 'products';
+
+    // Prepare conversation context
+    const conversationContext = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n');
+
+    // Build structured data summary
+    const structuredData = {
+      analysisType,
+      dateComparison: {
+        current: dateRanges.current.label,
+        previous: dateRanges.previous.label
+      },
+      topGrowing: topGrowing.map(item => ({
+        name: item.name,
+        currentOrders: item.currentOrders,
+        previousOrders: item.previousOrders,
+        growth: `${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}%`,
+        currentRevenue: item.currentRevenue,
+        revenueGrowth: `${item.revenueGrowth > 0 ? '+' : ''}${item.revenueGrowth.toFixed(1)}%`
+      })),
+      topDegrowning: topDegrowning.map(item => ({
+        name: item.name,
+        currentOrders: item.currentOrders,
+        previousOrders: item.previousOrders,
+        growth: `${item.ordersGrowth.toFixed(1)}%`,
+        currentRevenue: item.currentRevenue,
+        revenueGrowth: `${item.revenueGrowth.toFixed(1)}%`
+      })),
+      totalAnalyzed
+    };
+
+    // Create prompt for AI
+    const systemPrompt = `You are a restaurant analytics assistant analyzing growth trends. The user asked about top growing/degrowning ${analysisType}.
+
+Data Analysis:
+- Comparing: ${dateRanges.current.label} vs ${dateRanges.previous.label}
+- Total ${analysisType} analyzed: ${totalAnalyzed}
+
+TOP GROWING ${analysisType.toUpperCase()} (by order count %):
+${topGrowing.map((item, i) => `${i + 1}. ${item.name}
+   - Current: ${item.currentOrders} orders (₹${item.currentRevenue.toFixed(2)})
+   - Previous: ${item.previousOrders} orders (₹${item.previousRevenue.toFixed(2)})
+   - Growth: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% orders, ${item.revenueGrowth > 0 ? '+' : ''}${item.revenueGrowth.toFixed(1)}% revenue`).join('\n')}
+
+TOP DEGROWNING ${analysisType.toUpperCase()} (by order count %):
+${topDegrowning.length > 0 ? topDegrowning.map((item, i) => `${i + 1}. ${item.name}
+   - Current: ${item.currentOrders} orders (₹${item.currentRevenue.toFixed(2)})
+   - Previous: ${item.previousOrders} orders (₹${item.previousRevenue.toFixed(2)})
+   - Decline: ${item.ordersGrowth.toFixed(1)}% orders, ${item.revenueGrowth.toFixed(1)}% revenue`).join('\n') : 'No degrowning items found'}
+
+Provide a concise, insightful analysis. Focus on:
+1. Key trends and patterns
+2. Notable outliers or surprises
+3. Actionable insights or recommendations
+
+Keep your response conversational and focused on what matters most.`;
+
+    const userPrompt = conversationContext
+      ? `${conversationContext}\n\nUser: ${userMessage}`
+      : userMessage;
+
+    // Call AI (Gemini or Groq)
+    let aiMessage;
+    const aiProvider = process.env.AI_PROVIDER || 'gemini';
+
+    if (aiProvider === 'groq' && groqClients.length > 0) {
+      // Use Groq
+      aiMessage = await callGroqWithFallback(systemPrompt, userPrompt);
+    } else {
+      // Use Gemini
+      aiMessage = await callGeminiWithFallback(systemPrompt, userPrompt);
+    }
+
+    return {
+      message: aiMessage,
+      structuredData: structuredData
+    };
+
+  } catch (error) {
+    console.error('Error generating growth/degrowth response:', error.message);
+
+    // Fallback response
+    const { topGrowing, topDegrowning } = growthData;
+    let fallbackMessage = `Growth/Degrowth Analysis (${dateRanges.current.label} vs ${dateRanges.previous.label}):\n\n`;
+
+    if (topGrowing.length > 0) {
+      fallbackMessage += `TOP GROWING:\n`;
+      topGrowing.forEach((item, i) => {
+        fallbackMessage += `${i + 1}. ${item.name}: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+      });
+    }
+
+    if (topDegrowning.length > 0) {
+      fallbackMessage += `\nTOP DEGROWNING:\n`;
+      topDegrowning.forEach((item, i) => {
+        fallbackMessage += `${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+      });
+    }
+
+    return {
+      message: fallbackMessage,
       structuredData: null
     };
   }
