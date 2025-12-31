@@ -7062,23 +7062,53 @@ app.post('/api/product-chat', async (req, res) => {
       }
       // Analyze products (default)
       else {
-        console.log('Analyzing PRODUCT growth/degrowth with filters:', filters);
-        const [currentData, previousData] = await Promise.all([
-          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
-            startDate: dateRanges.current.startDate,
-            endDate: dateRanges.current.endDate
-          }, filters, false),
-          processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
-            startDate: dateRanges.previous.startDate,
-            endDate: dateRanges.previous.endDate
-          }, filters, false)
-        ]);
+        // Check if user wants channel-wise breakdown
+        if (wantsChannelBreakdown) {
+          console.log('Analyzing PRODUCT growth/degrowth CHANNEL-WISE with filters:', filters);
+          const channels = ['Swiggy', 'Zomato', 'Dine-in', 'Ownly', 'Magicpin'];
+          const channelGrowthData = {};
 
-        const productGrowth = analyzeProductGrowth(currentData, previousData);
-        // Apply 25 order minimum threshold for products
-        growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN, 25);
-        growthAnalysisData.analysisType = 'products';
-        analysisType = 'products';
+          for (const channel of channels) {
+            const channelFilters = { ...filters, channel };
+            const [currentData, previousData] = await Promise.all([
+              processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+                startDate: dateRanges.current.startDate,
+                endDate: dateRanges.current.endDate
+              }, channelFilters, false),
+              processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+                startDate: dateRanges.previous.startDate,
+                endDate: dateRanges.previous.endDate
+              }, channelFilters, false)
+            ]);
+
+            const productGrowth = analyzeProductGrowth(currentData, previousData);
+            channelGrowthData[channel] = getTopGrowthDegrowth(productGrowth, growthQuery.topN, 25);
+          }
+
+          growthAnalysisData = {
+            byChannel: channelGrowthData,
+            analysisType: 'products-by-channel'
+          };
+          analysisType = 'products-by-channel';
+        } else {
+          console.log('Analyzing PRODUCT growth/degrowth with filters:', filters);
+          const [currentData, previousData] = await Promise.all([
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+              startDate: dateRanges.current.startDate,
+              endDate: dateRanges.current.endDate
+            }, filters, false),
+            processProductAnalysisData(DASHBOARD_SPREADSHEET_ID, {
+              startDate: dateRanges.previous.startDate,
+              endDate: dateRanges.previous.endDate
+            }, filters, false)
+          ]);
+
+          const productGrowth = analyzeProductGrowth(currentData, previousData);
+          // Apply 25 order minimum threshold for products
+          growthAnalysisData = getTopGrowthDegrowth(productGrowth, growthQuery.topN, 25);
+          growthAnalysisData.analysisType = 'products';
+          analysisType = 'products';
+        }
       }
 
       // Generate AI response
@@ -11240,6 +11270,131 @@ function analyzeChannelGrowthFromRawData(rawData, currentRange, previousRange) {
 }
 
 /**
+ * Generate AI response for channel-wise product growth/degrowth queries
+ * @param {string} userMessage - User query
+ * @param {Object} growthData - Growth analysis data by channel
+ * @param {Object} dateRanges - Current and previous date ranges
+ * @param {Array} conversationHistory - Conversation history
+ * @returns {Object} - AI response with message and structured data
+ */
+async function generateChannelWiseGrowthResponse(userMessage, growthData, dateRanges, conversationHistory = []) {
+  if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
+    // Fallback without AI
+    let fallbackMessage = `Product Growth/Degrowth Analysis by Channel (${dateRanges.current.label} vs ${dateRanges.previous.label}):\n\n`;
+
+    Object.keys(growthData.byChannel).forEach(channel => {
+      const channelData = growthData.byChannel[channel];
+      fallbackMessage += `\n📊 ${channel.toUpperCase()}:\n`;
+
+      if (channelData.topGrowing.length > 0) {
+        fallbackMessage += `Top Growing:\n`;
+        channelData.topGrowing.forEach((item, i) => {
+          fallbackMessage += `  ${i + 1}. ${item.name}: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+        });
+      }
+
+      if (channelData.topDegrowning.length > 0) {
+        fallbackMessage += `Top Degrowning:\n`;
+        channelData.topDegrowning.forEach((item, i) => {
+          fallbackMessage += `  ${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders)\n`;
+        });
+      }
+    });
+
+    return {
+      message: fallbackMessage,
+      structuredData: growthData
+    };
+  }
+
+  try {
+    // Prepare conversation context
+    const conversationContext = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n');
+
+    // Build channel-wise summary for AI
+    let channelSummary = '';
+    Object.keys(growthData.byChannel).forEach(channel => {
+      const channelData = growthData.byChannel[channel];
+      channelSummary += `\n${channel.toUpperCase()}:\n`;
+      channelSummary += `Total analyzed: ${channelData.totalAnalyzed}\n`;
+
+      if (channelData.topGrowing.length > 0) {
+        channelSummary += `Top Growing:\n`;
+        channelData.topGrowing.forEach((item, i) => {
+          channelSummary += `  ${i + 1}. ${item.name}: ${item.ordersGrowth > 0 ? '+' : ''}${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders, ₹${item.currentRevenue.toFixed(2)})\n`;
+        });
+      }
+
+      if (channelData.topDegrowning.length > 0) {
+        channelSummary += `Top Degrowning:\n`;
+        channelData.topDegrowning.forEach((item, i) => {
+          channelSummary += `  ${i + 1}. ${item.name}: ${item.ordersGrowth.toFixed(1)}% (${item.currentOrders} orders, ₹${item.currentRevenue.toFixed(2)})\n`;
+        });
+      }
+    });
+
+    const systemPrompt = `You are a restaurant analytics assistant analyzing product growth trends across different sales channels.
+
+Data Analysis:
+- Comparing: ${dateRanges.current.label} vs ${dateRanges.previous.label}
+- Breakdown by Channel (Swiggy, Zomato, Dine-in, Ownly, Magicpin)
+
+CHANNEL-WISE PRODUCT GROWTH/DEGROWTH:
+${channelSummary}
+
+Provide a concise, insightful analysis. Focus on:
+1. Channel-specific trends and patterns
+2. Products performing differently across channels
+3. Notable outliers or surprises
+4. Actionable insights or recommendations
+
+Keep your response conversational and focused on what matters most.`;
+
+    const userPrompt = conversationContext
+      ? `${conversationContext}\n\nUser: ${userMessage}`
+      : userMessage;
+
+    // Call AI (Gemini or Groq)
+    let aiMessage;
+    const aiProvider = process.env.AI_PROVIDER || 'gemini';
+
+    if (aiProvider === 'groq' && groqClients.length > 0) {
+      aiMessage = await callGroqWithFallback(systemPrompt, userPrompt);
+    } else {
+      aiMessage = await callGeminiWithFallback(systemPrompt, userPrompt);
+    }
+
+    return {
+      message: aiMessage,
+      structuredData: growthData
+    };
+
+  } catch (error) {
+    console.error('Error generating channel-wise growth response:', error.message);
+
+    // Fallback on error
+    let fallbackMessage = `Product Growth/Degrowth by Channel (${dateRanges.current.label} vs ${dateRanges.previous.label}):\n\n`;
+    Object.keys(growthData.byChannel).forEach(channel => {
+      const channelData = growthData.byChannel[channel];
+      fallbackMessage += `\n${channel}:\n`;
+      if (channelData.topGrowing.length > 0) {
+        fallbackMessage += `Growing: ${channelData.topGrowing.map(p => `${p.name} (+${p.ordersGrowth.toFixed(1)}%)`).join(', ')}\n`;
+      }
+      if (channelData.topDegrowning.length > 0) {
+        fallbackMessage += `Degrowning: ${channelData.topDegrowning.map(p => `${p.name} (${p.ordersGrowth.toFixed(1)}%)`).join(', ')}\n`;
+      }
+    });
+
+    return {
+      message: fallbackMessage,
+      structuredData: null
+    };
+  }
+}
+
+/**
  * Generate AI response for growth/degrowth queries
  * @param {string} userMessage - User query
  * @param {Object} growthData - Growth analysis data
@@ -11256,8 +11411,14 @@ async function generateGrowthDegrowthResponse(userMessage, growthData, dateRange
   }
 
   try {
-    const { topGrowing, topDegrowning, totalAnalyzed } = growthData;
     const analysisType = growthData.analysisType || 'products';
+
+    // Handle channel-wise breakdown
+    if (analysisType === 'products-by-channel' && growthData.byChannel) {
+      return generateChannelWiseGrowthResponse(userMessage, growthData, dateRanges, conversationHistory);
+    }
+
+    const { topGrowing, topDegrowning, totalAnalyzed } = growthData;
 
     // Prepare conversation context
     const conversationContext = conversationHistory
