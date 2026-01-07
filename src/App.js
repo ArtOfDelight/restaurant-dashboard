@@ -50,7 +50,7 @@ const StockDashboard = lazy(() =>
 
 const AODAssistant = lazy(() =>
   import('./AODAssistant').catch(() => ({
-    default: () => <MissingComponent componentName="AOD ASSISTANT" fileName="AODAssistant" />
+    default: () => <MissingComponent componentName="FROSTY" fileName="AODAssistant" />
   }))
 );
 
@@ -639,7 +639,7 @@ function App() {
             DASHBOARD SUITE v2.5 • POWERED BY REACT & RISTAAPPS API • 10 INTEGRATED DASHBOARDS
           </div>
           <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-            USE ALT + 0-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS • AOD ASSISTANT
+            USE ALT + 0-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS • FROSTY
           </div>
         </footer>
       )}
