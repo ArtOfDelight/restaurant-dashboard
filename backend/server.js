@@ -9678,6 +9678,137 @@ async function analyzeProductProfitability(daysBack = 30, additionalFilters = {}
   }
 }
 
+/**
+ * Compare top N products between Swiggy and Zomato
+ * Find products that are in Swiggy top N but not in Zomato top N
+ * @param {Number} daysBack - Days to analyze
+ * @param {Number} topN - Number of top products to compare (default 20)
+ * @param {Object} additionalFilters - Optional branch filters
+ * @returns {Object} Comparison results
+ */
+async function compareSwiggyZomatoTopProducts(daysBack = 7, topN = 20, additionalFilters = {}) {
+  try {
+    if (!sheets) {
+      const initialized = await initializeGoogleServices();
+      if (!initialized) {
+        throw new Error('Failed to initialize Google Sheets');
+      }
+    }
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: DASHBOARD_SPREADSHEET_ID,
+      range: 'ProductDetails!A1:Z50000',
+    });
+
+    const rawData = response.data.values;
+    if (!rawData || rawData.length < 2) return { error: 'No data available' };
+
+    const headers = rawData[0];
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
+    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('avg item rating'));
+
+    if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1 || channelIndex === -1) {
+      return { error: 'Required columns not found' };
+    }
+
+    const { branch } = additionalFilters;
+    const cutoffDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+
+    // Separate stats for Swiggy and Zomato
+    const swiggyStats = new Map();
+    const zomatoStats = new Map();
+
+    for (let i = 1; i < rawData.length; i++) {
+      const row = rawData[i];
+      const dateStr = row[dateIndex]?.toString().trim();
+      const itemName = row[itemNameIndex]?.toString().trim();
+      const orderCount = parseInt(row[orderCountIndex]) || 0;
+      const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+      const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+      const rating = ratingIndex !== -1 ? parseFloat(row[ratingIndex]) : null;
+
+      if (!dateStr || !itemName || orderCount === 0) continue;
+
+      const parsedDate = parseFlexibleDate(dateStr);
+      if (!parsedDate || parsedDate < cutoffDate) continue;
+
+      if (branch && !branchesMatch(branchName, branch)) continue;
+
+      const normalizedName = normalizeProductName(itemName);
+
+      // Collect Swiggy data
+      if (channelName.toLowerCase() === 'swiggy') {
+        if (!swiggyStats.has(normalizedName)) {
+          swiggyStats.set(normalizedName, { name: itemName, orders: 0, ratings: [] });
+        }
+        const stats = swiggyStats.get(normalizedName);
+        stats.orders += orderCount;
+        if (rating) stats.ratings.push(rating);
+      }
+
+      // Collect Zomato data
+      if (channelName.toLowerCase() === 'zomato') {
+        if (!zomatoStats.has(normalizedName)) {
+          zomatoStats.set(normalizedName, { name: itemName, orders: 0, ratings: [] });
+        }
+        const stats = zomatoStats.get(normalizedName);
+        stats.orders += orderCount;
+        if (rating) stats.ratings.push(rating);
+      }
+    }
+
+    // Convert to sorted arrays
+    const swiggyProducts = Array.from(swiggyStats.entries()).map(([normalizedName, stats]) => ({
+      productName: stats.name,
+      normalizedName,
+      totalOrders: stats.orders,
+      avgRating: stats.ratings.length > 0 ? parseFloat((stats.ratings.reduce((a, b) => a + b, 0) / stats.ratings.length).toFixed(2)) : null
+    })).sort((a, b) => b.totalOrders - a.totalOrders);
+
+    const zomatoProducts = Array.from(zomatoStats.entries()).map(([normalizedName, stats]) => ({
+      productName: stats.name,
+      normalizedName,
+      totalOrders: stats.orders,
+      avgRating: stats.ratings.length > 0 ? parseFloat((stats.ratings.reduce((a, b) => a + b, 0) / stats.ratings.length).toFixed(2)) : null
+    })).sort((a, b) => b.totalOrders - a.totalOrders);
+
+    // Get top N from each platform
+    const swiggyTopN = swiggyProducts.slice(0, topN);
+    const zomatoTopN = zomatoProducts.slice(0, topN);
+
+    // Find products in Swiggy top N but not in Zomato top N
+    const zomatoTopNormalizedNames = new Set(zomatoTopN.map(p => p.normalizedName));
+    const missingInZomato = swiggyTopN.filter(p => !zomatoTopNormalizedNames.has(p.normalizedName));
+
+    // Also find products in Zomato top N but not in Swiggy top N (for reference)
+    const swiggyTopNormalizedNames = new Set(swiggyTopN.map(p => p.normalizedName));
+    const missingInSwiggy = zomatoTopN.filter(p => !swiggyTopNormalizedNames.has(p.normalizedName));
+
+    return {
+      success: true,
+      daysAnalyzed: daysBack,
+      topN,
+      swiggyTopN,
+      zomatoTopN,
+      missingInZomato,
+      missingInSwiggy,
+      summary: {
+        swiggyTotalProducts: swiggyProducts.length,
+        zomatoTotalProducts: zomatoProducts.length,
+        productsInSwiggyTopNMissingFromZomatoTopN: missingInZomato.length,
+        productsInZomatoTopNMissingFromSwiggyTopN: missingInSwiggy.length
+      }
+    };
+  } catch (error) {
+    console.error('Error comparing Swiggy vs Zomato products:', error);
+    return { error: error.message };
+  }
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -9747,6 +9878,9 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     // Check if user is asking about product profitability / menu engineering
     const isProfitabilityQuery = /profitability|profit.*margin|high.*value.*product|revenue.*per.*order|menu.*engineering|pareto|80.*20|star.*product|premium.*product|workhorse|dog.*product|which.*product.*most.*profitable|highest.*revenue/i.test(userMessage);
 
+    // Check if user is asking about products in Swiggy top 20 missing from Zomato top 20
+    const isSwiggyZomatoComparisonQuery = /swiggy.*top.*\d+.*missing.*zomato|zomato.*missing.*swiggy.*top|products.*swiggy.*not.*zomato|swiggy.*products.*missing.*zomato|list.*swiggy.*missing.*zomato|what.*swiggy.*not.*zomato.*top|which.*swiggy.*not.*in.*zomato/i.test(userMessage);
+
     // NEW: Get stock data
     let stockCorrelation = null;
     let allStockEventsData = null;
@@ -9760,6 +9894,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     let productTrends = null;
     let outletComparison = null;
     let profitabilityAnalysis = null;
+    let swiggyZomatoComparison = null;
 
     // Get live inventory if user is asking about current status
     if (isLiveInventoryQuery) {
@@ -10001,6 +10136,25 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       console.log(`💰 Analyzing product profitability for last ${daysBack} days`);
 
       profitabilityAnalysis = await analyzeProductProfitability(daysBack, filters);
+    }
+
+    // Get Swiggy vs Zomato top 20 comparison if user is asking
+    if (isSwiggyZomatoComparisonQuery) {
+      let topN = 20; // default
+      const topNMatch = userMessage.match(/top\s+(\d+)/i);
+      if (topNMatch) {
+        topN = parseInt(topNMatch[1]);
+      }
+
+      console.log(`🔄 Comparing Swiggy top ${topN} vs Zomato top ${topN}`);
+
+      // Parse date range from dateRangeInfo
+      let daysBack = 7; // default
+      if (dateRangeInfo.includes('last 7 days') || dateRangeInfo.includes('Last 7 days')) daysBack = 7;
+      else if (dateRangeInfo.includes('last 30 days')) daysBack = 30;
+      else if (dateRangeInfo.includes('last 14 days')) daysBack = 14;
+
+      swiggyZomatoComparison = await compareSwiggyZomatoTopProducts(daysBack, topN, filters);
     }
 
     // Prepare stock information for prompt
@@ -10537,6 +10691,56 @@ INSTRUCTIONS FOR ANSWERING:
 - DOGS: Analyze if worth keeping - low value and low volume
 - Focus on Pareto products - they drive 80% of revenue
 - Revenue per order shows which products have high ticket value
+`;
+    }
+
+    // Add Swiggy vs Zomato comparison if available
+    if (swiggyZomatoComparison && swiggyZomatoComparison.success) {
+      stockInfo += `\n=== SWIGGY vs ZOMATO TOP ${swiggyZomatoComparison.topN} COMPARISON ===
+ANALYSIS PERIOD: Last ${swiggyZomatoComparison.daysAnalyzed} days
+
+SUMMARY:
+- Swiggy Total Products: ${swiggyZomatoComparison.summary.swiggyTotalProducts}
+- Zomato Total Products: ${swiggyZomatoComparison.summary.zomatoTotalProducts}
+- Products in Swiggy Top ${swiggyZomatoComparison.topN} Missing from Zomato Top ${swiggyZomatoComparison.topN}: ${swiggyZomatoComparison.summary.productsInSwiggyTopNMissingFromZomatoTopN}
+- Products in Zomato Top ${swiggyZomatoComparison.topN} Missing from Swiggy Top ${swiggyZomatoComparison.topN}: ${swiggyZomatoComparison.summary.productsInZomatoTopNMissingFromSwiggyTopN}
+
+SWIGGY TOP ${swiggyZomatoComparison.topN} PRODUCTS:
+${swiggyZomatoComparison.swiggyTopN.map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Orders: ${p.totalOrders}${p.avgRating ? `
+   - Rating: ${p.avgRating} ⭐` : ''}`
+).join('\n')}
+
+ZOMATO TOP ${swiggyZomatoComparison.topN} PRODUCTS:
+${swiggyZomatoComparison.zomatoTopN.map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Orders: ${p.totalOrders}${p.avgRating ? `
+   - Rating: ${p.avgRating} ⭐` : ''}`
+).join('\n')}
+
+⚠️ PRODUCTS IN SWIGGY TOP ${swiggyZomatoComparison.topN} BUT MISSING FROM ZOMATO TOP ${swiggyZomatoComparison.topN}:
+${swiggyZomatoComparison.missingInZomato.length > 0 ? swiggyZomatoComparison.missingInZomato.map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Swiggy Orders: ${p.totalOrders}${p.avgRating ? `
+   - Swiggy Rating: ${p.avgRating} ⭐` : ''}
+   - Status: Popular on Swiggy but NOT in Zomato's top ${swiggyZomatoComparison.topN}`
+).join('\n\n') : 'None - All Swiggy top products are also in Zomato top!'}
+
+ℹ️ PRODUCTS IN ZOMATO TOP ${swiggyZomatoComparison.topN} BUT MISSING FROM SWIGGY TOP ${swiggyZomatoComparison.topN} (For Reference):
+${swiggyZomatoComparison.missingInSwiggy.length > 0 ? swiggyZomatoComparison.missingInSwiggy.slice(0, 10).map((p, idx) =>
+  `${idx + 1}. ${p.productName}
+   - Zomato Orders: ${p.totalOrders}${p.avgRating ? `
+   - Zomato Rating: ${p.avgRating} ⭐` : ''}
+   - Status: Popular on Zomato but NOT in Swiggy's top ${swiggyZomatoComparison.topN}`
+).join('\n\n') : 'None - All Zomato top products are also in Swiggy top!'}
+
+INSTRUCTIONS FOR ANSWERING:
+- Focus on the products that are in Swiggy Top ${swiggyZomatoComparison.topN} but missing from Zomato Top ${swiggyZomatoComparison.topN}
+- These products perform well on Swiggy but not on Zomato - investigate why
+- Possible reasons: pricing differences, presentation, availability, ratings, promotion
+- List each missing product with its Swiggy order count and rating
+- Suggest actions: improve Zomato listing, check pricing, enhance photos, gather reviews
 `;
     }
 

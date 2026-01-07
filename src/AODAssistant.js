@@ -43,8 +43,8 @@ function AODAssistant() {
   const sendChatMessage = async (message) => {
     if (!message.trim()) return;
 
-    console.log('🤖 AOD Assistant - Sending message:', message);
-    console.log('🤖 API URL:', API_URL);
+    console.log('❄️ Frosty - Sending message:', message);
+    console.log('❄️ API URL:', API_URL);
 
     setLoadingChat(true);
 
@@ -57,8 +57,8 @@ function AODAssistant() {
       // Get conversation history (last 10 messages for context)
       const conversationHistory = chatMessages.slice(-10);
 
-      console.log('🤖 Calling API:', `${API_URL}/api/product-chat`);
-      console.log('🤖 Request body:', { message, conversationHistory });
+      console.log('❄️ Calling API:', `${API_URL}/api/product-chat`);
+      console.log('❄️ Request body:', { message, conversationHistory });
 
       const response = await fetch(`${API_URL}/api/product-chat`, {
         method: 'POST',
@@ -69,12 +69,12 @@ function AODAssistant() {
         })
       });
 
-      console.log('🤖 Response status:', response.status);
-      console.log('🤖 Response ok:', response.ok);
+      console.log('❄️ Response status:', response.status);
+      console.log('❄️ Response ok:', response.ok);
 
       const data = await response.json();
 
-      console.log('🤖 Response data:', data);
+      console.log('❄️ Response data:', data);
 
       // Add AI response to chat
       const aiMessage = {
@@ -83,12 +83,12 @@ function AODAssistant() {
         data: data.data || null
       };
 
-      console.log('🤖 AI message:', aiMessage);
+      console.log('❄️ AI message:', aiMessage);
 
       setChatMessages(prev => [...prev, aiMessage]);
     } catch (error) {
-      console.error('🤖 Error calling chatbot:', error);
-      console.error('🤖 Error stack:', error.stack);
+      console.error('❄️ Error calling chatbot:', error);
+      console.error('❄️ Error stack:', error.stack);
       setChatMessages(prev => [...prev, {
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again. Error: ' + error.message,
@@ -96,7 +96,7 @@ function AODAssistant() {
       }]);
     } finally {
       setLoadingChat(false);
-      console.log('🤖 Chat request complete');
+      console.log('❄️ Chat request complete');
     }
   };
 
@@ -140,7 +140,7 @@ function AODAssistant() {
             color: 'white',
             textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
           }}>
-            🤖 AOD ASSISTANT
+            ❄️ FROSTY
           </h1>
           <p style={{
             margin: '10px 0 0 0',
@@ -210,7 +210,7 @@ function AODAssistant() {
               color: 'var(--text-primary)',
               letterSpacing: '2px'
             }}>
-              Welcome to AOD Assistant
+              Welcome to Frosty
             </h2>
             <p style={{
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
@@ -313,7 +313,7 @@ function AODAssistant() {
               marginTop: '5px',
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
             }}>
-              {msg.role === 'user' ? 'You' : 'AOD Assistant'} • {new Date().toLocaleTimeString()}
+              {msg.role === 'user' ? 'You' : 'Frosty'} • {new Date().toLocaleTimeString()}
             </div>
           </div>
         ))}
@@ -336,7 +336,7 @@ function AODAssistant() {
               borderRadius: '50%',
               animation: 'spin 1s linear infinite'
             }} />
-            AOD Assistant is thinking...
+            Frosty is thinking...
             <style>
               {`
                 @keyframes spin {
