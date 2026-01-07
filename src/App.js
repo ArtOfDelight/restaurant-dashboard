@@ -292,7 +292,7 @@ function App() {
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'stock', label: 'STOCK DB', icon: '📦' },
-    { key: 'aod', label: 'AOD ASSISTANT', icon: '🤖' },
+    { key: 'aod', label: 'FROSTY', icon: '🤖' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
