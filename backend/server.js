@@ -7,8 +7,6 @@ const TelegramBot = require('node-telegram-bot-api');
 const Groq = require('groq-sdk');
 const cron = require('node-cron');
 const nodemailer = require('nodemailer');
-const CRITICAL_STOCK_BOT_TOKEN = process.env.CRITICAL_STOCK_BOT_TOKEN;
-const CRITICAL_STOCK_GROUP_ID = process.env.CRITICAL_STOCK_GROUP_ID;
 const SEND_TO_GROUP = process.env.SEND_TO_GROUP === 'true';
 
 // RISTAAPPS AUDIT CONFIGURATION
@@ -82,8 +80,6 @@ const TYPE_CLASSIFICATION_KEYWORDS = {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-let criticalStockBot = null;
 
 // Middleware
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000' }));
@@ -953,347 +949,6 @@ async function initializeTicketBot() {
     return null;
   }
 }
-
-async function initializeCriticalStockBot() {
-  if (!CRITICAL_STOCK_BOT_TOKEN) {
-    console.log('Critical Stock Bot Token not provided - critical alerts disabled');
-    return null;
-  }
-
-  if (!ENABLE_TELEGRAM_BOT) {
-    console.log('Telegram bots disabled by environment variable');
-    return null;
-  }
-
-  try {
-    console.log('Initializing Critical Stock Bot...');
-    
-    // Clear any existing webhook for this bot - IMPORTANT
-    try {
-      const tempBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN);
-      await tempBot.deleteWebHook();
-      console.log('Cleared any existing webhooks for critical stock bot');
-      
-      // Close the temporary bot
-      tempBot.close && tempBot.close();
-    } catch (webhookError) {
-      console.log('Webhook cleanup completed (no webhook existed)');
-    }
-
-    // Wait longer before creating the real bot to avoid conflicts
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    const newCriticalBot = new TelegramBot(CRITICAL_STOCK_BOT_TOKEN, {
-      polling: {
-        interval: 3000, // Slower polling to reduce conflicts
-        autoStart: false,
-        params: {
-          timeout: 20,
-        }
-      }
-    });
-
-    // Set up error handlers BEFORE starting polling
-    newCriticalBot.on('polling_error', (error) => {
-      console.log('Critical stock bot polling error:', error.message);
-      
-      // Handle 409 conflicts specifically
-      if (error.message.includes('409') && error.message.includes('Conflict')) {
-        console.log('Critical stock bot conflict detected - attempting recovery in 15 seconds...');
-        setTimeout(async () => {
-          if (!isShuttingDown) {
-            await restartCriticalBotPolling(newCriticalBot);
-          }
-        }, 15000); // Longer wait for critical bot
-      }
-    });
-
-    newCriticalBot.on('webhook_error', (error) => {
-      console.log('Critical stock bot webhook error:', error.message);
-    });
-
-    // Start polling with retry logic
-    await startPollingWithRetry(newCriticalBot, 5); // More retries
-    
-    console.log('Critical Stock Bot initialized successfully');
-    return newCriticalBot;
-
-  } catch (error) {
-    console.error('Failed to initialize Critical Stock Bot:', error.message);
-    return null;
-  }
-}
-// Replace the sendCriticalStockAlerts function with this improved version:
-
-async function sendCriticalStockAlerts() {
-  if (!criticalStockBot) {
-    console.log('Critical Stock Bot not available');
-    return;
-  }
-
-  try {
-    console.log('🔍 Checking for critical stock items...');
-
-    if (!sheets) {
-      const initialized = await initializeGoogleServices();
-      if (!initialized) {
-        throw new Error('Failed to initialize Google APIs');
-      }
-    }
-
-    const STOCK_SPREADSHEET_ID = '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg';
-
-    // Step 1: Get critical items from MasterSheet
-    const masterResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `MasterSheet!A:C`,
-    });
-
-    const masterData = masterResponse.data.values || [];
-    const criticalItems = [];
-
-    for (let i = 1; i < masterData.length; i++) {
-      const row = masterData[i];
-      if (row && row[0] && row[1] && row[2]) {
-        const skuCode = row[0].toString().trim();
-        const longName = row[1].toString().trim();
-        const critical = row[2].toString().trim().toLowerCase();
-        
-        if (critical === 'yes') {
-          criticalItems.push({ skuCode, longName });
-        }
-      }
-    }
-
-    console.log(`Found ${criticalItems.length} critical items in MasterSheet`);
-
-    if (criticalItems.length === 0) {
-      console.log('No critical items to alert about');
-      return;
-    }
-
-    // Step 2: Get recent tracker data (last 24 hours)
-    const TRACKER_TAB = 'Copy of Tracker';
-    const trackerResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: STOCK_SPREADSHEET_ID,
-      range: `${TRACKER_TAB}!A:D`,
-    });
-
-    const trackerData = trackerResponse.data.values || [];
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-    // Step 3: Find critical items that are recently out of stock
-    const alertsToSend = [];
-
-    for (const criticalItem of criticalItems) {
-      const affectedOutlets = new Set();
-
-      for (let i = 1; i < trackerData.length; i++) {
-        const row = trackerData[i];
-        if (row && row[1] && row[2] && row[3]) {
-          const time = row[1].toString().trim();
-          const outlet = row[2].toString().trim();
-          const items = row[3].toString().trim();
-
-          try {
-            const entryDate = parseTrackerDateSimple(time);
-            if (entryDate >= yesterday) {
-              if (containsExactItem(items, criticalItem.longName)) {
-                affectedOutlets.add(outlet);
-              }
-            }
-          } catch (dateError) {
-            // Skip entries with bad dates
-          }
-        }
-      }
-
-      if (affectedOutlets.size > 0) {
-        alertsToSend.push({
-          item: criticalItem,
-          outlets: Array.from(affectedOutlets)
-        });
-      }
-    }
-
-    console.log(`Preparing ${alertsToSend.length} critical stock alerts`);
-
-    // Step 4: Send alerts with rate limiting
-    if (alertsToSend.length > 0) {
-      await sendAlertsWithRateLimit(alertsToSend);
-    }
-
-  } catch (error) {
-    console.error('Error checking critical stock:', error.message);
-  }
-}
-
-// NEW: Rate-limited alert sending
-async function sendAlertsWithRateLimit(alerts) {
-  try {
-    // Create alert message
-    let alertMessage = '🚨 CRITICAL STOCK ALERT 🚨\n\n';
-    alertMessage += 'The following CRITICAL items are out of stock:\n\n';
-
-    alerts.forEach((alert, index) => {
-      alertMessage += `${index + 1}. 📦 ${alert.item.longName}\n`;
-      alertMessage += `   SKU: ${alert.item.skuCode}\n`;
-      alertMessage += `   🏪 Outlets: ${alert.outlets.join(', ')}\n\n`;
-    });
-
-    alertMessage += '⚠️ Please take immediate action to restock these critical items.\n';
-    alertMessage += `🕒 Alert sent at: ${new Date().toLocaleString()}`;
-
-    // OPTION 1: Send to group (ONE MESSAGE ONLY)
-    if (SEND_TO_GROUP && CRITICAL_STOCK_GROUP_ID) {
-      console.log('Sending critical stock alert to group...');
-      try {
-        await criticalStockBot.sendMessage(CRITICAL_STOCK_GROUP_ID, alertMessage);
-        console.log('✅ Critical stock alert sent to group successfully');
-        return; // EXIT EARLY - don't send to individual users
-      } catch (groupError) {
-        console.error('Failed to send to group:', groupError.message);
-        // Don't fall back to individual users to avoid rate limits
-        return;
-      }
-    }
-
-    // OPTION 2: Send to individual users (ONLY if group sending failed)
-    console.log('Sending critical stock alerts to individual users...');
-    
-    await initializeUserMappingTab();
-    
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${USER_MAPPING_TAB}!A:C`
-    });
-
-    const rows = response.data.values || [];
-    const users = [];
-
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][0] && rows[i][1]) {
-        users.push({
-          name: rows[i][0],
-          chatId: rows[i][1]
-        });
-      }
-    }
-
-    if (users.length === 0) {
-      console.log('No individual users to send critical stock alerts to');
-      return;
-    }
-
-    // IMPORTANT: Add delay between messages to avoid rate limits
-    for (const user of users) {
-      try {
-        await criticalStockBot.sendMessage(user.chatId, alertMessage);
-        console.log(`✅ Alert sent to ${user.name}`);
-        
-        // CRITICAL: Wait 1 second between messages to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (sendError) {
-        // Handle rate limit errors gracefully
-        if (sendError.message.includes('429')) {
-          console.error(`⚠️ Rate limit hit, stopping alerts to avoid bot shutdown`);
-          break; // Stop sending to avoid triggering rate limits
-        }
-        console.error(`Failed to send alert to ${user.name}: ${sendError.message}`);
-      }
-    }
-
-    console.log('Critical stock alerts sending complete');
-
-  } catch (error) {
-    console.error('Error sending critical stock alerts:', error.message);
-  }
-}
-
-// ADD THIS FUNCTION AFTER sendCriticalStockAlerts()
-async function sendAlertsToAllUsers(alerts) {
-  try {
-    // Create alert message
-    let alertMessage = '🚨 CRITICAL STOCK ALERT 🚨\n\n';
-    alertMessage += 'The following CRITICAL items are out of stock:\n\n';
-
-    alerts.forEach((alert, index) => {
-      alertMessage += `${index + 1}. 📦 ${alert.item.longName}\n`;
-      alertMessage += `   SKU: ${alert.item.skuCode}\n`;
-      alertMessage += `   🏪 Outlets: ${alert.outlets.join(', ')}\n\n`;
-    });
-
-    alertMessage += '⚠️ Please take immediate action to restock these critical items.\n';
-    alertMessage += `🕒 Alert sent at: ${new Date().toLocaleString()}`;
-
-    // OPTION 1: Send to group if configured
-    if (SEND_TO_GROUP && CRITICAL_STOCK_GROUP_ID) {
-      console.log('Sending critical stock alert to group...');
-      try {
-        await criticalStockBot.sendMessage(CRITICAL_STOCK_GROUP_ID, alertMessage, {
-          parse_mode: 'HTML'
-        });
-        console.log('Critical stock alert sent to group successfully');
-        return;
-      } catch (groupError) {
-        console.error('Failed to send to group:', groupError.message);
-        console.log('Falling back to individual users...');
-      }
-    }
-
-    // OPTION 2: Send to individual users (fallback or if group is disabled)
-    console.log('Sending critical stock alerts to individual users...');
-    
-    // Get all user mappings
-    await initializeUserMappingTab();
-    
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${USER_MAPPING_TAB}!A:C`
-    });
-
-    const rows = response.data.values || [];
-    const users = [];
-
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][0] && rows[i][1]) {
-        users.push({
-          name: rows[i][0],
-          chatId: rows[i][1]
-        });
-      }
-    }
-
-    if (users.length === 0) {
-      console.log('No individual users to send critical stock alerts to');
-      return;
-    }
-
-    // Send to all individual users
-    for (const user of users) {
-      try {
-        await criticalStockBot.sendMessage(user.chatId, alertMessage, {
-          parse_mode: 'HTML'
-        });
-        console.log(`Critical stock alert sent to ${user.name}`);
-        
-        // Small delay between messages
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (sendError) {
-        console.error(`Failed to send alert to ${user.name}: ${sendError.message}`);
-      }
-    }
-
-    console.log('Critical stock alerts sent to individual users');
-
-  } catch (error) {
-    console.error('Error sending critical stock alerts:', error.message);
-  }
-}
-
-// UPDATE THE EXISTING initializeServicesWithTickets() FUNCTION 
-// FIND THIS FUNCTION (around line 330) AND ADD THE CRITICAL BOT INITIALIZATION:
 async function initializeServicesWithTickets() {
   console.log('Initializing services with ticket workflow...');
   
@@ -1308,25 +963,17 @@ async function initializeServicesWithTickets() {
   // Initialize separate ticket bot
   ticketBot = await initializeTicketBot();
 
-  // DISABLED - Critical stock bot removed to resolve 409 conflicts
-  // criticalStockBot = await initializeCriticalStockBot();
-  
   // SET UP CALLBACK HANDLERS ON ALL BOTS
   if (bot) {
     setupCallbackQueryHandler(bot);
     console.log('Callback handler set up on main bot');
   }
-  
+
   if (ticketBot) {
     setupCallbackQueryHandler(ticketBot);
     console.log('Callback handler set up on ticket bot');
   }
-  
-  // ADD THIS BLOCK
-  if (criticalStockBot) {
-    console.log('Critical Stock Bot ready for alerts');
-  }
-  
+
   // Initialize user mapping tab
   try {
     await initializeUserMappingTab();
@@ -1334,27 +981,17 @@ async function initializeServicesWithTickets() {
   } catch (error) {
     console.error('Failed to initialize user mapping tab:', error.message);
   }
-  
-  console.log('Service initialization complete with ticket workflow and critical stock alerts');
-}
 
-// UPDATE THE EXISTING gracefulShutdown() FUNCTION 
-// FIND THIS FUNCTION (around line 400) AND ADD CRITICAL BOT SHUTDOWN:
-// Replace the gracefulShutdown function with this improved version:
+  console.log('Service initialization complete with ticket workflow');
+}
 
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  
+
   console.log(`\n${signal} received, shutting down gracefully...`);
-  
+
   try {
-    // Clear any scheduled intervals FIRST
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      console.log('Critical stock schedule cleared');
-    }
-    
     // Stop bots with error handling for rate limits
     if (bot) {
       console.log('Stopping original Telegram bot...');
@@ -1368,7 +1005,7 @@ async function gracefulShutdown(signal) {
         console.log(`Original bot stop warning: ${error.message} (continuing shutdown)`);
       }
     }
-    
+
     if (ticketBot) {
       console.log('Stopping ticket Telegram bot...');
       try {
@@ -1381,20 +1018,7 @@ async function gracefulShutdown(signal) {
         console.log(`Ticket bot stop warning: ${error.message} (continuing shutdown)`);
       }
     }
-    
-    if (criticalStockBot) {
-      console.log('Stopping critical stock Telegram bot...');
-      try {
-        await Promise.race([
-          criticalStockBot.stopPolling(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5000))
-        ]);
-        console.log('Critical stock Telegram bot stopped');
-      } catch (error) {
-        console.log(`Critical bot stop warning: ${error.message} (continuing shutdown)`);
-      }
-    }
-    
+
     console.log('Graceful shutdown complete');
     process.exit(0);
   } catch (error) {
@@ -1402,159 +1026,6 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }
 }
-// ADD THIS API ENDPOINT TO MANUALLY TRIGGER CRITICAL STOCK CHECK
-app.post('/api/check-critical-stock', async (req, res) => {
-  try {
-    console.log('Manual critical stock check requested');
-    await sendCriticalStockAlerts();
-    
-    res.json({
-      success: true,
-      message: 'Critical stock check completed',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error in manual critical stock check:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// ADD THIS API ENDPOINT TO SET UP AUTOMATIC SCHEDULING (OPTIONAL)
-// UPDATED ENDPOINTS - Replace your existing critical stock endpoints with these:
-
-// Manual trigger for critical stock check
-app.post('/api/check-critical-stock', async (req, res) => {
-  try {
-    console.log('Manual critical stock check requested');
-    
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot is not available. Please check bot configuration.'
-      });
-    }
-    
-    await sendCriticalStockAlerts();
-    
-    res.json({
-      success: true,
-      message: 'Critical stock check completed and alerts sent if needed',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error in manual critical stock check:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Set up automatic scheduling for critical stock alerts (NOW SUPPORTS 30 MINUTES)
-app.post('/api/schedule-critical-alerts', async (req, res) => {
-  try {
-    const { intervalMinutes = 30 } = req.body; // Default check every 30 minutes
-    
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot is not available. Please check bot configuration.'
-      });
-    }
-    
-    // Validate interval (minimum 10 minutes, maximum 24 hours)
-    if (intervalMinutes < 10 || intervalMinutes > 1440) {
-      return res.status(400).json({
-        success: false,
-        error: 'Interval must be between 10 minutes and 1440 minutes (24 hours)'
-      });
-    }
-    
-    // Clear existing interval if any
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      console.log('Cleared existing critical stock schedule');
-    }
-    
-    // Set up new interval
-    global.criticalStockInterval = setInterval(async () => {
-      console.log(`Scheduled critical stock check - every ${intervalMinutes} minutes`);
-      try {
-        await sendCriticalStockAlerts();
-      } catch (error) {
-        console.error('Error in scheduled critical stock check:', error.message);
-      }
-    }, intervalMinutes * 60 * 1000); // Convert minutes to milliseconds
-    
-    console.log(`Critical stock alerts scheduled every ${intervalMinutes} minutes`);
-    
-    res.json({
-      success: true,
-      message: `Critical stock alerts scheduled every ${intervalMinutes} minutes`,
-      intervalMinutes: intervalMinutes,
-      nextCheckTime: new Date(Date.now() + (intervalMinutes * 60 * 1000)).toISOString(),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error scheduling critical alerts:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Get current critical stock schedule status
-app.get('/api/critical-stock-status', (req, res) => {
-  try {
-    const hasSchedule = !!global.criticalStockInterval;
-    
-    res.json({
-      success: true,
-      botStatus: criticalStockBot ? 'Connected' : 'Not Connected',
-      scheduledAlerts: hasSchedule ? 'Active' : 'Not Scheduled',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Stop scheduled critical stock alerts
-app.post('/api/stop-critical-alerts', (req, res) => {
-  try {
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      global.criticalStockInterval = null;
-      console.log('Critical stock alerts schedule stopped');
-      
-      res.json({
-        success: true,
-        message: 'Critical stock alerts schedule stopped',
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      res.json({
-        success: true,
-        message: 'No active schedule to stop',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
 
 async function startPollingWithRetry(botInstance, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
@@ -1586,9 +1057,6 @@ async function restartBotPolling(botInstance) {
   }
 }
 
-
-
-// REPLACE the existing setupCallbackQueryHandler function with this:
 function setupCallbackQueryHandler(botInstance) {
   botInstance.on('callback_query', async (query) => {
     try {
@@ -1726,46 +1194,6 @@ function setupCallbackQueryHandler(botInstance) {
   });
 }
 
-// Graceful shutdown function
-// UPDATE the gracefulShutdown function:
-async function gracefulShutdown(signal) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  
-  console.log(`\n${signal} received, shutting down gracefully...`);
-  
-  try {
-    if (bot) {
-      console.log('Stopping original Telegram bot...');
-      await bot.stopPolling();
-      console.log('Original Telegram bot stopped');
-    }
-    
-    if (ticketBot) {
-      console.log('Stopping ticket Telegram bot...');
-      await ticketBot.stopPolling();
-      console.log('Ticket Telegram bot stopped');
-    }
-    
-    if (criticalStockBot) {
-      console.log('Stopping critical stock Telegram bot...');
-      await criticalStockBot.stopPolling();
-      console.log('Critical stock Telegram bot stopped');
-    }
-    
-    // Clear any scheduled intervals
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      console.log('Critical stock schedule cleared');
-    }
-    
-    console.log('Graceful shutdown complete');
-    process.exit(0);
-  } catch (error) {
-    console.error('Error during shutdown:', error.message);
-    process.exit(1);
-  }
-}
 // Process signal handlers - ONLY shutdown on explicit termination signals
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
@@ -1778,51 +1206,6 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ Unhandled Rejection (server continues running):', reason);
 });
-
-// Initialize services on startup
-// REPLACE the existing initializeServices function with this:
-async function initializeServicesWithTickets() {
-  console.log('Initializing services with ticket workflow...');
-  
-  const googleInitialized = await initializeGoogleServices();
-  if (!googleInitialized) {
-    console.error('Failed to initialize Google Services');
-  }
-  
-  // Initialize original bot
-  bot = await initializeTelegramBot();
-  
-  // Initialize separate ticket bot
-  ticketBot = await initializeTicketBot();
-
-  // DISABLED - Critical stock bot removed to resolve 409 conflicts
-  // criticalStockBot = await initializeCriticalStockBot();
-  
-  // SET UP CALLBACK HANDLERS ON BOTS
-  if (bot) {
-    setupCallbackQueryHandler(bot);
-    console.log('Callback handler set up on main bot');
-  }
-  
-  if (ticketBot) {
-    setupCallbackQueryHandler(ticketBot);
-    console.log('Callback handler set up on ticket bot');
-  }
-  
-  if (criticalStockBot) {
-    console.log('Critical Stock Bot ready for alerts');
-  }
-  
-  // Initialize user mapping tab
-  try {
-    await initializeUserMappingTab();
-    console.log('User mapping tab initialized');
-  } catch (error) {
-    console.error('Failed to initialize user mapping tab:', error.message);
-  }
-  
-  console.log('Service initialization complete with ticket workflow and critical stock alerts');
-}
 // Helper function to create empty data structure for dashboard
 function createEmptyDataStructure() {
   return {
@@ -13520,26 +12903,13 @@ app.get('/api/bot-status', async (req, res) => {
   } else {
     botTests.ticketBot = { status: 'Not Initialized' };
   }
-  
-  // ADD THIS: Test critical stock bot
-  if (criticalStockBot) {
-    try {
-      const me = await criticalStockBot.getMe();
-      botTests.criticalStockBot = { status: 'Connected', username: me.username };
-    } catch (error) {
-      botTests.criticalStockBot = { status: 'Error', error: error.message };
-    }
-  } else {
-    botTests.criticalStockBot = { status: 'Not Initialized' };
-  }
-  
+
   res.json({
     success: true,
     bots: botTests,
     environment: {
       telegramToken: !!TELEGRAM_BOT_TOKEN,
       coToken: !!CO_BOT_TOKEN,
-      criticalStockToken: !!CRITICAL_STOCK_BOT_TOKEN, // Also add this
       telegramEnabled: ENABLE_TELEGRAM_BOT
     }
   });
@@ -14293,218 +13663,6 @@ app.get('/api/debug-stock-summary', async (req, res) => {
       success: false,
       error: error.message,
       spreadsheetId: '12kfAZX7gV0UszUHhTI9i9iy8OObJ0Uc_8fJC18O1ILg'
-    });
-  }
-});
-
-
-// ADD THESE TWO ENDPOINTS AT THE END OF YOUR server.js FILE 
-// (with your other API endpoints, before the error handling middleware)
-
-// Manual trigger for critical stock check
-app.post('/api/check-critical-stock', async (req, res) => {
-  try {
-    console.log('Manual critical stock check requested');
-    
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot is not available. Please check bot configuration.'
-      });
-    }
-    
-    await sendCriticalStockAlerts();
-    
-    res.json({
-      success: true,
-      message: 'Critical stock check completed and alerts sent if needed',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error in manual critical stock check:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Set up automatic scheduling for critical stock alerts
-app.post('/api/schedule-critical-alerts', async (req, res) => {
-  try {
-    const { intervalHours = 0.5 } = req.body; // Default check every 6 hours
-    
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot is not available. Please check bot configuration.'
-      });
-    }
-    
-    // Validate interval
-    if (intervalHours < 0 || intervalHours > 24) {
-      return res.status(400).json({
-        success: false,
-        error: 'Interval must be between 1 and 24 hours'
-      });
-    }
-    
-    // Clear existing interval if any
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      console.log('Cleared existing critical stock schedule');
-    }
-    
-    // Set up new interval
-    global.criticalStockInterval = setInterval(async () => {
-      console.log(`Scheduled critical stock check - every ${intervalHours} hours`);
-      try {
-        await sendCriticalStockAlerts();
-      } catch (error) {
-        console.error('Error in scheduled critical stock check:', error.message);
-      }
-    }, intervalHours  * 60 * 60 * 1000);
-    
-    console.log(`Critical stock alerts scheduled every ${intervalHours} hours`);
-    
-    res.json({
-      success: true,
-      message: `Critical stock alerts scheduled every ${intervalHours} hours`,
-      intervalHours: intervalHours,
-      nextCheckTime: new Date(Date.now() + (intervalHours * 60 * 60 * 1000)).toISOString(),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error scheduling critical alerts:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// Get current critical stock schedule status
-app.get('/api/critical-stock-status', (req, res) => {
-  try {
-    const hasSchedule = !!global.criticalStockInterval;
-    
-    res.json({
-      success: true,
-      botStatus: criticalStockBot ? 'Connected' : 'Not Connected',
-      scheduledAlerts: hasSchedule ? 'Active' : 'Not Scheduled',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Stop scheduled critical stock alerts
-app.post('/api/stop-critical-alerts', (req, res) => {
-  try {
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-      global.criticalStockInterval = null;
-      console.log('Critical stock alerts schedule stopped');
-      
-      res.json({
-        success: true,
-        message: 'Critical stock alerts schedule stopped',
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      res.json({
-        success: true,
-        message: 'No active schedule to stop',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.get('/api/get-group-id', async (req, res) => {
-  try {
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot not available'
-      });
-    }
-
-    // Get bot updates to find the group chat ID
-    const updates = await criticalStockBot.getUpdates();
-    
-    const groups = [];
-    updates.forEach(update => {
-      if (update.message && update.message.chat.type === 'group') {
-        groups.push({
-          chatId: update.message.chat.id,
-          title: update.message.chat.title,
-          type: update.message.chat.type
-        });
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Send any message in your group, then call this endpoint to get the group chat ID',
-      groups: groups,
-      instructions: [
-        '1. Send any message in your Telegram group where the bot is added',
-        '2. Call this endpoint again to get the group chat ID',
-        '3. Add the chat ID to your .env file as CRITICAL_STOCK_GROUP_ID'
-      ]
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-app.post('/api/test-group-message', async (req, res) => {
-  try {
-    const { message = 'Test message from Critical Stock Bot' } = req.body;
-    
-    if (!criticalStockBot) {
-      return res.status(503).json({
-        success: false,
-        error: 'Critical Stock Bot not available'
-      });
-    }
-
-    if (!CRITICAL_STOCK_GROUP_ID) {
-      return res.status(400).json({
-        success: false,
-        error: 'Group ID not configured. Please set CRITICAL_STOCK_GROUP_ID in .env'
-      });
-    }
-
-    await criticalStockBot.sendMessage(CRITICAL_STOCK_GROUP_ID, message);
-    
-    res.json({
-      success: true,
-      message: 'Test message sent to group successfully',
-      groupId: CRITICAL_STOCK_GROUP_ID
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: 'Make sure the bot is added to the group and has permission to send messages'
     });
   }
 });
@@ -15336,16 +14494,6 @@ app.use((req, res) => {
   });
 });
 
-app.get('/api/critical-stock-status', (req, res) => {
-  res.json({
-    success: true,
-    intervalActive: !!global.criticalStockInterval,
-    intervalMs: global.criticalStockInterval ? global.criticalStockInterval._idleTimeout : null,
-    lastRun: global.lastCriticalStockRun || null,
-    timestamp: new Date().toISOString()
-  });
-});
-
 // === EMAIL CONFIGURATION FOR WEEKLY OOS REPORTS ===
 
 // Configure email transporter
@@ -15749,27 +14897,6 @@ app.listen(PORT, async () => {
   console.log('');
   console.log('🚀 Initializing services...');
   await initializeServicesWithTickets();
-
-  // --- AUTO START CRITICAL STOCK SCHEDULER DISABLED ---
-  // Critical stock bot auto-start is disabled
-  // To re-enable, uncomment the code below:
-  /*
-  if (criticalStockBot) {
-    if (global.criticalStockInterval) {
-      clearInterval(global.criticalStockInterval);
-    }
-    global.criticalStockInterval = setInterval(async () => {
-      console.log('Scheduled critical stock check (every 1 hour)');
-      try {
-        await sendCriticalStockAlerts();
-        global.lastCriticalStockRun = new Date().toISOString();
-      } catch (error) {
-        console.error('Error in scheduled critical stock check:', error.message);
-      }
-    }, 6 * 60 * 60 * 1000); // 1 hour in milliseconds
-    console.log('✅ Critical stock alert scheduler started (every 1 hour)');
-  }
-  */
 
   console.log('✅ Service initialization complete');
   console.log('');
