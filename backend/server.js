@@ -96,6 +96,7 @@ const SUBMISSIONS_TAB = process.env.CHECKLIST_SUBMISSIONS_TAB || 'ChecklistSubmi
 const RESPONSES_TAB = process.env.CHECKLIST_RESPONSES_TAB || 'ChecklistResponses';
 const DASHBOARD_SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1XmKondedSs_c6PZflanfB8OFUsGxVoqi5pUPvscT8cs';
 const DASHBOARD_SHEET_NAME = process.env.SHEET_NAME || 'Zomato Dashboard';
+const PRODUCT_OPTIONS_SHEET_NAME = 'ProductOptionsDetail'; // New detailed sheet with options/flavours
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ROSTER_SPREADSHEET_ID = '1FYXr8Wz0ddN3mFi-0AQbI6J_noi2glPbJLh44CEMUnE';
 const ROSTER_TAB = 'Roster';
@@ -4558,6 +4559,29 @@ function parseFilters(message) {
 
 // ============ PRODUCT SIZE/CATEGORY FILTERING ============
 
+// Category mappings for ProductOptionsDetail sheet
+const CATEGORY_MAPPINGS = {
+  'sundae': { category: 'Signature Sundaes', aliases: ['sundaes', 'sundae', 'signature sundae', 'ice cream sundae'] },
+  'shake': { category: 'Shakes', aliases: ['shakes', 'shake', 'milkshake', 'milkshakes', 'thick shake', 'thick shakes'] },
+  'waffle': { category: 'Waffles', aliases: ['waffles', 'waffle', 'belgian waffle'] },
+  'brownie': { category: 'Brownies', aliases: ['brownies', 'brownie', 'fudge brownie'] },
+  'topping': { category: 'Topping', aliases: ['toppings', 'topping', 'add-on', 'add-ons', 'addon', 'addons'] },
+  'jar': { category: 'Dessert Jars', aliases: ['jar', 'jars', 'dessert jar', 'dessert jars'] },
+  'cone': { category: 'Cones', aliases: ['cone', 'cones', 'ice cream cone', 'waffle cone'] },
+  'cake': { category: 'Cakes', aliases: ['cake', 'cakes', 'ice cream cake'] },
+  'combo': { category: 'Combos', aliases: ['combo', 'combos', 'meal combo', 'value combo'] },
+  'scoop': { category: 'Scoops', aliases: ['scoop', 'scoops', 'single scoop', 'double scoop', '2 scoop'] },
+  'parfait': { category: 'Parfaits', aliases: ['parfait', 'parfaits'] },
+  'sorbet': { category: 'Sorbets', aliases: ['sorbet', 'sorbets'] },
+  'gelato': { category: 'Gelato', aliases: ['gelato', 'gelatos'] }
+};
+
+// Type mappings for ProductOptionsDetail sheet (Main Item vs Option)
+const TYPE_MAPPINGS = {
+  'option': { type: 'Option', aliases: ['option', 'options', 'flavour option', 'flavor option', 'add-on', 'addon', 'customization', 'modifier'] },
+  'main': { type: 'Main Item', aliases: ['main item', 'main', 'main product', 'base item', 'parent item', 'parent'] }
+};
+
 // All 18 100gms ice cream flavours
 const ICE_CREAM_100G_FLAVOURS = [
   'Belgian Chocolate Ice Cream (100 g)',
@@ -4588,26 +4612,80 @@ const TWO_SCOOP_COMBO_VARIANTS = [
 /**
  * Parse product size/category filter from natural language
  * Detects: "100gms", "100g", "100 g", "2kg", "dessert jars", "brownies", etc.
- * Returns: { sizeFilter, productList, categoryName }
+ * Also detects category names from the ProductOptionsDetail sheet (sundaes, shakes, toppings, etc.)
+ * And Type filters (options, main items, flavours)
+ * Returns: { sizeFilter, productList, categoryName, sheetCategory, typeFilter }
  */
 function parseProductSizeFilter(message) {
   const lowerMessage = message.toLowerCase();
 
-  // Detect 100gms ice cream queries
+  // Detect Type filter first (Option vs Main Item)
+  let typeFilter = null;
+
+  // Check for "option" type queries (flavour options, 50gms flavours sold as options, toppings added, etc.)
+  if (/\boptions?\b|flavou?rs?\s+(?:sold|ordered|selected)|50\s*g(?:ms?)?\s+flavou?r|which\s+flavou?rs?\s+(?:were|are)\s+(?:sold|ordered|most|popular)|topping/i.test(lowerMessage)) {
+    typeFilter = 'Option';
+  }
+  // Check for "main item" type queries
+  else if (/\bmain\s*items?\b|\bparent\s*items?\b|\bbase\s*items?\b/i.test(lowerMessage)) {
+    typeFilter = 'Main Item';
+  }
+
+  // Detect category from sheet (Signature Sundaes, Shakes, Toppings, etc.)
+  let sheetCategory = null;
+  for (const [key, mapping] of Object.entries(CATEGORY_MAPPINGS)) {
+    for (const alias of mapping.aliases) {
+      // Use word boundaries to avoid partial matches
+      const regex = new RegExp(`\\b${alias.replace(/\s+/g, '\\s+')}\\b`, 'i');
+      if (regex.test(lowerMessage)) {
+        sheetCategory = mapping.category;
+        break;
+      }
+    }
+    if (sheetCategory) break;
+  }
+
+  // If we found a sheet category, return it
+  if (sheetCategory) {
+    return {
+      sizeFilter: null,
+      productList: null,
+      categoryName: sheetCategory,
+      sheetCategory: sheetCategory,
+      typeFilter: typeFilter
+    };
+  }
+
+  // Detect 100gms ice cream queries - NOW INCLUDES 50gms FLAVOURS TOO
   if (/100\s*g|100gms?|100\s*grams?/i.test(message)) {
     // Check if specifically asking for ice cream/flavours
     if (/flavour|flavor|ice\s*cream|scoop/i.test(message)) {
       return {
-        sizeFilter: '100g',
-        productList: [...ICE_CREAM_100G_FLAVOURS, ...TWO_SCOOP_COMBO_VARIANTS],
-        categoryName: '100gms Ice Cream Flavours'
+        sizeFilter: '50g_100g', // Include both 50g and 100g flavours
+        productList: null, // Match any 50g or 100g product
+        categoryName: 'Ice Cream Flavours (50g & 100g)',
+        sheetCategory: null,
+        typeFilter: typeFilter || 'Option' // Flavours are typically options
       };
     }
     // Generic 100g query - include all 100g products
     return {
       sizeFilter: '100g',
       productList: null, // Will match any product with "100 g" in name
-      categoryName: '100gms Products'
+      categoryName: '100gms Products',
+      sheetCategory: null,
+      typeFilter: typeFilter
+    };
+  }
+
+  // Detect 50gms queries (typically options/flavours) - also include 100g
+  if (/50\s*g|50gms?|50\s*grams?/i.test(message)) {
+    return {
+      sizeFilter: '50g_100g', // Include both 50g and 100g flavours
+      productList: null,
+      categoryName: 'Ice Cream Flavours (50g & 100g)',
+      sheetCategory: null,
+      typeFilter: 'Option' // These are always options
     };
   }
 
@@ -4616,7 +4694,9 @@ function parseProductSizeFilter(message) {
     return {
       sizeFilter: '2kg',
       productList: null,
-      categoryName: '2kg Products'
+      categoryName: '2kg Products',
+      sheetCategory: null,
+      typeFilter: typeFilter
     };
   }
 
@@ -4625,7 +4705,9 @@ function parseProductSizeFilter(message) {
     return {
       sizeFilter: 'jar',
       productList: null,
-      categoryName: 'Dessert Jars'
+      categoryName: 'Dessert Jars',
+      sheetCategory: null,
+      typeFilter: typeFilter
     };
   }
 
@@ -4634,7 +4716,20 @@ function parseProductSizeFilter(message) {
     return {
       sizeFilter: 'brownie',
       productList: null,
-      categoryName: 'Brownies'
+      categoryName: 'Brownies',
+      sheetCategory: null,
+      typeFilter: typeFilter
+    };
+  }
+
+  // If only type filter was detected, return it
+  if (typeFilter) {
+    return {
+      sizeFilter: null,
+      productList: null,
+      categoryName: typeFilter === 'Option' ? 'Options/Flavours' : 'Main Items',
+      sheetCategory: null,
+      typeFilter: typeFilter
     };
   }
 
@@ -4661,8 +4756,13 @@ function productMatchesSizeFilter(productName, sizeFilter, productList) {
 
   // Otherwise, match by size pattern
   switch (sizeFilter) {
+    case '50g_100g':
+      // Match both 50g and 100g flavours
+      return /50\s*g|100\s*g/i.test(productName);
     case '100g':
       return /100\s*g/i.test(productName);
+    case '50g':
+      return /50\s*g/i.test(productName);
     case '2kg':
       return /2\s*kg|2kg/i.test(productName);
     case 'jar':
@@ -4675,14 +4775,49 @@ function productMatchesSizeFilter(productName, sizeFilter, productList) {
 }
 
 /**
- * Filter products array by size/category
+ * Check if a product matches the category filter (from sheet's Category column)
  */
-function filterProductsBySize(products, sizeFilter, productList) {
-  if (!sizeFilter) return products;
+function productMatchesCategoryFilter(product, sheetCategory) {
+  if (!sheetCategory) return true;
 
+  const productCategory = product.category || '';
+  return productCategory.toLowerCase().includes(sheetCategory.toLowerCase());
+}
+
+/**
+ * Check if a product matches the type filter (Main Item vs Option)
+ */
+function productMatchesTypeFilter(product, typeFilter) {
+  if (!typeFilter) return true;
+
+  const productType = product.type || '';
+  return productType.toLowerCase() === typeFilter.toLowerCase();
+}
+
+/**
+ * Filter products array by size/category/type
+ * Now handles: sizeFilter (100g, 2kg, etc.), sheetCategory (from Category column), typeFilter (Main Item/Option)
+ */
+function filterProductsBySize(products, sizeFilter, productList, sheetCategory = null, typeFilter = null) {
   return products.filter(p => {
     const productName = p.name || p.itemName || '';
-    return productMatchesSizeFilter(productName, sizeFilter, productList);
+
+    // Check size filter (if provided)
+    if (sizeFilter && !productMatchesSizeFilter(productName, sizeFilter, productList)) {
+      return false;
+    }
+
+    // Check sheet category filter (from Category column)
+    if (sheetCategory && !productMatchesCategoryFilter(p, sheetCategory)) {
+      return false;
+    }
+
+    // Check type filter (Main Item vs Option)
+    if (typeFilter && !productMatchesTypeFilter(p, typeFilter)) {
+      return false;
+    }
+
+    return true;
   });
 }
 
@@ -5026,6 +5161,144 @@ function processProductDetailsSheet(rawData, filterOrRange = DATE_FILTER_DAYS, a
   if (channel) {
     console.log(`  Channel filter: ${channel}`);
   }
+
+  return items;
+}
+
+/**
+ * Process ProductOptionsDetail sheet - More granular data with options/flavours
+ * Headers: Date, Branch, Category, Parent Item, Item/Option Name, SKU Code, Qty, Revenue, Channel, Type
+ * Type can be "Main Item" or "Option" (for flavours, toppings, etc.)
+ * @param {Array} rawData - The raw sheet data
+ * @param {Number|Object} filterOrRange - Either daysFilter (number) or dateRange {startDate, endDate}
+ * @param {Object} additionalFilters - Additional filters like branch, channel, type
+ */
+function processProductOptionsDetailSheet(rawData, filterOrRange = DATE_FILTER_DAYS, additionalFilters = {}) {
+  if (!rawData || rawData.length < 2) return [];
+
+  const headers = rawData[0];
+  const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+  const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+  const categoryIndex = headers.findIndex(h => h && h.toLowerCase() === 'category');
+  const parentItemIndex = headers.findIndex(h => h && h.toLowerCase() === 'parent item');
+  const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item') && h.toLowerCase().includes('option')));
+  const skuIndex = headers.findIndex(h => h && h.toLowerCase().includes('sku'));
+  const qtyIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
+  const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+  const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
+  const typeIndex = headers.findIndex(h => h && h.toLowerCase() === 'type');
+
+  console.log(`ProductOptionsDetail columns - Date: ${dateIndex}, Branch: ${branchIndex}, Category: ${categoryIndex}, Parent Item: ${parentItemIndex}, Item/Option Name: ${itemNameIndex}, SKU: ${skuIndex}, Qty: ${qtyIndex}, Revenue: ${revenueIndex}, Channel: ${channelIndex}, Type: ${typeIndex}`);
+
+  if (dateIndex === -1 || itemNameIndex === -1 || qtyIndex === -1) {
+    console.error('ERROR: Required columns (Date, Item/Option Name, Qty) not found in ProductOptionsDetail sheet');
+    return [];
+  }
+
+  // Determine filter type
+  const isRangeFilter = filterOrRange && typeof filterOrRange === 'object' && filterOrRange.startDate;
+  const daysFilter = !isRangeFilter ? filterOrRange : null;
+  const dateRange = isRangeFilter ? filterOrRange : null;
+
+  // Extract additional filters
+  const { branch, channel, type, category } = additionalFilters;
+
+  // Use a Map to aggregate by item name
+  const itemsMap = new Map();
+  let totalRowsProcessed = 0;
+  let rowsFiltered = 0;
+
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const dateStr = row[dateIndex]?.toString().trim();
+    const itemName = row[itemNameIndex]?.toString().trim();
+    const qty = parseInt(row[qtyIndex]) || 0;
+    const branchName = branchIndex !== -1 ? row[branchIndex]?.toString().trim() : '';
+    const channelName = channelIndex !== -1 ? row[channelIndex]?.toString().trim() : '';
+    const revenue = revenueIndex !== -1 ? parseCurrencyValue(row[revenueIndex]) : 0;
+    const itemType = typeIndex !== -1 ? row[typeIndex]?.toString().trim() : '';
+    const parentItem = parentItemIndex !== -1 ? row[parentItemIndex]?.toString().trim() : '';
+    const categoryName = categoryIndex !== -1 ? row[categoryIndex]?.toString().trim() : '';
+    const skuCode = skuIndex !== -1 ? row[skuIndex]?.toString().trim() : '';
+
+    if (!itemName) continue;
+
+    // Apply date filter if specified
+    let includeRow = true;
+    if (dateRange) {
+      includeRow = isDateInRange(dateStr, dateRange.startDate, dateRange.endDate);
+    } else if (daysFilter) {
+      includeRow = isDateWithinRange(dateStr, daysFilter);
+    }
+
+    if (!includeRow) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply branch filter if specified
+    if (branch && !branchesMatch(branchName, branch)) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply channel filter if specified
+    if (channel && channelName.toLowerCase() !== channel.toLowerCase()) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply type filter if specified (Main Item or Option)
+    if (type && itemType.toLowerCase() !== type.toLowerCase()) {
+      rowsFiltered++;
+      continue;
+    }
+
+    // Apply category filter if specified
+    if (category && !categoryName.toLowerCase().includes(category.toLowerCase())) {
+      rowsFiltered++;
+      continue;
+    }
+
+    totalRowsProcessed++;
+    const normalizedName = normalizeProductName(itemName);
+
+    // Aggregate counts and revenue for the same item
+    if (itemsMap.has(normalizedName)) {
+      const existing = itemsMap.get(normalizedName);
+      existing.totalOrders += qty;
+      existing.totalRevenue += revenue;
+    } else {
+      itemsMap.set(normalizedName, {
+        itemName,
+        totalOrders: qty,
+        totalRevenue: revenue,
+        normalizedName,
+        type: itemType,
+        parentItem: parentItem,
+        category: categoryName,
+        skuCode: skuCode
+      });
+    }
+  }
+
+  // Convert Map to array
+  const items = Array.from(itemsMap.values());
+
+  console.log(`\nProductOptionsDetail Processing:`);
+  console.log(`  Total rows: ${rawData.length - 1}`);
+  console.log(`  Rows filtered: ${rowsFiltered}`);
+  console.log(`  Rows processed: ${totalRowsProcessed}`);
+  console.log(`  Unique items: ${items.length}`);
+  if (dateRange) {
+    console.log(`  Date range: ${dateRange.startDate.toLocaleDateString()} to ${dateRange.endDate.toLocaleDateString()}`);
+  } else {
+    console.log(`  Date filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
+  }
+  if (branch) console.log(`  Branch filter: ${branch}`);
+  if (channel) console.log(`  Channel filter: ${channel}`);
+  if (type) console.log(`  Type filter: ${type}`);
+  if (category) console.log(`  Category filter: ${category}`);
 
   return items;
 }
@@ -5445,13 +5718,14 @@ async function fetchSheetData(spreadsheetId, sheetName, range = 'A:Z') {
 async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTER_DAYS, additionalFilters = {}, ratingsRequired = true) {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('PRODUCT ANALYSIS - NO RISTA API VERSION');
-  console.log('Using ProductDetails Sheet Aggregation + 100% Fuzzy Matching');
+  console.log('Using ProductOptionsDetail Sheet (includes Options/Flavours)');
   console.log('═══════════════════════════════════════════════════════════\n');
   console.log(`Spreadsheet ID: ${spreadsheetId}`);
   console.log(`Date Filter: ${daysFilter ? `Last ${daysFilter} days` : 'All dates'}`);
   console.log(`Ratings Required: ${ratingsRequired}`);
   if (additionalFilters.branch) console.log(`Branch Filter: ${additionalFilters.branch}`);
   if (additionalFilters.channel) console.log(`Channel Filter: ${additionalFilters.channel}`);
+  if (additionalFilters.type) console.log(`Type Filter: ${additionalFilters.type}`);
   console.log('');
 
   try {
@@ -5464,10 +5738,10 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
 
     // Step 1: Fetch all sheet data in parallel
     console.log('Fetching sheet data...');
-    const [productDetailsData, zomatoOrdersData, swiggyReviewData] = await Promise.all([
+    const [productOptionsData, zomatoOrdersData, swiggyReviewData] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
-        range: 'ProductDetails!A:Z'
+        range: `${PRODUCT_OPTIONS_SHEET_NAME}!A:Z`
       }).catch(e => ({ data: { values: [] }, error: e.message })),
 
       sheets.spreadsheets.values.get({
@@ -5481,11 +5755,11 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       }).catch(e => ({ data: { values: [] }, error: e.message }))
     ]);
 
-    // Step 2: Process ProductDetails sheet with date filter and additional filters
-    const productDetails = processProductDetailsSheet(productDetailsData.data.values, daysFilter, additionalFilters);
-    
+    // Step 2: Process ProductOptionsDetail sheet with date filter and additional filters
+    const productDetails = processProductOptionsDetailSheet(productOptionsData.data.values, daysFilter, additionalFilters);
+
     if (productDetails.length === 0) {
-      console.error('ERROR: No products found in ProductDetails sheet');
+      console.error('ERROR: No products found in ProductOptionsDetail sheet');
       return createEmptyProductDataStructure();
     }
 
@@ -6421,7 +6695,7 @@ app.get('/api/debug-product-analysis', async (req, res) => {
     const [productDetails, zomatoOrders, swiggyReview, igccComplaints] = await Promise.all([
       sheets.spreadsheets.values.get({
         spreadsheetId: PRODUCT_SPREADSHEET_ID,
-        range: `ProductDetails!A1:Z20`,
+        range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z20`,
       }).catch(e => ({ data: { values: null }, error: e.message })),
 
       sheets.spreadsheets.values.get({
@@ -6502,11 +6776,20 @@ app.post('/api/product-chat', async (req, res) => {
     // Parse branch and channel filters from message
     const filters = parseFilters(message);
 
-    // Parse product size/category filter (100gms, 2kg, jars, etc.)
+    // Parse product size/category/type filter (100gms, 2kg, jars, sundaes, options, etc.)
     const productSizeFilter = parseProductSizeFilter(message);
     if (productSizeFilter) {
-      console.log(`Product Size Filter Detected: ${productSizeFilter.categoryName}`);
+      console.log(`Product Filter Detected: ${productSizeFilter.categoryName}`);
+      if (productSizeFilter.sheetCategory) console.log(`  Sheet Category: ${productSizeFilter.sheetCategory}`);
+      if (productSizeFilter.typeFilter) console.log(`  Type Filter: ${productSizeFilter.typeFilter}`);
       filters.productSizeFilter = productSizeFilter;
+      // Also add to main filters for processProductAnalysisData
+      if (productSizeFilter.sheetCategory) {
+        filters.category = productSizeFilter.sheetCategory;
+      }
+      if (productSizeFilter.typeFilter) {
+        filters.type = productSizeFilter.typeFilter;
+      }
     }
 
     // Parse "top N" limit from user message (e.g., "top 10", "top 5")
@@ -8312,10 +8595,10 @@ async function getSalesForPeriod(productName, startDate, endDate, outlet = null)
       await initializeGoogleServices();
     }
 
-    // Fetch ProductDetails sheet
+    // Fetch ProductOptionsDetail sheet
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A:Z'
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A:Z`
     });
 
     const rows = response.data.values || [];
@@ -8324,11 +8607,11 @@ async function getSalesForPeriod(productName, startDate, endDate, outlet = null)
     }
 
     const headers = rows[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-    const ordersIndex = headers.findIndex(h => h && h.toLowerCase() === 'orders');
-    const revenueIndex = headers.findIndex(h => h && (h.toLowerCase().includes('revenue') || h.toLowerCase().includes('total')));
-    const outletIndex = headers.findIndex(h => h && (h.toLowerCase().includes('outlet') || h.toLowerCase().includes('branch')));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item')));
+    const ordersIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
+    const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
+    const outletIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
 
     let totalOrders = 0;
     let totalRevenue = 0;
@@ -8427,10 +8710,10 @@ async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, addition
       }
     }
 
-    // Fetch ProductDetails sheet
+    // Fetch ProductOptionsDetail sheet
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
@@ -8439,11 +8722,11 @@ async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, addition
     }
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
     const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
-    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
 
     if (dateIndex === -1 || orderCountIndex === -1) {
       return { error: 'Required columns not found' };
@@ -8603,10 +8886,10 @@ async function predictOptimalStockLevels(daysBack = 30, additionalFilters = {}, 
       }
     }
 
-    // Fetch ProductDetails sheet for historical sales
+    // Fetch ProductOptionsDetail sheet for historical sales
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
@@ -8615,11 +8898,11 @@ async function predictOptimalStockLevels(daysBack = 30, additionalFilters = {}, 
     }
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
-    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item')));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
 
     if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
       return { error: 'Required columns not found' };
@@ -8815,19 +9098,19 @@ async function analyzeProductTrends(recentDays = 14, previousDays = 14, addition
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
     if (!rawData || rawData.length < 2) return { error: 'No data available' };
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item')));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
     const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
-    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
 
     if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1) {
       return { error: 'Required columns not found' };
@@ -8972,17 +9255,17 @@ async function compareOutletPerformance(daysBack = 30) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
     if (!rawData || rawData.length < 2) return { error: 'No data available' };
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
     const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
 
     if (dateIndex === -1 || orderCountIndex === -1 || branchIndex === -1) {
       return { error: 'Required columns not found' };
@@ -9077,19 +9360,19 @@ async function analyzeProductProfitability(daysBack = 30, additionalFilters = {}
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
     if (!rawData || rawData.length < 2) return { error: 'No data available' };
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item')));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
     const revenueIndex = headers.findIndex(h => h && h.toLowerCase() === 'revenue');
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
-    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
 
     if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1 || revenueIndex === -1) {
       return { error: 'Required columns not found' };
@@ -9224,18 +9507,18 @@ async function compareSwiggyZomatoTopProducts(daysBack = 7, topN = 20, additiona
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: 'ProductDetails!A1:Z50000',
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
     });
 
     const rawData = response.data.values;
     if (!rawData || rawData.length < 2) return { error: 'No data available' };
 
     const headers = rawData[0];
-    const dateIndex = headers.findIndex(h => h && h.toLowerCase().includes('date'));
-    const itemNameIndex = headers.findIndex(h => h && h.toLowerCase().includes('item name'));
-    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase().includes('order count'));
-    const branchIndex = headers.findIndex(h => h && h.toLowerCase().includes('branch'));
-    const channelIndex = headers.findIndex(h => h && h.toLowerCase().includes('channel'));
+    const dateIndex = headers.findIndex(h => h && h.toLowerCase() === 'date');
+    const itemNameIndex = headers.findIndex(h => h && (h.toLowerCase() === 'item/option name' || h.toLowerCase().includes('item')));
+    const orderCountIndex = headers.findIndex(h => h && h.toLowerCase() === 'qty');
+    const branchIndex = headers.findIndex(h => h && h.toLowerCase() === 'branch');
+    const channelIndex = headers.findIndex(h => h && h.toLowerCase() === 'channel');
     const ratingIndex = headers.findIndex(h => h && h.toLowerCase().includes('avg item rating'));
 
     if (dateIndex === -1 || itemNameIndex === -1 || orderCountIndex === -1 || channelIndex === -1) {
@@ -9352,18 +9635,28 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       .join('\n');
 
     // Prepare product data summary for context
-    // Apply product size filter if specified (100gms, 2kg, etc.)
+    // Apply product size/category/type filter if specified (100gms, 2kg, sundaes, options, etc.)
     let filteredProducts = productData.products;
     let productSizeInfo = '';
 
     if (filters.productSizeFilter) {
-      const { sizeFilter, productList, categoryName } = filters.productSizeFilter;
-      filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList);
+      const { sizeFilter, productList, categoryName, sheetCategory, typeFilter } = filters.productSizeFilter;
+      filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList, sheetCategory, typeFilter);
       const showLimit = filters.topNLimit ? `TOP ${filters.topNLimit}` : 'ALL';
-      productSizeInfo = `\n\nPRODUCT CATEGORY FILTER APPLIED: ${categoryName}
-Total ${categoryName} found: ${filteredProducts.length} products
-IMPORTANT: The user asked about "${categoryName}". Show ${showLimit} matching products ranked by orders.`;
-      console.log(`Filtered to ${filteredProducts.length} products for category: ${categoryName}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}`);
+
+      // Build filter description
+      const filterParts = [];
+      if (categoryName) filterParts.push(categoryName);
+      if (sheetCategory) filterParts.push(`Category: ${sheetCategory}`);
+      if (typeFilter) filterParts.push(`Type: ${typeFilter}`);
+      const filterDesc = filterParts.join(', ');
+
+      productSizeInfo = `\n\nPRODUCT FILTER APPLIED: ${filterDesc}
+Total matching products found: ${filteredProducts.length}
+IMPORTANT: The user asked about "${categoryName}". Show ${showLimit} matching products ranked by orders.
+${typeFilter === 'Option' ? 'These are OPTIONS/FLAVOURS (add-ons to main items like 50gms flavours, toppings, etc.)' : ''}
+${sheetCategory ? `Sheet Category Filter: ${sheetCategory}` : ''}`;
+      console.log(`Filtered to ${filteredProducts.length} products for: ${filterDesc}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}`);
     }
 
     // Determine slice limit: use topNLimit if specified, otherwise 50 for size filter, 20 default
