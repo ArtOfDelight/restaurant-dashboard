@@ -4556,6 +4556,136 @@ function parseFilters(message) {
   return { branch, channel };
 }
 
+// ============ PRODUCT SIZE/CATEGORY FILTERING ============
+
+// All 18 100gms ice cream flavours
+const ICE_CREAM_100G_FLAVOURS = [
+  'Belgian Chocolate Ice Cream (100 g)',
+  'Belgian Rocky Road Ice Cream (100 g)',
+  'Blueberry Yogurt Ice Cream (100 g)',
+  'Caramello Ice Cream (100 g)',
+  'Cookies and Cream Ice Cream (100 g)',
+  'Hazel Choco Cream (100 g)',
+  'Mississippi Mud Pie Ice Cream (100 g)',
+  'Mocha Chip Ice Cream (100 g)',
+  'Raspberry Cheesecake Ice Cream (100 g)',
+  'Saffron Pista Ice Cream (100 g)',
+  'Salted Caramel Ice Cream (100 g)',
+  'Salted Caramel Rocky Road Ice Cream (100 g)',
+  'Strawberry Ice Cream (100 g)',
+  'Strawberry Nutella Ice Cream (100 g)',
+  'Strawberry Sorbet (100 g)',
+  'Tiramisu Ice Cream (100 g)',
+  'Wayanad Vanilla Ice Cream (100 g)',
+  'White Chocolate Nutella Ice Cream (100 g)'
+];
+
+// All 2 Scoop Combo variants
+const TWO_SCOOP_COMBO_VARIANTS = [
+  '2 Scoop Combo (100 g)'
+];
+
+/**
+ * Parse product size/category filter from natural language
+ * Detects: "100gms", "100g", "100 g", "2kg", "dessert jars", "brownies", etc.
+ * Returns: { sizeFilter, productList, categoryName }
+ */
+function parseProductSizeFilter(message) {
+  const lowerMessage = message.toLowerCase();
+
+  // Detect 100gms ice cream queries
+  if (/100\s*g|100gms?|100\s*grams?/i.test(message)) {
+    // Check if specifically asking for ice cream/flavours
+    if (/flavour|flavor|ice\s*cream|scoop/i.test(message)) {
+      return {
+        sizeFilter: '100g',
+        productList: [...ICE_CREAM_100G_FLAVOURS, ...TWO_SCOOP_COMBO_VARIANTS],
+        categoryName: '100gms Ice Cream Flavours'
+      };
+    }
+    // Generic 100g query - include all 100g products
+    return {
+      sizeFilter: '100g',
+      productList: null, // Will match any product with "100 g" in name
+      categoryName: '100gms Products'
+    };
+  }
+
+  // Detect 2kg queries
+  if (/2\s*kg|2kg/i.test(message)) {
+    return {
+      sizeFilter: '2kg',
+      productList: null,
+      categoryName: '2kg Products'
+    };
+  }
+
+  // Detect dessert jar queries
+  if (/dessert\s*jar|jar/i.test(message)) {
+    return {
+      sizeFilter: 'jar',
+      productList: null,
+      categoryName: 'Dessert Jars'
+    };
+  }
+
+  // Detect brownie queries
+  if (/brownie/i.test(message)) {
+    return {
+      sizeFilter: 'brownie',
+      productList: null,
+      categoryName: 'Brownies'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Check if a product matches the size filter
+ */
+function productMatchesSizeFilter(productName, sizeFilter, productList) {
+  if (!sizeFilter) return true;
+
+  const normalizedName = productName.toLowerCase();
+
+  // If we have a specific product list, check against it
+  if (productList && productList.length > 0) {
+    return productList.some(p => {
+      const normalizedList = p.toLowerCase();
+      // Check for exact match or close match
+      return normalizedName === normalizedList ||
+             normalizedName.includes(normalizedList.replace('(100 g)', '').trim()) && normalizedName.includes('100');
+    });
+  }
+
+  // Otherwise, match by size pattern
+  switch (sizeFilter) {
+    case '100g':
+      return /100\s*g/i.test(productName);
+    case '2kg':
+      return /2\s*kg|2kg/i.test(productName);
+    case 'jar':
+      return /jar/i.test(productName);
+    case 'brownie':
+      return /brownie/i.test(productName);
+    default:
+      return true;
+  }
+}
+
+/**
+ * Filter products array by size/category
+ */
+function filterProductsBySize(products, sizeFilter, productList) {
+  if (!sizeFilter) return products;
+
+  return products.filter(p => {
+    const productName = p.name || p.itemName || '';
+    return productMatchesSizeFilter(productName, sizeFilter, productList);
+  });
+}
+
 /**
  * Parse date query from natural language
  * Returns: { type, startDate, endDate, compareTo }
@@ -6371,6 +6501,13 @@ app.post('/api/product-chat', async (req, res) => {
 
     // Parse branch and channel filters from message
     const filters = parseFilters(message);
+
+    // Parse product size/category filter (100gms, 2kg, jars, etc.)
+    const productSizeFilter = parseProductSizeFilter(message);
+    if (productSizeFilter) {
+      console.log(`Product Size Filter Detected: ${productSizeFilter.categoryName}`);
+      filters.productSizeFilter = productSizeFilter;
+    }
 
     // Check if user wants channel-wise breakdown
     const wantsChannelBreakdown = /channel[-\s]?wise|by channel|breakdown by channel|each channel|per channel|split by channel/i.test(message);
@@ -9208,16 +9345,29 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       .join('\n');
 
     // Prepare product data summary for context
-    const topProducts = productData.products
-      .sort((a, b) => b.totalOrders - a.totalOrders)
-      .slice(0, 20);
+    // Apply product size filter if specified (100gms, 2kg, etc.)
+    let filteredProducts = productData.products;
+    let productSizeInfo = '';
 
-    const lowRatedProducts = productData.products
+    if (filters.productSizeFilter) {
+      const { sizeFilter, productList, categoryName } = filters.productSizeFilter;
+      filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList);
+      productSizeInfo = `\n\nPRODUCT CATEGORY FILTER APPLIED: ${categoryName}
+Total ${categoryName} found: ${filteredProducts.length} products
+IMPORTANT: The user specifically asked about "${categoryName}". Show ALL matching products ranked by orders, not just the overall top products.`;
+      console.log(`Filtered to ${filteredProducts.length} products for category: ${categoryName}`);
+    }
+
+    const topProducts = filteredProducts
+      .sort((a, b) => b.totalOrders - a.totalOrders)
+      .slice(0, filters.productSizeFilter ? 50 : 20); // Show more products when filtering by size
+
+    const lowRatedProducts = filteredProducts
       .filter(p => p.lowRatedPercentage > 5)
       .sort((a, b) => b.lowRatedPercentage - a.lowRatedPercentage)
       .slice(0, 10);
 
-    const highRatedProducts = productData.products
+    const highRatedProducts = filteredProducts
       .filter(p => p.avgRating >= 4.0)
       .sort((a, b) => b.totalOrders - a.totalOrders)
       .slice(0, 10);
@@ -9226,6 +9376,7 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     const filterParts = [];
     if (filters.branch) filterParts.push(`Outlet: ${filters.branch}`);
     if (filters.channel) filterParts.push(`Channel: ${filters.channel}`);
+    if (filters.productSizeFilter) filterParts.push(`Category: ${filters.productSizeFilter.categoryName}`);
     const filterInfo = filterParts.length > 0 ? filterParts.join(', ') : 'All outlets and channels';
 
     // Check if user is asking primarily about stock (not sales analysis)
@@ -10128,6 +10279,10 @@ INSTRUCTIONS FOR ANSWERING:
     }
 
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
+    const productListTitle = filters.productSizeFilter
+      ? `ALL ${filters.productSizeFilter.categoryName.toUpperCase()} (${topProducts.length} products found)`
+      : 'Top 20 Products by Sales';
+
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
 CRITICAL RESPONSE GUIDELINES:
@@ -10137,21 +10292,23 @@ CRITICAL RESPONSE GUIDELINES:
 - Provide summary statistics first, then details
 - Focus on actionable insights, not just data dumps
 - When showing stock-out events, GROUP by product and show counts, not every single event
+${filters.productSizeFilter ? `- IMPORTANT: User asked specifically about "${filters.productSizeFilter.categoryName}". List ALL products in this category ranked by orders, not just top 10.` : ''}
 
 === CONTEXT ===
 Date Range: ${dateRangeInfo}
 Filters: ${filterInfo}
+${productSizeInfo}
 
 Product Data Summary:
-- Total Products: ${productData.summary.totalProductsInSheet}
-- Total Orders: ${productData.summary.totalOrders}
-- Total Revenue: ₹${productData.summary.totalRevenue.toFixed(2)}
+- Total Products: ${filters.productSizeFilter ? topProducts.length : productData.summary.totalProductsInSheet}
+- Total Orders: ${filters.productSizeFilter ? topProducts.reduce((sum, p) => sum + p.totalOrders, 0) : productData.summary.totalOrders}
+- Total Revenue: ₹${filters.productSizeFilter ? topProducts.reduce((sum, p) => sum + (p.totalRevenue || 0), 0).toFixed(2) : productData.summary.totalRevenue.toFixed(2)}
 - Average Rating: ${productData.summary.avgRating.toFixed(2)}
 - High Rated Orders: ${productData.summary.totalHighRated}
 - Low Rated Orders: ${productData.summary.totalLowRated}
 - Average Low Rated Percentage: ${productData.summary.avgLowRatedPercentage.toFixed(2)}%
 
-Top 20 Products by Sales:
+${productListTitle}:
 ${topProducts.map((p, idx) => `${idx + 1}. ${p.name} - Orders: ${p.totalOrders}, Revenue: ₹${(p.totalRevenue || 0).toFixed(2)}, Avg Rating: ${p.avgRating.toFixed(2)}, Low Rated: ${p.lowRatedPercentage.toFixed(1)}%`).join('\n')}
 
 Top 10 High-Rated Products (4.0+):
