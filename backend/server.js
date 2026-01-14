@@ -9643,20 +9643,23 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       const { sizeFilter, productList, categoryName, sheetCategory, typeFilter } = filters.productSizeFilter;
       filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList, sheetCategory, typeFilter);
       const showLimit = filters.topNLimit ? `TOP ${filters.topNLimit}` : 'ALL';
+      const isAggregated = sizeFilter === '50g_100g';
 
       // Build filter description
       const filterParts = [];
       if (categoryName) filterParts.push(categoryName);
       if (sheetCategory) filterParts.push(`Category: ${sheetCategory}`);
       if (typeFilter) filterParts.push(`Type: ${typeFilter}`);
+      if (isAggregated) filterParts.push('(50g + 100g combined)');
       const filterDesc = filterParts.join(', ');
 
       productSizeInfo = `\n\nPRODUCT FILTER APPLIED: ${filterDesc}
-Total matching products found: ${filteredProducts.length}
+Total matching products found: ${filteredProducts.length}${isAggregated ? ' (aggregated by flavour name)' : ''}
 IMPORTANT: The user asked about "${categoryName}". Show ${showLimit} matching products ranked by orders.
+${isAggregated ? 'NOTE: 50g and 100g variants of the same flavour have been COMBINED into single entries. Orders and revenue are totals across both sizes.' : ''}
 ${typeFilter === 'Option' ? 'These are OPTIONS/FLAVOURS (add-ons to main items like 50gms flavours, toppings, etc.)' : ''}
 ${sheetCategory ? `Sheet Category Filter: ${sheetCategory}` : ''}`;
-      console.log(`Filtered to ${filteredProducts.length} products for: ${filterDesc}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}`);
+      console.log(`Filtered to ${filteredProducts.length} products for: ${filterDesc}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}${isAggregated ? ' (aggregated)' : ''}`);
     }
 
     // Determine slice limit: use topNLimit if specified, otherwise 50 for size filter, 20 default
@@ -11411,7 +11414,6 @@ Data Analysis:
 
 CHANNEL-WISE PRODUCT GROWTH/DEGROWTH:
 ${channelSummary}
-
 IMPORTANT: Format your response EXACTLY as follows for EACH channel:
 
 **CHANNEL NAME:**
