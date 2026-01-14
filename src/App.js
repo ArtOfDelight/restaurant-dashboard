@@ -1,5 +1,4 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
-import logo from './ggg.png';
 
 // Import Dashboard and TelegramBroadcast directly
 import Dashboard from './Dashboard';
@@ -541,23 +540,22 @@ function App() {
           backgroundClip: 'padding-box, border-box'
         }}>
           {/* Logo Section */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             gap: '8px'
           }}>
-            <img
-              src={logo}
-              alt="Logo"
-              style={{
-                height: '30px',
-                width: 'auto',
-                backdropFilter: 'blur(10px)',
-                transition: 'transform 0.3s ease'
-              }}
-              onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
-              onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-            />
+            <span style={{
+              fontSize: '1.2rem',
+              fontWeight: '700',
+              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              letterSpacing: '2px'
+            }}>
+              AOD
+            </span>
           </div>
           
           {/* Navigation Buttons */}
