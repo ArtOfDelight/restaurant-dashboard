@@ -6509,6 +6509,13 @@ app.post('/api/product-chat', async (req, res) => {
       filters.productSizeFilter = productSizeFilter;
     }
 
+    // Parse "top N" limit from user message (e.g., "top 10", "top 5")
+    const topNMatch = message.match(/top\s*(\d+)/i);
+    if (topNMatch) {
+      filters.topNLimit = parseInt(topNMatch[1]);
+      console.log(`Top N Limit Detected: ${filters.topNLimit}`);
+    }
+
     // Check if user wants channel-wise breakdown
     const wantsChannelBreakdown = /channel[-\s]?wise|by channel|breakdown by channel|each channel|per channel|split by channel/i.test(message);
 
@@ -9352,15 +9359,18 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
     if (filters.productSizeFilter) {
       const { sizeFilter, productList, categoryName } = filters.productSizeFilter;
       filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList);
+      const showLimit = filters.topNLimit ? `TOP ${filters.topNLimit}` : 'ALL';
       productSizeInfo = `\n\nPRODUCT CATEGORY FILTER APPLIED: ${categoryName}
 Total ${categoryName} found: ${filteredProducts.length} products
-IMPORTANT: The user specifically asked about "${categoryName}". Show ALL matching products ranked by orders, not just the overall top products.`;
-      console.log(`Filtered to ${filteredProducts.length} products for category: ${categoryName}`);
+IMPORTANT: The user asked about "${categoryName}". Show ${showLimit} matching products ranked by orders.`;
+      console.log(`Filtered to ${filteredProducts.length} products for category: ${categoryName}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}`);
     }
 
+    // Determine slice limit: use topNLimit if specified, otherwise 50 for size filter, 20 default
+    const sliceLimit = filters.topNLimit || (filters.productSizeFilter ? 50 : 20);
     const topProducts = filteredProducts
       .sort((a, b) => b.totalOrders - a.totalOrders)
-      .slice(0, filters.productSizeFilter ? 50 : 20); // Show more products when filtering by size
+      .slice(0, sliceLimit);
 
     const lowRatedProducts = filteredProducts
       .filter(p => p.lowRatedPercentage > 5)
@@ -10280,8 +10290,10 @@ INSTRUCTIONS FOR ANSWERING:
 
     // Create the prompt for Gemini with few-shot examples and chain-of-thought
     const productListTitle = filters.productSizeFilter
-      ? `ALL ${filters.productSizeFilter.categoryName.toUpperCase()} (${topProducts.length} products found)`
-      : 'Top 20 Products by Sales';
+      ? (filters.topNLimit
+          ? `TOP ${filters.topNLimit} ${filters.productSizeFilter.categoryName.toUpperCase()}`
+          : `ALL ${filters.productSizeFilter.categoryName.toUpperCase()} (${topProducts.length} products found)`)
+      : `Top ${filters.topNLimit || 20} Products by Sales`;
 
     const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
 
@@ -10292,7 +10304,7 @@ CRITICAL RESPONSE GUIDELINES:
 - Provide summary statistics first, then details
 - Focus on actionable insights, not just data dumps
 - When showing stock-out events, GROUP by product and show counts, not every single event
-${filters.productSizeFilter ? `- IMPORTANT: User asked specifically about "${filters.productSizeFilter.categoryName}". List ALL products in this category ranked by orders, not just top 10.` : ''}
+${filters.productSizeFilter ? `- IMPORTANT: User asked specifically about "${filters.productSizeFilter.categoryName}". ${filters.topNLimit ? `Show TOP ${filters.topNLimit} products` : 'List ALL products in this category'} ranked by orders.` : ''}
 
 === CONTEXT ===
 Date Range: ${dateRangeInfo}
