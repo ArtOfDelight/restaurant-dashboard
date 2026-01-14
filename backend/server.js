@@ -4795,11 +4795,85 @@ function productMatchesTypeFilter(product, typeFilter) {
 }
 
 /**
+ * Extract base flavour name by removing size suffixes
+ * E.g., "Hazel Choco Cream (50 g)" -> "Hazel Choco Cream"
+ * E.g., "Belgian Rocky Road (50 gms)" -> "Belgian Rocky Road"
+ */
+function extractBaseFlavourName(productName) {
+  if (!productName) return '';
+  return productName
+    .replace(/\s*\(\s*\d+\s*g(?:ms?)?\s*\)/gi, '')  // Remove (50 g), (100 gms), etc.
+    .replace(/\s*\d+\s*g(?:ms?)?\s*$/gi, '')        // Remove trailing "50 g", "100 gms"
+    .trim();
+}
+
+/**
+ * Aggregate products by base flavour name (combines 50g and 100g variants)
+ * Returns aggregated products with combined totals
+ */
+function aggregateFlavourProducts(products) {
+  const flavourMap = new Map();
+
+  for (const product of products) {
+    const productName = product.name || product.itemName || '';
+    const baseName = extractBaseFlavourName(productName);
+
+    if (!baseName) continue;
+
+    if (flavourMap.has(baseName)) {
+      const existing = flavourMap.get(baseName);
+      existing.totalOrders += product.totalOrders || 0;
+      existing.totalRevenue += product.totalRevenue || 0;
+      existing.variants.push(productName);
+      if (product.avgRating > 0) {
+        existing.ratingSum += product.avgRating;
+        existing.ratingCount++;
+      }
+      existing.highRated += product.highRated || 0;
+      existing.lowRated += product.lowRated || 0;
+    } else {
+      flavourMap.set(baseName, {
+        name: baseName,
+        itemName: baseName,
+        normalizedName: baseName.toLowerCase(),
+        totalOrders: product.totalOrders || 0,
+        totalRevenue: product.totalRevenue || 0,
+        avgRating: product.avgRating || 0,
+        ratingSum: product.avgRating || 0,
+        ratingCount: product.avgRating > 0 ? 1 : 0,
+        highRated: product.highRated || 0,
+        lowRated: product.lowRated || 0,
+        highRatedPercentage: 0,
+        lowRatedPercentage: 0,
+        type: product.type || 'Option',
+        category: product.category || '',
+        variants: [productName]
+      });
+    }
+  }
+
+  // Calculate averages and percentages
+  return Array.from(flavourMap.values()).map(p => {
+    const totalRated = p.highRated + p.lowRated;
+    return {
+      ...p,
+      avgRating: p.ratingCount > 0 ? p.ratingSum / p.ratingCount : 0,
+      highRatedPercentage: totalRated > 0 ? (p.highRated / totalRated) * 100 : 0,
+      lowRatedPercentage: totalRated > 0 ? (p.lowRated / totalRated) * 100 : 0,
+      variantCount: p.variants.length,
+      variantNames: p.variants.join(', ')
+    };
+  });
+}
+
+/**
  * Filter products array by size/category/type
  * Now handles: sizeFilter (100g, 2kg, etc.), sheetCategory (from Category column), typeFilter (Main Item/Option)
+ * When sizeFilter is '50g_100g', aggregates flavours by base name
  */
 function filterProductsBySize(products, sizeFilter, productList, sheetCategory = null, typeFilter = null) {
-  return products.filter(p => {
+  // First, filter the products
+  const filtered = products.filter(p => {
     const productName = p.name || p.itemName || '';
 
     // Check size filter (if provided)
@@ -4819,6 +4893,13 @@ function filterProductsBySize(products, sizeFilter, productList, sheetCategory =
 
     return true;
   });
+
+  // If it's a 50g_100g filter, aggregate flavours by base name
+  if (sizeFilter === '50g_100g') {
+    return aggregateFlavourProducts(filtered);
+  }
+
+  return filtered;
 }
 
 /**
