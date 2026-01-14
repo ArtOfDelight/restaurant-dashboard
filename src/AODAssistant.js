@@ -15,7 +15,78 @@ function AODAssistant() {
   });
   const [chatInput, setChatInput] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
+  const [showQuickQueries, setShowQuickQueries] = useState(true);
   const chatEndRef = useRef(null);
+
+  // Quick query templates
+  const queryTemplates = [
+    {
+      category: 'Top Products',
+      icon: '🏆',
+      color: '#f59e0b',
+      queries: [
+        'Top 10 100gms flavours at Residency Road dine-in last 14 days',
+        'Top 10 best selling products this week',
+        'Top 5 products at Koramangala on Swiggy',
+        'Top 10 2kg products last 7 days'
+      ]
+    },
+    {
+      category: 'Revenue & Sales',
+      icon: '💰',
+      color: '#10b981',
+      queries: [
+        'Total revenue this week vs last week',
+        'Which products generate the most revenue?',
+        'Revenue breakdown by channel last 7 days',
+        'Compare sales Swiggy vs Zomato this month'
+      ]
+    },
+    {
+      category: 'Stock & Inventory',
+      icon: '📦',
+      color: '#ef4444',
+      queries: [
+        'Which products went out of stock last week?',
+        'Stock issues at Indiranagar last 14 days',
+        'Products with most stock-out events',
+        'Stock correlation with sales drops'
+      ]
+    },
+    {
+      category: 'Growth & Trends',
+      icon: '📈',
+      color: '#8b5cf6',
+      queries: [
+        'Top 5 growing products last 7 days',
+        'Top 5 declining products this week',
+        'Channel-wise growth breakdown last 14 days',
+        'Which outlets are growing fastest?'
+      ]
+    },
+    {
+      category: 'Outlet Analysis',
+      icon: '🏪',
+      color: '#3b82f6',
+      queries: [
+        'Compare outlet performance last 7 days',
+        'Which outlet has best sales?',
+        'Residency Road vs Koramangala comparison',
+        'Worst performing outlet this week'
+      ]
+    },
+    {
+      category: 'Menu Engineering',
+      icon: '⭐',
+      color: '#ec4899',
+      queries: [
+        'Show me star products (high revenue + high volume)',
+        'Which products are most profitable?',
+        'Pareto analysis - top 20% revenue generators',
+        'Products in Swiggy top 20 missing from Zomato'
+      ]
+    }
+  ];
 
   // Save chat history to localStorage whenever messages change
   useEffect(() => {
@@ -199,10 +270,7 @@ function AODAssistant() {
             padding: '60px 20px',
             color: 'var(--text-secondary)'
           }}>
-            <div style={{
-              fontSize: '4rem',
-              marginBottom: '20px'
-            }}>🤖</div>
+            <div style={{ fontSize: '4rem', marginBottom: '20px' }}>🤖</div>
             <h2 style={{
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               fontSize: '1.5rem',
@@ -221,139 +289,9 @@ function AODAssistant() {
               color: 'var(--text-secondary)'
             }}>
               I can help you analyze sales, track inventory, and understand the relationship between stock-outs and sales performance.
+              <br /><br />
+              Use the <strong>Quick Queries</strong> below to get started!
             </p>
-
-            {/* Query Templates by Category */}
-            {[
-              {
-                category: 'Top Products',
-                icon: '🏆',
-                color: '#f59e0b',
-                queries: [
-                  'Top 10 100gms flavours at Residency Road dine-in last 14 days',
-                  'Top 10 best selling products this week',
-                  'Top 5 products at Koramangala on Swiggy',
-                  'Top 10 2kg products last 7 days'
-                ]
-              },
-              {
-                category: 'Revenue & Sales',
-                icon: '💰',
-                color: '#10b981',
-                queries: [
-                  'Total revenue this week vs last week',
-                  'Which products generate the most revenue?',
-                  'Revenue breakdown by channel last 7 days',
-                  'Compare sales Swiggy vs Zomato this month'
-                ]
-              },
-              {
-                category: 'Stock & Inventory',
-                icon: '📦',
-                color: '#ef4444',
-                queries: [
-                  'Which products went out of stock last week?',
-                  'Stock issues at Indiranagar last 14 days',
-                  'Products with most stock-out events',
-                  'Stock correlation with sales drops'
-                ]
-              },
-              {
-                category: 'Growth & Trends',
-                icon: '📈',
-                color: '#8b5cf6',
-                queries: [
-                  'Top 5 growing products last 7 days',
-                  'Top 5 declining products this week',
-                  'Channel-wise growth breakdown last 14 days',
-                  'Which outlets are growing fastest?'
-                ]
-              },
-              {
-                category: 'Outlet Analysis',
-                icon: '🏪',
-                color: '#3b82f6',
-                queries: [
-                  'Compare outlet performance last 7 days',
-                  'Which outlet has best sales?',
-                  'Residency Road vs Koramangala comparison',
-                  'Worst performing outlet this week'
-                ]
-              },
-              {
-                category: 'Menu Engineering',
-                icon: '⭐',
-                color: '#ec4899',
-                queries: [
-                  'Show me star products (high revenue + high volume)',
-                  'Which products are most profitable?',
-                  'Pareto analysis - top 20% revenue generators',
-                  'Products in Swiggy top 20 missing from Zomato'
-                ]
-              }
-            ].map((section, sectionIdx) => (
-              <div key={sectionIdx} style={{ marginTop: sectionIdx === 0 ? '40px' : '25px' }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  marginBottom: '12px',
-                  paddingLeft: '5px'
-                }}>
-                  <span style={{ fontSize: '1.2rem' }}>{section.icon}</span>
-                  <span style={{
-                    fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                    fontSize: '0.85rem',
-                    fontWeight: '600',
-                    color: section.color,
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px'
-                  }}>
-                    {section.category}
-                  </span>
-                </div>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: '10px'
-                }}>
-                  {section.queries.map((query, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => {
-                        setChatInput(query);
-                        setTimeout(() => sendChatMessage(query), 100);
-                      }}
-                      style={{
-                        background: 'var(--surface-light)',
-                        border: `1px solid ${section.color}30`,
-                        padding: '12px 15px',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
-                        fontSize: '0.8rem',
-                        color: 'var(--text-primary)',
-                        transition: 'all 0.2s',
-                        textAlign: 'left',
-                        borderLeft: `3px solid ${section.color}`
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.background = `${section.color}15`;
-                        e.target.style.transform = 'translateX(5px)';
-                        e.target.style.borderColor = section.color;
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.background = 'var(--surface-light)';
-                        e.target.style.transform = 'translateX(0)';
-                        e.target.style.borderColor = `${section.color}30`;
-                      }}
-                    >
-                      {query}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
           </div>
         )}
 
@@ -435,6 +373,91 @@ function AODAssistant() {
         )}
 
         <div ref={chatEndRef} />
+      </div>
+
+      {/* Quick Queries Panel - Always visible, collapsible */}
+      <div style={{
+        background: 'var(--surface-light)',
+        borderTop: '1px solid var(--border-light)',
+        borderBottom: '1px solid var(--border-light)'
+      }}>
+        {/* Toggle Header */}
+        <button
+          onClick={() => setShowQuickQueries(!showQuickQueries)}
+          style={{
+            width: '100%',
+            background: 'transparent',
+            border: 'none',
+            padding: '12px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            color: 'var(--text-primary)',
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+          }}
+        >
+          <span style={{ fontSize: '0.85rem', fontWeight: '600', letterSpacing: '1px' }}>
+            QUICK QUERIES
+          </span>
+          <span style={{ fontSize: '1.2rem', transition: 'transform 0.2s', transform: showQuickQueries ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+            ▼
+          </span>
+        </button>
+
+        {/* Collapsible Content */}
+        {showQuickQueries && (
+          <div style={{
+            padding: '0 20px 15px 20px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '8px',
+            maxHeight: '200px',
+            overflowY: 'auto'
+          }}>
+            {queryTemplates.map((section, sectionIdx) => (
+              <div key={sectionIdx} style={{ display: 'contents' }}>
+                {section.queries.map((query, idx) => (
+                  <button
+                    key={`${sectionIdx}-${idx}`}
+                    onClick={() => {
+                      setChatInput(query);
+                      setTimeout(() => sendChatMessage(query), 100);
+                    }}
+                    disabled={loadingChat}
+                    style={{
+                      background: 'var(--surface-dark)',
+                      border: `1px solid ${section.color}50`,
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      cursor: loadingChat ? 'not-allowed' : 'pointer',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.75rem',
+                      color: 'var(--text-primary)',
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap',
+                      opacity: loadingChat ? 0.5 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!loadingChat) {
+                        e.target.style.background = section.color;
+                        e.target.style.color = 'white';
+                        e.target.style.transform = 'scale(1.02)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'var(--surface-dark)';
+                      e.target.style.color = 'var(--text-primary)';
+                      e.target.style.transform = 'scale(1)';
+                    }}
+                  >
+                    {section.icon} {query}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Input Area */}
