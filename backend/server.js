@@ -449,6 +449,60 @@ function clearSheetCache() {
   console.log('Sheet cache cleared');
 }
 
+// Helper to fetch checklist data with caching
+async function fetchChecklistDataCached() {
+  const subCacheKey = `${CHECKLIST_SPREADSHEET_ID}_${SUBMISSIONS_TAB}`;
+  const resCacheKey = `${CHECKLIST_SPREADSHEET_ID}_${RESPONSES_TAB}`;
+
+  let submissionsData, responsesData;
+
+  // Check cache first
+  if (isSheetCacheValid(subCacheKey)) {
+    submissionsData = getCachedSheetData(subCacheKey);
+  }
+  if (isSheetCacheValid(resCacheKey)) {
+    responsesData = getCachedSheetData(resCacheKey);
+  }
+
+  // Fetch missing data
+  const fetchPromises = [];
+  if (!submissionsData) {
+    fetchPromises.push(
+      sheets.spreadsheets.values.get({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${SUBMISSIONS_TAB}!A:Z`,
+      }).then(res => {
+        setCachedSheetData(subCacheKey, res.data.values || []);
+        return { type: 'submissions', data: res.data.values || [] };
+      }).catch(e => ({ type: 'submissions', data: [], error: e.message }))
+    );
+  }
+  if (!responsesData) {
+    fetchPromises.push(
+      sheets.spreadsheets.values.get({
+        spreadsheetId: CHECKLIST_SPREADSHEET_ID,
+        range: `${RESPONSES_TAB}!A:Z`,
+      }).then(res => {
+        setCachedSheetData(resCacheKey, res.data.values || []);
+        return { type: 'responses', data: res.data.values || [] };
+      }).catch(e => ({ type: 'responses', data: [], error: e.message }))
+    );
+  }
+
+  if (fetchPromises.length > 0) {
+    const results = await Promise.all(fetchPromises);
+    results.forEach(r => {
+      if (r.type === 'submissions') submissionsData = r.data;
+      if (r.type === 'responses') responsesData = r.data;
+    });
+  }
+
+  return {
+    submissionsData: submissionsData || [],
+    responsesData: responsesData || []
+  };
+}
+
 // Auto-cleanup expired cache entries every 10 minutes
 setInterval(() => {
   const now = Date.now();
@@ -2031,31 +2085,21 @@ app.get('/api/checklist-stats', async (req, res) => {
       }
     }
 
-    const submissionsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${SUBMISSIONS_TAB}!A:Z`,
-    });
-
-    const responsesResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${RESPONSES_TAB}!A:Z`,
-    });
-
-    const submissionsData = submissionsResponse.data.values || [];
-    const responsesData = responsesResponse.data.values || [];
+    // Use cached checklist data to reduce memory
+    const { submissionsData, responsesData } = await fetchChecklistDataCached();
 
     const submissions = [];
     if (submissionsData.length > 1) {
       for (let i = 1; i < submissionsData.length; i++) {
         const row = submissionsData[i];
         if (!row || row.length === 0) continue;
-        
+
         const submission = {
           date: formatDate(getCellValue(row, 1)),
           outlet: getCellValue(row, 3),
           submittedBy: getCellValue(row, 4),
         };
-        
+
         if (submission.outlet) {
           submissions.push(submission);
         }
@@ -2067,7 +2111,7 @@ app.get('/api/checklist-stats', async (req, res) => {
       for (let i = 1; i < responsesData.length; i++) {
         const row = responsesData[i];
         if (!row || row.length === 0) continue;
-        
+
         const image = getCellValue(row, 3);
         if (image && image.trim() && image !== '') {
           const validation = await validateImageLink(image);
@@ -2142,22 +2186,8 @@ app.post('/api/checklist-filter', async (req, res) => {
       }
     }
 
-    console.log(`Fetching ${SUBMISSIONS_TAB}...`);
-    const submissionsResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${SUBMISSIONS_TAB}!A:Z`,
-      majorDimension: 'ROWS',
-    });
-
-    console.log(`Fetching ${RESPONSES_TAB}...`);
-    const responsesResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: CHECKLIST_SPREADSHEET_ID,
-      range: `${RESPONSES_TAB}!A:Z`,
-      majorDimension: 'ROWS',
-    });
-
-    const submissionsData = submissionsResponse.data.values || [];
-    const responsesData = responsesResponse.data.values || [];
+    console.log(`Fetching checklist data (cached)...`);
+    const { submissionsData, responsesData } = await fetchChecklistDataCached();
     console.log(`Found ${submissionsData.length} submission rows and ${responsesData.length} response rows`);
 
     // Process submissions with deduplication
@@ -5128,6 +5158,32 @@ function parseDateQuery(message) {
       startDate: dayBefore,
       endDate: yesterday,
       label: 'Yesterday'
+    };
+  }
+
+  // Handle "this week" (not comparison) - from Sunday/Monday to today
+  if (/\bthis\s+week\b/i.test(lowerMessage) && !/vs|versus|compar/i.test(lowerMessage)) {
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const thisWeekStart = new Date(today.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
+    thisWeekStart.setHours(0, 0, 0, 0);
+    return {
+      type: 'relative',
+      days: dayOfWeek + 1,
+      startDate: thisWeekStart,
+      endDate: new Date(today),
+      label: 'This week'
+    };
+  }
+
+  // Handle "this month" (not comparison) - from 1st of month to today
+  if (/\bthis\s+month\b/i.test(lowerMessage) && !/vs|versus|compar/i.test(lowerMessage)) {
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    return {
+      type: 'relative',
+      days: today.getDate(),
+      startDate: thisMonthStart,
+      endDate: new Date(today),
+      label: 'This month'
     };
   }
 
