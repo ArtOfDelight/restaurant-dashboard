@@ -408,15 +408,71 @@ function calculateTimeDistance(shiftStart, shiftEnd, timeSlot) {
  * WITH FALLBACK TO NEAREST EMPLOYEE IF SLOT IS EMPTY
  */
 const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const SHEET_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for sheet data (more frequent updates)
+
 const rosterCache = {
   employees: { data: null, timestamp: null },
   roster: { data: null, timestamp: null }
 };
 
+// Global sheet data cache to reduce memory-heavy fetches
+const sheetDataCache = new Map();
+
 function isCacheValid(cacheEntry) {
   if (!cacheEntry.data || !cacheEntry.timestamp) return false;
   return (Date.now() - cacheEntry.timestamp) < CACHE_DURATION;
 }
+
+function isSheetCacheValid(cacheKey, duration = SHEET_CACHE_DURATION) {
+  const entry = sheetDataCache.get(cacheKey);
+  if (!entry || !entry.data || !entry.timestamp) return false;
+  return (Date.now() - entry.timestamp) < duration;
+}
+
+function getCachedSheetData(cacheKey) {
+  const entry = sheetDataCache.get(cacheKey);
+  return entry ? entry.data : null;
+}
+
+function setCachedSheetData(cacheKey, data) {
+  // Limit cache size to prevent memory bloat
+  if (sheetDataCache.size > 20) {
+    // Remove oldest entries
+    const keysToDelete = [...sheetDataCache.keys()].slice(0, 10);
+    keysToDelete.forEach(key => sheetDataCache.delete(key));
+  }
+  sheetDataCache.set(cacheKey, { data, timestamp: Date.now() });
+}
+
+function clearSheetCache() {
+  sheetDataCache.clear();
+  console.log('Sheet cache cleared');
+}
+
+// Auto-cleanup expired cache entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  let cleared = 0;
+  for (const [key, entry] of sheetDataCache.entries()) {
+    if (now - entry.timestamp > SHEET_CACHE_DURATION) {
+      sheetDataCache.delete(key);
+      cleared++;
+    }
+  }
+  if (cleared > 0) {
+    console.log(`Auto-cleared ${cleared} expired cache entries`);
+  }
+  // Also clear roster cache if expired
+  if (rosterCache.employees.timestamp && now - rosterCache.employees.timestamp > CACHE_DURATION) {
+    rosterCache.employees = { data: null, timestamp: null };
+  }
+  if (rosterCache.roster.timestamp && now - rosterCache.roster.timestamp > CACHE_DURATION) {
+    rosterCache.roster = { data: null, timestamp: null };
+  }
+  // Log memory usage
+  const mem = process.memoryUsage();
+  console.log(`Memory: ${Math.round(mem.heapUsed / 1024 / 1024)}MB used / ${Math.round(mem.heapTotal / 1024 / 1024)}MB total`);
+}, 10 * 60 * 1000); // Every 10 minutes
 
 async function getScheduledEmployees(outlet, timeSlot, date) {
   try {
@@ -4661,14 +4717,14 @@ function parseProductSizeFilter(message) {
     // Check if specifically asking for ice cream/flavours
     if (/flavour|flavor|ice\s*cream|scoop/i.test(message)) {
       return {
-        sizeFilter: '50g_100g', // Include both 50g and 100g flavours
-        productList: null, // Match any 50g or 100g product
+        sizeFilter: null, // Don't filter by name pattern - use Category instead
+        productList: null,
         categoryName: 'Ice Cream Flavours (50g & 100g)',
-        sheetCategory: null,
+        sheetCategory: 'Scoops', // Filter by Scoops category for ice cream flavours
         typeFilter: typeFilter || 'Option' // Flavours are typically options
       };
     }
-    // Generic 100g query - include all 100g products
+    // Generic 100g query - include all 100g products (keep sizeFilter for non-flavour queries)
     return {
       sizeFilter: '100g',
       productList: null, // Will match any product with "100 g" in name
@@ -4681,10 +4737,10 @@ function parseProductSizeFilter(message) {
   // Detect 50gms queries (typically options/flavours) - also include 100g
   if (/50\s*g|50gms?|50\s*grams?/i.test(message)) {
     return {
-      sizeFilter: '50g_100g', // Include both 50g and 100g flavours
+      sizeFilter: null, // Don't filter by name pattern - use Category instead
       productList: null,
       categoryName: 'Ice Cream Flavours (50g & 100g)',
-      sheetCategory: null,
+      sheetCategory: 'Scoops', // Filter by Scoops category for ice cream flavours
       typeFilter: 'Option' // These are always options
     };
   }
@@ -4894,8 +4950,12 @@ function filterProductsBySize(products, sizeFilter, productList, sheetCategory =
     return true;
   });
 
-  // If it's a 50g_100g filter, aggregate flavours by base name
-  if (sizeFilter === '50g_100g') {
+  // Aggregate flavours by base name for ice cream queries
+  // Trigger for either sizeFilter '50g_100g' or Scoops category with Option type
+  const isIceCreamFlavourQuery = sizeFilter === '50g_100g' ||
+    (sheetCategory === 'Scoops' && typeFilter === 'Option');
+
+  if (isIceCreamFlavourQuery) {
     return aggregateFlavourProducts(filtered);
   }
 
@@ -5817,24 +5877,81 @@ async function processProductAnalysisData(spreadsheetId, daysFilter = DATE_FILTE
       }
     }
 
-    // Step 1: Fetch all sheet data in parallel
+    // Step 1: Fetch all sheet data in parallel (WITH CACHING to reduce memory)
     console.log('Fetching sheet data...');
-    const [productOptionsData, zomatoOrdersData, swiggyReviewData] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: `${PRODUCT_OPTIONS_SHEET_NAME}!A:Z`
-      }).catch(e => ({ data: { values: [] }, error: e.message })),
 
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: 'zomato_orders!A:Z'
-      }).catch(e => ({ data: { values: [] }, error: e.message })),
+    // Check cache first for ProductOptionsDetail
+    const productCacheKey = `${spreadsheetId}_${PRODUCT_OPTIONS_SHEET_NAME}`;
+    const zomatoCacheKey = `${spreadsheetId}_zomato_orders`;
+    const swiggyCacheKey = `${spreadsheetId}_swiggy_review`;
 
-      sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: 'Copy of swiggy_review!A:Z'
-      }).catch(e => ({ data: { values: [] }, error: e.message }))
-    ]);
+    let productOptionsData, zomatoOrdersData, swiggyReviewData;
+
+    // Use cached data if valid
+    if (isSheetCacheValid(productCacheKey)) {
+      console.log('Using cached ProductOptionsDetail data');
+      productOptionsData = { data: { values: getCachedSheetData(productCacheKey) } };
+    }
+    if (isSheetCacheValid(zomatoCacheKey)) {
+      console.log('Using cached Zomato orders data');
+      zomatoOrdersData = { data: { values: getCachedSheetData(zomatoCacheKey) } };
+    }
+    if (isSheetCacheValid(swiggyCacheKey)) {
+      console.log('Using cached Swiggy review data');
+      swiggyReviewData = { data: { values: getCachedSheetData(swiggyCacheKey) } };
+    }
+
+    // Fetch only missing data
+    const fetchPromises = [];
+    if (!productOptionsData) {
+      fetchPromises.push(
+        sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: `${PRODUCT_OPTIONS_SHEET_NAME}!A:Z`
+        }).then(res => {
+          setCachedSheetData(productCacheKey, res.data.values);
+          return res;
+        }).catch(e => ({ data: { values: [] }, error: e.message }))
+      );
+    }
+    if (!zomatoOrdersData) {
+      fetchPromises.push(
+        sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: 'zomato_orders!A:Z'
+        }).then(res => {
+          setCachedSheetData(zomatoCacheKey, res.data.values);
+          return res;
+        }).catch(e => ({ data: { values: [] }, error: e.message }))
+      );
+    }
+    if (!swiggyReviewData) {
+      fetchPromises.push(
+        sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: 'Copy of swiggy_review!A:Z'
+        }).then(res => {
+          setCachedSheetData(swiggyCacheKey, res.data.values);
+          return res;
+        }).catch(e => ({ data: { values: [] }, error: e.message }))
+      );
+    }
+
+    // Fetch missing data
+    if (fetchPromises.length > 0) {
+      const results = await Promise.all(fetchPromises);
+      let idx = 0;
+      if (!productOptionsData) productOptionsData = results[idx++];
+      if (!zomatoOrdersData) zomatoOrdersData = results[idx++];
+      if (!swiggyReviewData) swiggyReviewData = results[idx++];
+    }
+
+    // Fallback for any missing data
+    if (!productOptionsData) productOptionsData = { data: { values: [] } };
+    if (!zomatoOrdersData) zomatoOrdersData = { data: { values: [] } };
+    if (!swiggyReviewData) swiggyReviewData = { data: { values: [] } };
+
+    // Sheet data now fetched with caching above
 
     // Step 2: Process ProductOptionsDetail sheet with date filter and additional filters
     const productDetails = processProductOptionsDetailSheet(productOptionsData.data.values, daysFilter, additionalFilters);
@@ -8794,7 +8911,7 @@ async function analyzeDailySalesDrops(filterOrRange = DATE_FILTER_DAYS, addition
     // Fetch ProductOptionsDetail sheet
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -8970,7 +9087,7 @@ async function predictOptimalStockLevels(daysBack = 30, additionalFilters = {}, 
     // Fetch ProductOptionsDetail sheet for historical sales
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -9179,7 +9296,7 @@ async function analyzeProductTrends(recentDays = 14, previousDays = 14, addition
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -9336,7 +9453,7 @@ async function compareOutletPerformance(daysBack = 30) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -9441,7 +9558,7 @@ async function analyzeProductProfitability(daysBack = 30, additionalFilters = {}
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -9588,7 +9705,7 @@ async function compareSwiggyZomatoTopProducts(daysBack = 7, topN = 20, additiona
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: DASHBOARD_SPREADSHEET_ID,
-      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z50000`,
+      range: `${PRODUCT_OPTIONS_SHEET_NAME}!A1:Z15000`,
     });
 
     const rawData = response.data.values;
@@ -9724,20 +9841,21 @@ async function generateChatbotResponse(userMessage, productData, conversationHis
       const { sizeFilter, productList, categoryName, sheetCategory, typeFilter } = filters.productSizeFilter;
       filteredProducts = filterProductsBySize(productData.products, sizeFilter, productList, sheetCategory, typeFilter);
       const showLimit = filters.topNLimit ? `TOP ${filters.topNLimit}` : 'ALL';
-      const isAggregated = sizeFilter === '50g_100g';
+      // Ice cream flavours are aggregated when using sizeFilter '50g_100g' OR Scoops category with Option type
+      const isAggregated = sizeFilter === '50g_100g' || (sheetCategory === 'Scoops' && typeFilter === 'Option');
 
       // Build filter description
       const filterParts = [];
       if (categoryName) filterParts.push(categoryName);
       if (sheetCategory) filterParts.push(`Category: ${sheetCategory}`);
       if (typeFilter) filterParts.push(`Type: ${typeFilter}`);
-      if (isAggregated) filterParts.push('(50g + 100g combined)');
+      if (isAggregated) filterParts.push('(flavours aggregated)');
       const filterDesc = filterParts.join(', ');
 
       productSizeInfo = `\n\nPRODUCT FILTER APPLIED: ${filterDesc}
 Total matching products found: ${filteredProducts.length}${isAggregated ? ' (aggregated by flavour name)' : ''}
 IMPORTANT: The user asked about "${categoryName}". Show ${showLimit} matching products ranked by orders.
-${isAggregated ? 'NOTE: 50g and 100g variants of the same flavour have been COMBINED into single entries. Orders and revenue are totals across both sizes.' : ''}
+${isAggregated ? 'NOTE: Ice cream flavours have been aggregated by name. Orders and revenue are totals across variants.' : ''}
 ${typeFilter === 'Option' ? 'These are OPTIONS/FLAVOURS (add-ons to main items like 50gms flavours, toppings, etc.)' : ''}
 ${sheetCategory ? `Sheet Category Filter: ${sheetCategory}` : ''}`;
       console.log(`Filtered to ${filteredProducts.length} products for: ${filterDesc}${filters.topNLimit ? `, showing top ${filters.topNLimit}` : ''}${isAggregated ? ' (aggregated)' : ''}`);
@@ -14363,15 +14481,46 @@ app.post('/api/analyze-outlet', async (req, res) => {
   }
 });
 
+// Memory and cache clear endpoint
+app.post('/api/clear-cache', (req, res) => {
+  clearSheetCache();
+  // Try to trigger garbage collection if available
+  if (global.gc) {
+    global.gc();
+    console.log('Manual garbage collection triggered');
+  }
+  res.json({ success: true, message: 'Cache cleared', cacheSize: sheetDataCache.size });
+});
+
+// Memory status endpoint
+app.get('/api/memory', (req, res) => {
+  const memUsage = process.memoryUsage();
+  res.json({
+    heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
+    heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
+    rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
+    external: `${Math.round(memUsage.external / 1024 / 1024)}MB`,
+    cacheSize: sheetDataCache.size,
+    cacheKeys: [...sheetDataCache.keys()]
+  });
+});
+
 // Health check endpoint
 app.get('/health', async (req, res) => {
   const sheetsConnected = !!sheets;
   const driveConnected = !!drive;
   const botConnected = !!bot;
-  
+  const memUsage = process.memoryUsage();
+
   res.set('Content-Type', 'application/json');
-  res.json({ 
+  res.json({
     status: sheetsConnected && driveConnected ? 'OK' : 'Not Connected',
+    memory: {
+      heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
+      heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
+      rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
+      cacheEntries: sheetDataCache.size
+    },
     services: {
       googleSheets: sheetsConnected ? 'Connected' : 'Disconnected',
       googleDrive: driveConnected ? 'Connected' : 'Disconnected',
