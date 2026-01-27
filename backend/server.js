@@ -7299,6 +7299,7 @@ app.post('/api/product-chat', async (req, res) => {
         response: chatResponse.message,
         data: chatResponse.structuredData || null,
         dateRangeInfo: dateRangeInfo,
+        followUpSuggestions: chatResponse.followUpSuggestions || [],
         timestamp: new Date().toISOString(),
       });
     }
@@ -9873,6 +9874,59 @@ async function compareSwiggyZomatoTopProducts(daysBack = 7, topN = 20, additiona
   }
 }
 
+// Helper function to generate contextual follow-up suggestions
+function generateFollowUpSuggestions(userMessage, filters = {}, dateRangeInfo = '') {
+  const suggestions = [];
+  const lowerMessage = userMessage.toLowerCase();
+
+  // Base suggestions on query type
+  if (lowerMessage.includes('top') || lowerMessage.includes('best')) {
+    suggestions.push('What about the worst performing products?');
+    suggestions.push('Show me revenue breakdown by channel');
+    if (!lowerMessage.includes('stock')) {
+      suggestions.push('Any stock issues affecting these products?');
+    }
+  } else if (lowerMessage.includes('stock') || lowerMessage.includes('out of stock')) {
+    suggestions.push('What was the sales impact from these stock-outs?');
+    suggestions.push('Which outlet has the most stock issues?');
+    suggestions.push('Show me top selling products');
+  } else if (lowerMessage.includes('revenue') || lowerMessage.includes('sales')) {
+    suggestions.push('Compare this to last week');
+    suggestions.push('Which products are growing fastest?');
+    suggestions.push('Any quality issues I should know about?');
+  } else if (lowerMessage.includes('growth') || lowerMessage.includes('trend')) {
+    suggestions.push('Which products are declining?');
+    suggestions.push('Show me outlet-wise breakdown');
+    suggestions.push('Any stock correlation with these trends?');
+  } else if (lowerMessage.includes('outlet') || lowerMessage.includes('branch')) {
+    suggestions.push('Compare all outlets performance');
+    suggestions.push('Which outlet has best ratings?');
+    suggestions.push('Stock issues by outlet');
+  } else if (lowerMessage.includes('rating') || lowerMessage.includes('quality')) {
+    suggestions.push('Which products have improving ratings?');
+    suggestions.push('Show me products with most complaints');
+    suggestions.push('Top rated products by orders');
+  } else {
+    // Default suggestions
+    suggestions.push('Show me top 10 products this week');
+    suggestions.push('Any stock issues last 7 days?');
+    suggestions.push('Revenue comparison vs last week');
+  }
+
+  // Add outlet-specific suggestion if no outlet filter
+  if (!filters.branch && !lowerMessage.includes('outlet') && !lowerMessage.includes('branch')) {
+    suggestions.push('Break this down by outlet');
+  }
+
+  // Add channel suggestion if not already channel-specific
+  if (!filters.channel && !lowerMessage.includes('swiggy') && !lowerMessage.includes('zomato')) {
+    suggestions.push('Compare Swiggy vs Zomato');
+  }
+
+  // Return top 3 unique suggestions
+  return [...new Set(suggestions)].slice(0, 3);
+}
+
 // Helper function to generate chatbot responses using AI (Gemini with Groq fallback)
 async function generateChatbotResponse(userMessage, productData, conversationHistory = [], dateRangeInfo = 'All dates', filters = {}) {
   if (GEMINI_API_KEYS.length === 0 && groqClients.length === 0) {
@@ -11040,7 +11094,7 @@ Response:`;
 
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
-      temperature: 0.7,
+      temperature: 0.3,  // Lower for consistent analytics
       maxOutputTokens: 2048
     });
 
@@ -11086,10 +11140,14 @@ Response:`;
       };
     }
 
+    // Generate contextual follow-up suggestions based on the query
+    const followUpSuggestions = generateFollowUpSuggestions(userMessage, filters, dateRangeInfo);
+
     return {
       message: aiMessage,
       structuredData: structuredData,
-      stockCorrelation: stockCorrelation // Include for frontend use
+      stockCorrelation: stockCorrelation, // Include for frontend use
+      followUpSuggestions: followUpSuggestions // Suggested next questions
     };
 
   } catch (error) {
@@ -12112,7 +12170,7 @@ Response:`;
 
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
-      temperature: 0.7,
+      temperature: 0.3,  // Lower for consistent analytics
       maxOutputTokens: 2048
     });
 
@@ -12270,7 +12328,7 @@ Response:`;
 
     // Call AI with automatic failover
     const aiMessage = await callAIWithFailover(prompt, {
-      temperature: 0.7,
+      temperature: 0.3,  // Lower for consistent analytics
       maxOutputTokens: 3072  // Increased for channel-wise breakdown
     });
 

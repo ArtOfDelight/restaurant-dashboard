@@ -151,7 +151,8 @@ function AODAssistant() {
       const aiMessage = {
         role: 'assistant',
         content: data.response || 'I encountered an error processing your request.',
-        data: data.data || null
+        data: data.data || null,
+        followUpSuggestions: data.followUpSuggestions || []
       };
 
       console.log('❄️ AI message:', aiMessage);
@@ -339,6 +340,47 @@ function AODAssistant() {
             }}>
               {msg.role === 'user' ? 'You' : 'Frosty'} • {new Date().toLocaleTimeString()}
             </div>
+            {/* Follow-up suggestions for assistant messages */}
+            {msg.role === 'assistant' && msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && idx === chatMessages.length - 1 && !loadingChat && (
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '8px',
+                marginTop: '12px',
+                maxWidth: '80%'
+              }}>
+                {msg.followUpSuggestions.map((suggestion, sIdx) => (
+                  <button
+                    key={sIdx}
+                    onClick={() => sendChatMessage(suggestion)}
+                    style={{
+                      background: 'var(--surface-dark)',
+                      border: '1px solid var(--border-light)',
+                      padding: '8px 12px',
+                      borderRadius: '20px',
+                      cursor: 'pointer',
+                      fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
+                      fontSize: '0.75rem',
+                      color: 'var(--text-secondary)',
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)';
+                      e.target.style.color = 'white';
+                      e.target.style.borderColor = 'transparent';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'var(--surface-dark)';
+                      e.target.style.color = 'var(--text-secondary)';
+                      e.target.style.borderColor = 'var(--border-light)';
+                    }}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
 
