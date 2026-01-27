@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 const API_URL = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -16,7 +17,11 @@ function AODAssistant() {
   const [chatInput, setChatInput] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
   const [showQuickQueries, setShowQuickQueries] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState(null);
+  const [feedbackGiven, setFeedbackGiven] = useState({});
   const chatEndRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   // Quick query templates
   const queryTemplates = [
@@ -88,6 +93,32 @@ function AODAssistant() {
     }
   ];
 
+  // Initialize speech recognition
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setChatInput(prev => prev + (prev ? ' ' : '') + transcript);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    }
+  }, []);
+
   // Save chat history to localStorage whenever messages change
   useEffect(() => {
     try {
@@ -106,21 +137,56 @@ function AODAssistant() {
   const clearChatHistory = () => {
     if (window.confirm('Clear all chat history? This cannot be undone.')) {
       setChatMessages([]);
+      setFeedbackGiven({});
       localStorage.removeItem('aod-chat-history');
     }
+  };
+
+  // Toggle voice input
+  const toggleVoiceInput = () => {
+    if (!recognitionRef.current) {
+      alert('Voice input is not supported in your browser. Try Chrome or Edge.');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+
+  // Copy message to clipboard
+  const copyToClipboard = async (text, idx) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Handle feedback
+  const handleFeedback = (idx, type) => {
+    setFeedbackGiven(prev => ({ ...prev, [idx]: type }));
+    // You could send this to your backend for analytics
+    console.log(`Feedback for message ${idx}: ${type}`);
   };
 
   // Send message to chatbot
   const sendChatMessage = async (message) => {
     if (!message.trim()) return;
 
-    console.log('❄️ Frosty - Sending message:', message);
-    console.log('❄️ API URL:', API_URL);
+    console.log('Frosty - Sending message:', message);
+    console.log('API URL:', API_URL);
 
     setLoadingChat(true);
 
     // Add user message to chat
-    const userMessage = { role: 'user', content: message };
+    const userMessage = { role: 'user', content: message, timestamp: new Date().toISOString() };
     setChatMessages(prev => [...prev, userMessage]);
     setChatInput('');
 
@@ -128,8 +194,7 @@ function AODAssistant() {
       // Get conversation history (last 10 messages for context)
       const conversationHistory = chatMessages.slice(-10);
 
-      console.log('❄️ Calling API:', `${API_URL}/api/product-chat`);
-      console.log('❄️ Request body:', { message, conversationHistory });
+      console.log('Calling API:', `${API_URL}/api/product-chat`);
 
       const response = await fetch(`${API_URL}/api/product-chat`, {
         method: 'POST',
@@ -140,36 +205,42 @@ function AODAssistant() {
         })
       });
 
-      console.log('❄️ Response status:', response.status);
-      console.log('❄️ Response ok:', response.ok);
+      console.log('Response status:', response.status);
 
       const data = await response.json();
 
-      console.log('❄️ Response data:', data);
+      console.log('Response data:', data);
 
       // Add AI response to chat
       const aiMessage = {
         role: 'assistant',
         content: data.response || 'I encountered an error processing your request.',
         data: data.data || null,
-        followUpSuggestions: data.followUpSuggestions || []
+        followUpSuggestions: data.followUpSuggestions || [],
+        timestamp: new Date().toISOString()
       };
-
-      console.log('❄️ AI message:', aiMessage);
 
       setChatMessages(prev => [...prev, aiMessage]);
     } catch (error) {
-      console.error('❄️ Error calling chatbot:', error);
-      console.error('❄️ Error stack:', error.stack);
+      console.error('Error calling chatbot:', error);
       setChatMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again. Error: ' + error.message,
-        error: true
+        content: 'Sorry, I encountered an error. Please try again.',
+        error: true,
+        originalMessage: message,
+        timestamp: new Date().toISOString()
       }]);
     } finally {
       setLoadingChat(false);
-      console.log('❄️ Chat request complete');
     }
+  };
+
+  // Retry failed message
+  const retryMessage = (originalMessage) => {
+    // Remove the error message first
+    setChatMessages(prev => prev.slice(0, -1));
+    // Resend the original message
+    sendChatMessage(originalMessage);
   };
 
   // Handle Enter key press
@@ -178,6 +249,12 @@ function AODAssistant() {
       e.preventDefault();
       sendChatMessage(chatInput);
     }
+  };
+
+  // Format timestamp
+  const formatTime = (timestamp) => {
+    if (!timestamp) return new Date().toLocaleTimeString();
+    return new Date(timestamp).toLocaleTimeString();
   };
 
   return (
@@ -212,7 +289,7 @@ function AODAssistant() {
             color: 'white',
             textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
           }}>
-            ❄️ FROSTY
+            FROSTY
           </h1>
           <p style={{
             margin: '10px 0 0 0',
@@ -221,7 +298,7 @@ function AODAssistant() {
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
             letterSpacing: '1px'
           }}>
-            AI-Powered Sales & Inventory Analysis • Ask me anything about your products, sales, or stock
+            AI-Powered Sales & Inventory Analysis
           </p>
         </div>
         {chatMessages.length > 0 && (
@@ -251,7 +328,7 @@ function AODAssistant() {
               e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
             }}
           >
-            🗑️ Clear Chat
+            Clear Chat
           </button>
         )}
       </div>
@@ -291,7 +368,7 @@ function AODAssistant() {
             }}>
               I can help you analyze sales, track inventory, and understand the relationship between stock-outs and sales performance.
               <br /><br />
-              Use the <strong>Quick Queries</strong> below to get started!
+              Use the <strong>Quick Queries</strong> below or click the mic to speak!
             </p>
           </div>
         )}
@@ -324,22 +401,183 @@ function AODAssistant() {
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
               fontSize: '0.9rem',
               lineHeight: '1.6',
-              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               boxShadow: msg.role === 'user'
                 ? '0 4px 12px rgba(59, 130, 246, 0.3)'
-                : '0 2px 8px rgba(0, 0, 0, 0.1)'
+                : '0 2px 8px rgba(0, 0, 0, 0.1)',
+              position: 'relative'
             }}>
-              {msg.content}
+              {/* Message content with markdown for assistant */}
+              {msg.role === 'assistant' ? (
+                <div className="markdown-content" style={{
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  <ReactMarkdown
+                    components={{
+                      // Custom styling for markdown elements
+                      p: ({children}) => <p style={{ margin: '0 0 10px 0' }}>{children}</p>,
+                      ul: ({children}) => <ul style={{ margin: '10px 0', paddingLeft: '20px' }}>{children}</ul>,
+                      ol: ({children}) => <ol style={{ margin: '10px 0', paddingLeft: '20px' }}>{children}</ol>,
+                      li: ({children}) => <li style={{ margin: '4px 0' }}>{children}</li>,
+                      strong: ({children}) => <strong style={{ color: 'var(--text-primary)' }}>{children}</strong>,
+                      table: ({children}) => (
+                        <table style={{
+                          borderCollapse: 'collapse',
+                          margin: '10px 0',
+                          fontSize: '0.85rem',
+                          width: '100%'
+                        }}>{children}</table>
+                      ),
+                      th: ({children}) => (
+                        <th style={{
+                          border: '1px solid var(--border-light)',
+                          padding: '8px',
+                          background: 'var(--surface-dark)',
+                          textAlign: 'left'
+                        }}>{children}</th>
+                      ),
+                      td: ({children}) => (
+                        <td style={{
+                          border: '1px solid var(--border-light)',
+                          padding: '8px'
+                        }}>{children}</td>
+                      ),
+                      code: ({children}) => (
+                        <code style={{
+                          background: 'var(--surface-dark)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.85rem'
+                        }}>{children}</code>
+                      ),
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+              )}
             </div>
-            <div style={{
-              fontSize: '0.7rem',
-              color: 'var(--text-muted)',
-              marginTop: '5px',
-              fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
-            }}>
-              {msg.role === 'user' ? 'You' : 'Frosty'} • {new Date().toLocaleTimeString()}
-            </div>
+
+            {/* Action buttons row for assistant messages */}
+            {msg.role === 'assistant' && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '8px',
+                flexWrap: 'wrap'
+              }}>
+                {/* Timestamp */}
+                <span style={{
+                  fontSize: '0.7rem',
+                  color: 'var(--text-muted)',
+                  fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+                }}>
+                  Frosty • {formatTime(msg.timestamp)}
+                </span>
+
+                {/* Copy button */}
+                <button
+                  onClick={() => copyToClipboard(msg.content, idx)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    color: copiedIdx === idx ? '#10b981' : 'var(--text-muted)',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Copy to clipboard"
+                >
+                  {copiedIdx === idx ? '✓ Copied' : '📋 Copy'}
+                </button>
+
+                {/* Feedback buttons */}
+                {!msg.error && (
+                  <>
+                    <button
+                      onClick={() => handleFeedback(idx, 'good')}
+                      disabled={feedbackGiven[idx]}
+                      style={{
+                        background: feedbackGiven[idx] === 'good' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                        border: feedbackGiven[idx] === 'good' ? '1px solid #10b981' : '1px solid transparent',
+                        cursor: feedbackGiven[idx] ? 'default' : 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        color: feedbackGiven[idx] === 'good' ? '#10b981' : 'var(--text-muted)',
+                        transition: 'all 0.2s',
+                        opacity: feedbackGiven[idx] && feedbackGiven[idx] !== 'good' ? 0.3 : 1
+                      }}
+                      title="Good response"
+                    >
+                      👍
+                    </button>
+                    <button
+                      onClick={() => handleFeedback(idx, 'bad')}
+                      disabled={feedbackGiven[idx]}
+                      style={{
+                        background: feedbackGiven[idx] === 'bad' ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
+                        border: feedbackGiven[idx] === 'bad' ? '1px solid #ef4444' : '1px solid transparent',
+                        cursor: feedbackGiven[idx] ? 'default' : 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        color: feedbackGiven[idx] === 'bad' ? '#ef4444' : 'var(--text-muted)',
+                        transition: 'all 0.2s',
+                        opacity: feedbackGiven[idx] && feedbackGiven[idx] !== 'bad' ? 0.3 : 1
+                      }}
+                      title="Bad response"
+                    >
+                      👎
+                    </button>
+                  </>
+                )}
+
+                {/* Retry button for error messages */}
+                {msg.error && msg.originalMessage && (
+                  <button
+                    onClick={() => retryMessage(msg.originalMessage)}
+                    disabled={loadingChat}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid #ef4444',
+                      cursor: loadingChat ? 'not-allowed' : 'pointer',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      color: '#ef4444',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    🔄 Retry
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* User message timestamp */}
+            {msg.role === 'user' && (
+              <div style={{
+                fontSize: '0.7rem',
+                color: 'var(--text-muted)',
+                marginTop: '5px',
+                fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
+              }}>
+                You • {formatTime(msg.timestamp)}
+              </div>
+            )}
+
             {/* Follow-up suggestions for assistant messages */}
             {msg.role === 'assistant' && msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && idx === chatMessages.length - 1 && !loadingChat && (
               <div style={{
@@ -408,6 +646,10 @@ function AODAssistant() {
                 @keyframes spin {
                   0% { transform: rotate(0deg); }
                   100% { transform: rotate(360deg); }
+                }
+                @keyframes pulse {
+                  0%, 100% { opacity: 1; }
+                  50% { opacity: 0.5; }
                 }
               `}
             </style>
@@ -511,17 +753,40 @@ function AODAssistant() {
         gap: '15px',
         alignItems: 'center'
       }}>
+        {/* Voice Input Button */}
+        <button
+          onClick={toggleVoiceInput}
+          disabled={loadingChat}
+          style={{
+            background: isListening
+              ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
+              : 'var(--surface-dark)',
+            border: isListening ? 'none' : '1px solid var(--border-light)',
+            color: isListening ? 'white' : 'var(--text-primary)',
+            padding: '15px',
+            borderRadius: '10px',
+            cursor: loadingChat ? 'not-allowed' : 'pointer',
+            fontSize: '1.2rem',
+            transition: 'all 0.2s',
+            animation: isListening ? 'pulse 1.5s ease-in-out infinite' : 'none',
+            opacity: loadingChat ? 0.5 : 1
+          }}
+          title={isListening ? 'Stop listening' : 'Start voice input'}
+        >
+          {isListening ? '🔴' : '🎤'}
+        </button>
+
         <textarea
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Ask me anything about your sales, products, or inventory..."
+          placeholder={isListening ? 'Listening...' : 'Ask me anything about your sales, products, or inventory...'}
           disabled={loadingChat}
           style={{
             flex: 1,
             background: 'var(--surface-dark)',
             color: 'var(--text-primary)',
-            border: '1px solid var(--border-light)',
+            border: isListening ? '2px solid #ef4444' : '1px solid var(--border-light)',
             padding: '15px',
             borderRadius: '10px',
             fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
@@ -529,7 +794,8 @@ function AODAssistant() {
             resize: 'none',
             minHeight: '60px',
             maxHeight: '150px',
-            outline: 'none'
+            outline: 'none',
+            transition: 'border-color 0.2s'
           }}
         />
         <button
@@ -582,7 +848,7 @@ function AODAssistant() {
         fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
         textAlign: 'center'
       }}>
-        💡 TIP: Press Enter to send • Shift+Enter for new line • AI analyzes sales + inventory together
+        Press Enter to send | Shift+Enter for new line | Click 🎤 to speak | 👍👎 to give feedback
       </div>
     </div>
   );
