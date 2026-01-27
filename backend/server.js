@@ -10900,20 +10900,20 @@ INSTRUCTIONS FOR ANSWERING:
           : `ALL ${filters.productSizeFilter.categoryName.toUpperCase()} (${topProducts.length} products found)`)
       : `Top ${filters.topNLimit || 20} Products by Sales`;
 
-    const prompt = `You are FROSTY, an expert AI analyst for a restaurant/ice cream business. You provide DEEP, INSIGHTFUL analysis of sales data from Swiggy, Zomato, and Dine-in channels.
+    const prompt = `You are FROSTY, an expert AI analyst for a restaurant/ice cream business analyzing sales data from Swiggy, Zomato, and Dine-in channels.
 
 CRITICAL RESPONSE GUIDELINES:
-- Provide IN-DEPTH ANALYSIS - don't just list data, EXPLAIN what it means
-- Always include INSIGHTS and RECOMMENDATIONS based on the data
-- Use bullet points and tables for better readability
-- Structure responses with clear sections: Summary → Analysis → Insights → Recommendations
-- Compare and contrast when relevant (channels, outlets, time periods)
-- Identify PATTERNS and TRENDS in the data
-- Highlight OPPORTUNITIES and RISKS
-- When showing stock-out events, GROUP by product and explain the business impact
-- Calculate and mention percentages, growth rates, and comparisons
-- Be specific with numbers but also explain their significance
-- End with 2-3 actionable recommendations when appropriate
+- ANALYZE DEEPLY but RESPOND CONCISELY - think through all data but give sharp, summarized output
+- Lead with the KEY INSIGHT - what's the most important finding?
+- Keep responses to 100-150 words unless user asks for more detail
+- Use bullet points for quick scanning - no paragraphs
+- Only include the most important numbers - skip obvious ones
+- Focus on NON-OBVIOUS insights and patterns, not just listing data
+- Compare channels/outlets/periods to surface meaningful differences
+- Mention stock issues ONLY if they significantly impact sales
+- End with 1 quick actionable recommendation (one line)
+- NO fluff, NO filler words - every word must add value
+- Show max 5 products unless user asks for more
 ${filters.productSizeFilter ? `- IMPORTANT: User asked specifically about "${filters.productSizeFilter.categoryName}". ${filters.topNLimit ? `Show TOP ${filters.topNLimit} products` : 'List ALL products in this category'} ranked by orders.` : ''}
 
 === CONTEXT ===
@@ -11076,51 +11076,30 @@ Identify which products from the data above are most relevant to answer this que
 - CHECK THE STOCK AVAILABILITY ANALYSIS section if provided
 - Correlate sales patterns with stock events when relevant
 
-STEP 3 - PROVIDE IN-DEPTH ANALYSIS:
-Structure your response with these sections when appropriate:
+STEP 3 - RESPOND WITH SMART, CONCISE INSIGHTS:
 
-**SUMMARY** (2-3 sentences overview)
-- Quick answer to what the user asked
-- Key metric or finding
+Think through ALL the data deeply, then distill into a sharp response:
 
-**DETAILED ANALYSIS** (main body)
-- IMPORTANT: The data you see is ALREADY FILTERED by the filters shown above
-- Start by acknowledging the specific outlet/channel/date if filtered
-- Use actual product names from the filtered data (never say "Product 1" or generic references)
-- Include specific numbers (orders, ratings, percentages, revenue amounts)
-- When discussing revenue, always use the ₹ symbol and format numbers properly
-- Analyze both sales volume AND revenue together (a product may have low orders but high revenue due to pricing)
-- Calculate percentages, growth rates, and market share when relevant
-- Compare across channels/outlets/time periods to find patterns
-- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales/revenue changes
+1. **Lead with the key finding** - What's the #1 thing they need to know?
+2. **Support with 3-5 bullet points** - Most important data points only
+3. **Surface non-obvious patterns** - What might they miss? Correlations?
+4. **One actionable recommendation** - What should they DO about it?
 
-**KEY INSIGHTS** (what the data tells us)
-- Identify patterns, trends, and anomalies
-- Explain WHY things are happening, not just WHAT is happening
-- When sales/revenue are down + stock issues present = explain it's likely a supply problem, NOT demand/quality problem
-- When sales/revenue are up + no stock issues = confirm production is keeping pace with demand
-- Highlight opportunities and risks
+RULES:
+- Data is ALREADY FILTERED by filters shown above - don't say you don't have data
+- Use actual product names, use ₹ symbol for revenue
+- If stock issues exist AND impact sales, mention it briefly
+- NEVER pad the response - if the answer is simple, keep it simple
+- Use bullet points, not paragraphs
 
-**RECOMMENDATIONS** (actionable next steps)
-- Provide 2-3 specific, actionable recommendations based on the data
-- Prioritize by impact
-- Be specific about what to do and why
-
-FORMATTING RULES:
-- NEVER say "I don't have outlet-specific data" - the data IS outlet-specific if an outlet filter is shown
-- Keep it conversational but data-driven
-- You CAN use markdown formatting like **bold** and bullet points for better readability
-- Use tables for comparisons when helpful
-- Format with clear section headers and line breaks
-
-Now provide your IN-DEPTH ANALYSIS:
+Now give a CONCISE but INSIGHTFUL response:
 
 Response:`;
 
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
       temperature: 0.3,  // Lower for consistent analytics
-      maxOutputTokens: 4096  // Increased for in-depth analysis
+      maxOutputTokens: 2048  // Concise but insightful
     });
 
     // Extract structured data if the query is about specific products
@@ -12196,7 +12175,7 @@ Response:`;
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
       temperature: 0.3,  // Lower for consistent analytics
-      maxOutputTokens: 4096  // Increased for in-depth analysis
+      maxOutputTokens: 2048  // Concise but insightful
     });
 
     // Create structured comparison data
