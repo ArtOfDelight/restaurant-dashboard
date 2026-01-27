@@ -10900,15 +10900,20 @@ INSTRUCTIONS FOR ANSWERING:
           : `ALL ${filters.productSizeFilter.categoryName.toUpperCase()} (${topProducts.length} products found)`)
       : `Top ${filters.topNLimit || 20} Products by Sales`;
 
-    const prompt = `You are an AI assistant for a restaurant analytics dashboard. You help analyze product sales data from Swiggy and Zomato platforms.
+    const prompt = `You are FROSTY, an expert AI analyst for a restaurant/ice cream business. You provide DEEP, INSIGHTFUL analysis of sales data from Swiggy, Zomato, and Dine-in channels.
 
 CRITICAL RESPONSE GUIDELINES:
-- Keep responses COMPACT and INFORMATIVE
+- Provide IN-DEPTH ANALYSIS - don't just list data, EXPLAIN what it means
+- Always include INSIGHTS and RECOMMENDATIONS based on the data
 - Use bullet points and tables for better readability
-- Limit lists to top 5-10 items unless specifically asked for more
-- Provide summary statistics first, then details
-- Focus on actionable insights, not just data dumps
-- When showing stock-out events, GROUP by product and show counts, not every single event
+- Structure responses with clear sections: Summary → Analysis → Insights → Recommendations
+- Compare and contrast when relevant (channels, outlets, time periods)
+- Identify PATTERNS and TRENDS in the data
+- Highlight OPPORTUNITIES and RISKS
+- When showing stock-out events, GROUP by product and explain the business impact
+- Calculate and mention percentages, growth rates, and comparisons
+- Be specific with numbers but also explain their significance
+- End with 2-3 actionable recommendations when appropriate
 ${filters.productSizeFilter ? `- IMPORTANT: User asked specifically about "${filters.productSizeFilter.categoryName}". ${filters.topNLimit ? `Show TOP ${filters.topNLimit} products` : 'List ALL products in this category'} ranked by orders.` : ''}
 
 === CONTEXT ===
@@ -11071,31 +11076,51 @@ Identify which products from the data above are most relevant to answer this que
 - CHECK THE STOCK AVAILABILITY ANALYSIS section if provided
 - Correlate sales patterns with stock events when relevant
 
-STEP 3 - PROVIDE A CLEAR, SPECIFIC ANSWER:
+STEP 3 - PROVIDE IN-DEPTH ANALYSIS:
+Structure your response with these sections when appropriate:
+
+**SUMMARY** (2-3 sentences overview)
+- Quick answer to what the user asked
+- Key metric or finding
+
+**DETAILED ANALYSIS** (main body)
 - IMPORTANT: The data you see is ALREADY FILTERED by the filters shown above
-- Start your response by acknowledging the specific outlet/channel/date if filtered
+- Start by acknowledging the specific outlet/channel/date if filtered
 - Use actual product names from the filtered data (never say "Product 1" or generic references)
 - Include specific numbers (orders, ratings, percentages, revenue amounts)
 - When discussing revenue, always use the ₹ symbol and format numbers properly
 - Analyze both sales volume AND revenue together (a product may have low orders but high revenue due to pricing)
-- If identifying problems, explain WHY they're problems with numbers
-- If showing successes, explain what makes them successful
-- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales/revenue deprecation
+- Calculate percentages, growth rates, and market share when relevant
+- Compare across channels/outlets/time periods to find patterns
+- CRITICAL: If stock availability data shows out-of-stock events, ALWAYS mention this when analyzing sales/revenue changes
+
+**KEY INSIGHTS** (what the data tells us)
+- Identify patterns, trends, and anomalies
+- Explain WHY things are happening, not just WHAT is happening
 - When sales/revenue are down + stock issues present = explain it's likely a supply problem, NOT demand/quality problem
 - When sales/revenue are up + no stock issues = confirm production is keeping pace with demand
+- Highlight opportunities and risks
+
+**RECOMMENDATIONS** (actionable next steps)
+- Provide 2-3 specific, actionable recommendations based on the data
+- Prioritize by impact
+- Be specific about what to do and why
+
+FORMATTING RULES:
 - NEVER say "I don't have outlet-specific data" - the data IS outlet-specific if an outlet filter is shown
 - Keep it conversational but data-driven
-- Use plain text only (no markdown like ** or __)
-- Format with line breaks and bullets for readability
+- You CAN use markdown formatting like **bold** and bullet points for better readability
+- Use tables for comparisons when helpful
+- Format with clear section headers and line breaks
 
-Now provide your response following the same pattern as the examples above:
+Now provide your IN-DEPTH ANALYSIS:
 
 Response:`;
 
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
       temperature: 0.3,  // Lower for consistent analytics
-      maxOutputTokens: 2048
+      maxOutputTokens: 4096  // Increased for in-depth analysis
     });
 
     // Extract structured data if the query is about specific products
@@ -12171,7 +12196,7 @@ Response:`;
     // Call AI with automatic failover (Gemini → Groq)
     const aiMessage = await callAIWithFailover(prompt, {
       temperature: 0.3,  // Lower for consistent analytics
-      maxOutputTokens: 2048
+      maxOutputTokens: 4096  // Increased for in-depth analysis
     });
 
     // Create structured comparison data
