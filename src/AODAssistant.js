@@ -180,7 +180,7 @@ function AODAssistant() {
   const sendChatMessage = async (message) => {
     if (!message.trim()) return;
 
-    console.log('Frosty - Sending message:', message);
+    console.log('Neo - Sending message:', message);
     console.log('API URL:', API_URL);
 
     setLoadingChat(true);
@@ -289,7 +289,7 @@ function AODAssistant() {
             color: 'white',
             textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
           }}>
-            FROSTY
+            NEO
           </h1>
           <p style={{
             margin: '10px 0 0 0',
@@ -356,7 +356,7 @@ function AODAssistant() {
               color: 'var(--text-primary)',
               letterSpacing: '2px'
             }}>
-              Welcome to Frosty
+              Welcome to Neo
             </h2>
             <p style={{
               fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace",
@@ -475,7 +475,7 @@ function AODAssistant() {
                   color: 'var(--text-muted)',
                   fontFamily: "'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace"
                 }}>
-                  Frosty • {formatTime(msg.timestamp)}
+                  Neo • {formatTime(msg.timestamp)}
                 </span>
 
                 {/* Copy button */}
@@ -640,7 +640,7 @@ function AODAssistant() {
               borderRadius: '50%',
               animation: 'spin 1s linear infinite'
             }} />
-            Frosty is thinking...
+            Neo is thinking...
             <style>
               {`
                 @keyframes spin {

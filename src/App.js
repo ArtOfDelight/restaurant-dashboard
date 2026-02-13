@@ -49,7 +49,7 @@ const StockDashboard = lazy(() =>
 
 const AODAssistant = lazy(() =>
   import('./AODAssistant').catch(() => ({
-    default: () => <MissingComponent componentName="FROSTY" fileName="AODAssistant" />
+    default: () => <MissingComponent componentName="NEO" fileName="AODAssistant" />
   }))
 );
 
@@ -291,7 +291,7 @@ function App() {
     { key: 'swiggy', label: 'SWIGGY DB', icon: '🛵' },
     { key: 'product', label: 'PRODUCT DB', icon: '📊' },
     { key: 'stock', label: 'STOCK DB', icon: '📦' },
-    { key: 'aod', label: 'FROSTY', icon: '🤖' },
+    { key: 'aod', label: 'NEO', icon: '🤖' },
     { key: 'outlet', label: 'OUTLET DB', icon: '🏪' },
     { key: 'employee', label: 'EMPLOYEE DB', icon: '👥' },
     { key: 'checklist', label: 'CHECKLISTS', icon: '✅' },
@@ -637,7 +637,7 @@ function App() {
             DASHBOARD SUITE v2.5 • POWERED BY REACT & RISTAAPPS API • 10 INTEGRATED DASHBOARDS
           </div>
           <div style={{ marginTop: '5px', fontSize: '0.65rem' }}>
-            USE ALT + 0-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS • FROSTY
+            USE ALT + 0-9 FOR QUICK NAVIGATION • LIVE TRACKING • AI-POWERED INSIGHTS • NEO
           </div>
         </footer>
       )}
